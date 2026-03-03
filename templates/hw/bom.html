@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% block title %}Bill of Materials – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">📋 Bill of Materials <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('hw.generate_all_from_bom', pid=proj.id) }}"
+          onsubmit="return confirm('Generate instances for all BoM lines?')">
+      <button class="btn btn-sm btn-success">⚡ Generate All Instances</button>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>BoM Lines</strong>
+    <button class="btn btn-sm btn-outline-primary" onclick="addLine()">+ Add Line</button>
+  </div>
+  <div class="card-body p-0" id="bomList"></div>
+  <div class="card-footer d-flex gap-2">
+    <button class="btn btn-sm btn-primary" onclick="saveBom()">💾 Save BoM</button>
+    <span id="saveStatus" class="ms-2 small text-muted align-self-center"></span>
+  </div>
+</div>
+
+{# Per-line generate buttons (form-based, require saved BoM) #}
+{% if bom %}
+<div class="card shadow-sm">
+  <div class="card-header"><strong>Generate Instances per Line</strong></div>
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr><th>Template</th><th>Qty</th><th>Tag Prefix</th><th>Start</th><th>Pad</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for item in bom %}
+      <tr>
+        <td>
+          {% if item.template %}
+          <span class="badge bg-light text-dark border">{{ item.template.category }}</span>
+          <strong>{{ item.template.name }}</strong>
+          {% else %}<span class="text-danger small">Template missing</span>{% endif %}
+        </td>
+        <td>{{ item.qty }}</td>
+        <td><code>{{ item.tag_prefix }}</code></td>
+        <td>{{ item.tag_start }}</td>
+        <td>{{ item.tag_pad }}</td>
+        <td>
+          <form method="post" action="{{ url_for('hw.generate_from_bom', pid=proj.id) }}">
+            <input type="hidden" name="item_id" value="{{ item.id }}">
+            <button class="btn btn-sm btn-outline-success">⚡ Generate {{ item.qty }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<script>
+const PROJ_ID   = {{ proj.id | tojson }};
+const TEMPLATES = {{ templates | tojson }};
+let   bom       = {{ (bom | map(attribute='id') | list) | tojson }};
+
+// Rebuild bom from raw data (strip 'template' enrichment for JS)
+let bomData = {{ bom | tojson }};
+bomData = bomData.map(({template, ...rest}) => rest);
+
+// Group templates for select
+const tmplOpts = TEMPLATES.map(t =>
+  `<option value="${t.id}">${t.category} · ${t.name}${t.vendor?' ('+t.vendor+')':''}</option>`
+).join('');
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function addLine(){
+  bomData.push({ id:uid(), template_id:'', qty:1,
+                 tag_prefix:'', tag_start:1, tag_pad:3, description:'' });
+  render();
+}
+function removeLine(i){ bomData.splice(i,1); render(); }
+function moveLine(i,d){ const j=i+d; if(j>=0&&j<bomData.length){[bomData[i],bomData[j]]=[bomData[j],bomData[i]]; render();} }
+
+function render(){
+  const el = document.getElementById('bomList');
+  if(!bomData.length){
+    el.innerHTML='<p class="text-muted small p-3 mb-0">No BoM lines. Add one above.</p>';
+    return;
+  }
+  el.innerHTML = bomData.map((item,i)=>`
+    <div class="border-bottom px-3 py-2 d-flex gap-2 align-items-end flex-wrap">
+      <div style="flex:3;min-width:180px">
+        <label class="form-label small mb-0">Hardware Template *</label>
+        <select class="form-select form-select-sm"
+                onchange="bomData[${i}].template_id=this.value">
+          <option value="">— select —</option>
+          ${TEMPLATES.map(t=>`<option value="${t.id}"${t.id===item.template_id?' selected':''}>${t.category} · ${t.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width:60px">
+        <label class="form-label small mb-0">Qty</label>
+        <input type="number" class="form-control form-control-sm" min="1"
+               value="${item.qty}" oninput="bomData[${i}].qty=parseInt(this.value)||1">
+      </div>
+      <div style="flex:1;min-width:100px">
+        <label class="form-label small mb-0">Tag Prefix</label>
+        <input class="form-control form-control-sm" value="${esc(item.tag_prefix)}"
+               placeholder="e.g. srv"
+               oninput="bomData[${i}].tag_prefix=this.value">
+      </div>
+      <div style="width:65px">
+        <label class="form-label small mb-0">Start #</label>
+        <input type="number" class="form-control form-control-sm" min="1"
+               value="${item.tag_start}" oninput="bomData[${i}].tag_start=parseInt(this.value)||1">
+      </div>
+      <div style="width:55px">
+        <label class="form-label small mb-0">Pad</label>
+        <input type="number" class="form-control form-control-sm" min="1" max="6"
+               value="${item.tag_pad}" title="Zero-pad width"
+               oninput="bomData[${i}].tag_pad=parseInt(this.value)||3">
+      </div>
+      <div style="flex:2;min-width:100px">
+        <label class="form-label small mb-0">Notes</label>
+        <input class="form-control form-control-sm" value="${esc(item.description||'')}"
+               oninput="bomData[${i}].description=this.value">
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="moveLine(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="moveLine(${i}, 1)" ${i===bomData.length-1?'disabled':''}>↓</button>
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                onclick="removeLine(${i})">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+
+async function saveBom(){
+  const status = document.getElementById('saveStatus');
+  status.textContent = 'Saving…';
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = window.location.pathname;
+  const inp   = document.createElement('input');
+  inp.type  = 'hidden'; inp.name = 'bom_json';
+  inp.value = JSON.stringify(bomData);
+  form.appendChild(inp);
+  document.body.appendChild(form);
+  form.submit();
+}
+
+render();
+</script>
+{% endblock %}

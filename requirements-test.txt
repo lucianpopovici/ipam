@@ -1,0 +1,18 @@
+# ── Core test framework ───────────────────────────────────────────────────────
+pytest>=8.1
+pytest-asyncio>=0.23
+
+# ── Redis mock ───────────────────────────────────────────────────────────────
+fakeredis>=2.23          # in-memory Redis; no real Redis needed for unit/api tests
+
+# ── Browser automation ───────────────────────────────────────────────────────
+playwright>=1.44
+pytest-playwright>=0.5   # pytest plugin — provides `page`, `browser`, `context` fixtures
+                         # After install run: playwright install chromium
+
+# ── Coverage ─────────────────────────────────────────────────────────────────
+pytest-cov>=5.0          # run with: pytest --cov=. --cov-report=html
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+pytest-xdist>=3.5        # parallel test execution: pytest -n auto
+pytest-timeout>=2.3      # per-test timeouts: @pytest.mark.timeout(10)

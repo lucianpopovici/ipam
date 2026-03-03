@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}{% if inst %}Edit Instance{% else %}Add Instance{% endif %}{% endblock %}
+{% block content %}
+<div class="mb-2"><a href="{{ url_for('hw.project_inventory', pid=proj.id) }}" class="text-muted small">← Inventory</a></div>
+<h4 class="mb-3">{% if inst %}Edit: {{ inst.asset_tag }}{% else %}Add Hardware Instance{% endif %}</h4>
+
+<div class="row justify-content-center"><div class="col-md-6">
+<form method="post">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Hardware Template *</label>
+        <select name="template_id" class="form-select" required {% if inst %}disabled{% endif %}>
+          <option value="">— select —</option>
+          {% for t in templates %}
+          <option value="{{ t.id }}"
+            {% if inst and inst.template_id == t.id %}selected{% endif %}>
+            [{{ t.category }}] {{ t.name }}{% if t.vendor %} ({{ t.vendor }}){% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        {% if inst %}<input type="hidden" name="template_id" value="{{ inst.template_id }}">{% endif %}
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Asset Tag *</label>
+        <input type="text" name="asset_tag" class="form-control" required
+               value="{{ inst.asset_tag if inst else '' }}" placeholder="e.g. srv-001">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Serial Number</label>
+        <input type="text" name="serial" class="form-control"
+               value="{{ inst.serial if inst else '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          {% for s in ['in-stock','deployed','spare','decommissioned','in-transit'] %}
+          <option value="{{ s }}" {% if inst and inst.status==s %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="card-footer d-flex gap-2">
+      <button type="submit" class="btn btn-primary">{% if inst %}Update{% else %}Add{% endif %}</button>
+      <a href="{{ url_for('hw.project_inventory', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </div>
+</form>
+</div></div>
+{% endblock %}

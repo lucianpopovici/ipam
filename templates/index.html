@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Projects</h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('ipam.overview') }}"    class="btn btn-sm btn-outline-secondary">📊 Pool Overview</a>
+    <a href="{{ url_for('ipam.add_project') }}" class="btn btn-sm btn-primary">+ New Project</a>
+  </div>
+</div>
+
+{# Mini global summary bar — only shown when there are projects #}
+{% if projects %}
+<div class="card shadow-sm mb-4 border-0 bg-white">
+  <div class="card-body py-2">
+    <div class="row g-0 text-center">
+      {% set total  = projects | sum(attribute='_total',  default=0) %}
+      <div class="col">
+        <div class="fw-semibold">{{ global_summary.total_ips | format_num }}</div>
+        <div class="text-muted small">Total IPs</div>
+      </div>
+      <div class="col">
+        <div class="fw-semibold text-primary">{{ global_summary.alloc_ips | format_num }}</div>
+        <div class="text-muted small">Allocated</div>
+      </div>
+      <div class="col">
+        <div class="fw-semibold text-success">{{ global_summary.free_ips | format_num }}</div>
+        <div class="text-muted small">Free</div>
+      </div>
+      <div class="col">
+        <div class="fw-semibold
+          {% if global_summary.utilization > 90 %}text-danger
+          {% elif global_summary.utilization > 70 %}text-warning
+          {% else %}text-success{% endif %}">
+          {{ global_summary.utilization }}%
+        </div>
+        <div class="text-muted small">Utilization</div>
+      </div>
+      <div class="col d-flex align-items-center justify-content-center">
+        <a href="{{ url_for('ipam.overview') }}" class="btn btn-sm btn-outline-secondary">Full breakdown →</a>
+      </div>
+    </div>
+    <div class="progress mt-2" style="height:6px;border-radius:3px">
+      <div class="progress-bar
+        {% if global_summary.utilization > 90 %}bg-danger{% elif global_summary.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+        style="width:{{ global_summary.utilization }}%"></div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# Project cards #}
+{% if projects %}
+<div class="row g-3">
+  {% for p in projects %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="mb-0">{{ p.name }}</h6>
+        <p class="text-muted small mb-1"><code>{{ p.supernet }}</code></p>
+        {% if p.description %}<p class="small mb-2">{{ p.description }}</p>{% endif %}
+        <div class="progress util-bar mb-1">
+          <div class="progress-bar
+            {% if p.utilization > 90 %}bg-danger{% elif p.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+            style="width:{{ p.utilization }}%"></div>
+        </div>
+        <small class="text-muted">{{ p.subnet_count }} subnet{% if p.subnet_count != 1 %}s{% endif %} · {{ p.utilization }}% used</small>
+      </div>
+      <div class="card-footer d-flex gap-2">
+        <a href="{{ url_for('ipam.project_detail', pid=p.id) }}" class="btn btn-sm btn-outline-primary flex-fill">View</a>
+        <form action="{{ url_for('ipam.delete_project', pid=p.id) }}" method="post"
+              onsubmit="return confirm('Delete project and all subnets?')">
+          <button class="btn btn-sm btn-outline-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No projects yet. <a href="{{ url_for('ipam.add_project') }}">Create your first project.</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block title %}IP Pool Overview{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">🌍 Global IP Pool Overview</h4>
+  <a href="{{ url_for('ipam.index') }}" class="btn btn-sm btn-outline-secondary">← Projects</a>
+</div>
+
+{# ── Grand totals ── #}
+<div class="row g-3 mb-3">
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-4">{{ summary.total_ips | format_num }}</div>
+      <div class="text-muted small">Total IPs</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-primary">{{ summary.alloc_ips | format_num }}</div>
+      <div class="text-muted small">Allocated</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 text-success">{{ summary.free_ips | format_num }}</div>
+      <div class="text-muted small">Free</div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-4 {% if summary.utilization > 90 %}text-danger{% elif summary.utilization > 70 %}text-warning{% else %}text-success{% endif %}">
+        {{ summary.utilization }}%
+      </div>
+      <div class="text-muted small">Utilization</div>
+    </div>
+  </div>
+</div>
+
+{# Grand utilization bar #}
+<div class="progress mb-1" style="height:12px; border-radius:6px">
+  <div class="progress-bar
+    {% if summary.utilization > 90 %}bg-danger{% elif summary.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+    style="width:{{ summary.utilization }}%">
+  </div>
+</div>
+<div class="text-muted small mb-4">
+  {{ summary.project_count }} project{% if summary.project_count != 1 %}s{% endif %}
+  {% if summary.pending %} · <span class="text-warning">{{ summary.pending }} pending slot{% if summary.pending != 1 %}s{% endif %}</span>{% endif %}
+</div>
+
+<div class="row g-4">
+
+  {# ── Per-project breakdown ── #}
+  <div class="col-lg-5">
+    <h6 class="mb-2">By Project</h6>
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Project</th>
+            <th class="text-end">Total</th>
+            <th class="text-end">Alloc</th>
+            <th class="text-end">Free</th>
+            <th style="min-width:80px">Used%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in summary.projects %}
+          <tr>
+            <td>
+              <a href="{{ url_for('ipam.project_detail', pid=p.id) }}">{{ p.name }}</a><br>
+              <code class="small text-muted">{{ p.supernet }}</code>
+              {% if p.pending %}
+                <span class="badge bg-warning text-dark ms-1" title="{{ p.pending }} pending template slot(s)">
+                  ⏳ {{ p.pending }}
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-end text-muted small">{{ p.total_ips | format_num }}</td>
+            <td class="text-end small">{{ p.alloc_ips | format_num }}</td>
+            <td class="text-end small text-success">{{ p.free_ips | format_num }}</td>
+            <td>
+              <div class="d-flex align-items-center gap-1">
+                <div class="progress flex-fill" style="height:6px;border-radius:3px">
+                  <div class="progress-bar
+                    {% if p.utilization > 90 %}bg-danger{% elif p.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+                    style="width:{{ p.utilization }}%"></div>
+                </div>
+                <small class="text-muted" style="width:34px">{{ p.utilization }}%</small>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot class="table-light fw-semibold">
+          <tr>
+            <td>Total</td>
+            <td class="text-end">{{ summary.total_ips | format_num }}</td>
+            <td class="text-end">{{ summary.alloc_ips | format_num }}</td>
+            <td class="text-end text-success">{{ summary.free_ips | format_num }}</td>
+            <td>
+              <div class="d-flex align-items-center gap-1">
+                <div class="progress flex-fill" style="height:6px;border-radius:3px">
+                  <div class="progress-bar
+                    {% if summary.utilization > 90 %}bg-danger{% elif summary.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+                    style="width:{{ summary.utilization }}%"></div>
+                </div>
+                <small class="text-muted" style="width:34px">{{ summary.utilization }}%</small>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── By label set (cross-project) ── #}
+  <div class="col-lg-7">
+    <h6 class="mb-2">By Label Set <span class="text-muted fw-normal small">(across all projects)</span></h6>
+    {% if summary.label_pool %}
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Labels</th>
+            <th class="text-end">Subnets</th>
+            <th class="text-end">Total</th>
+            <th class="text-end">Alloc</th>
+            <th class="text-end">Free</th>
+            <th style="min-width:80px">Used%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in summary.label_pool %}
+          <tr>
+            <td>
+              {% if g.label_set %}
+                {% for l in g.label_set %}
+                  <span class="label-pill">{{ l }}</span>
+                {% endfor %}
+              {% else %}
+                <span class="text-muted fst-italic small">No labels</span>
+              {% endif %}
+              {% if g.pending %}
+                <span class="badge bg-warning text-dark ms-1" title="{{ g.pending }} pending">⏳ {{ g.pending }}</span>
+              {% endif %}
+            </td>
+            <td class="text-end small text-muted">{{ g.subnet_count }}</td>
+            <td class="text-end small">{{ g.total_ips | format_num }}</td>
+            <td class="text-end small">{{ g.alloc_ips | format_num }}</td>
+            <td class="text-end small text-success">{{ g.free_ips | format_num }}</td>
+            <td>
+              <div class="d-flex align-items-center gap-1">
+                <div class="progress flex-fill" style="height:6px;border-radius:3px">
+                  <div class="progress-bar
+                    {% if g.utilization > 90 %}bg-danger{% elif g.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+                    style="width:{{ g.utilization }}%"></div>
+                </div>
+                <small class="text-muted" style="width:34px">{{ g.utilization }}%</small>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% else %}
+    <p class="text-muted">No subnets with labels yet.</p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

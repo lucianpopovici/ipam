@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+{% block title %}{% if cable %}Edit Cable{% else %}Add Cable{% endif %}{% endblock %}
+{% block content %}
+<div class="mb-2"><a href="{{ url_for('hw.cable_list', pid=proj.id) }}" class="text-muted small">← Cables</a></div>
+<h4 class="mb-3">{% if cable %}Edit: {{ cable.asset_tag }}{% else %}Add Cable{% endif %}</h4>
+
+<form method="post">
+<div class="row g-4">
+  <div class="col-md-5">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Cable Identity</strong></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Cable Template <span class="text-muted small">(optional)</span></label>
+          <select name="template_id" class="form-select" id="cableTmplSelect">
+            <option value="">— none / custom —</option>
+            {% for t in cable_tmpls %}
+            <option value="{{ t.id }}" {% if cable and cable.template_id==t.id %}selected{% endif %}>
+              {{ t.name }}{% if t.get('cable_type') %} [{{ t.cable_type }}]{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Asset Tag</label>
+          <input type="text" name="asset_tag" class="form-control"
+                 value="{{ cable.asset_tag if cable else '' }}" placeholder="e.g. DAC-001">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Label / Description</label>
+          <input type="text" name="label" class="form-control"
+                 value="{{ cable.label if cable else '' }}" placeholder="e.g. TOR1 port 1 → srv-001 eth0">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Length (m)</label>
+          <input type="text" name="length_m" class="form-control"
+                 value="{{ cable.length_m if cable else '' }}" placeholder="e.g. 1.5">
+        </div>
+        <div class="row g-2">
+          <div class="col">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="breakout" id="breakoutCb"
+                     value="1" {% if cable and cable.breakout %}checked{% endif %}
+                     onchange="document.getElementById('fanOutRow').style.display=this.checked?'':'none'">
+              <label class="form-check-label" for="breakoutCb">Breakout cable</label>
+            </div>
+          </div>
+          <div class="col" id="fanOutRow" style="display:{% if cable and cable.breakout %}''{% else %}none{% endif %}">
+            <label class="form-label small mb-0">Fan-out</label>
+            <input type="number" name="breakout_fan_out" class="form-control form-control-sm"
+                   min="2" max="8" value="{{ cable.breakout_fan_out if cable else 4 }}">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    {% macro endpoint_panel(label, end_prefix, current_inst_id, current_port_id) %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>{{ label }}</strong></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Device</label>
+          <select name="{{ end_prefix }}_instance" class="form-select end-device-select"
+                  data-prefix="{{ end_prefix }}"
+                  onchange="loadPorts('{{ end_prefix }}', this.value)">
+            <option value="">— select device —</option>
+            {% for inst in instances %}
+            <option value="{{ inst.id }}"
+              {% if current_inst_id and current_inst_id == inst.id %}selected{% endif %}>
+              {{ inst.asset_tag }}
+              {% if inst.template %} – {{ inst.template.name }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Port</label>
+          <select name="{{ end_prefix }}_port" class="form-select"
+                  id="{{ end_prefix }}_port_select">
+            <option value="">— select port —</option>
+            {# Populated by JS or pre-filled on edit #}
+          </select>
+          <div class="form-text small text-muted" id="{{ end_prefix }}_port_hint"></div>
+        </div>
+      </div>
+    </div>
+    {% endmacro %}
+
+    {{ endpoint_panel('End A',
+       'end_a',
+       cable.end_a.instance_id if cable else '',
+       cable.end_a.port_id     if cable else '') }}
+
+    {{ endpoint_panel('End B',
+       'end_b',
+       cable.end_b.instance_id if cable else '',
+       cable.end_b.port_id     if cable else '') }}
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button type="submit" class="btn btn-primary">{% if cable %}Update{% else %}Add Cable{% endif %}</button>
+  <a href="{{ url_for('hw.cable_list', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+
+<script>
+const PROJ_ID       = {{ proj.id | tojson }};
+const PRELOAD_END_A = {{ (cable.end_a.instance_id if cable and cable.end_a else '') | tojson }};
+const PRELOAD_PA    = {{ (cable.end_a.port_id     if cable and cable.end_a else '') | tojson }};
+const PRELOAD_END_B = {{ (cable.end_b.instance_id if cable and cable.end_b else '') | tojson }};
+const PRELOAD_PB    = {{ (cable.end_b.port_id     if cable and cable.end_b else '') | tojson }};
+
+async function loadPorts(prefix, instanceId, preselect){
+  const sel  = document.getElementById(`${prefix}_port_select`);
+  const hint = document.getElementById(`${prefix}_port_hint`);
+  sel.innerHTML = '<option value="">Loading…</option>';
+  if(!instanceId){ sel.innerHTML='<option value="">— select device first —</option>'; return; }
+  const resp  = await fetch(`/api/projects/${PROJ_ID}/hw/instance-ports/${instanceId}`);
+  const ports = await resp.json();
+  sel.innerHTML = '<option value="">— select port —</option>' +
+    ports.map(p => {
+      const inUse = p.in_use && p.id !== (preselect||'');
+      return `<option value="${p.id}" ${p.id===preselect?'selected':''}
+                ${inUse?'style="color:#dc3545"':''}>
+        ${p.name} (${p.connector} ${p.speed_gbps}G · ${p.port_type})
+        ${inUse?' ⚠ in use':''}
+      </option>`;
+    }).join('');
+  hint.textContent = `${ports.length} port(s)`;
+}
+
+// Pre-load ports on edit
+if(PRELOAD_END_A) loadPorts('end_a', PRELOAD_END_A, PRELOAD_PA);
+if(PRELOAD_END_B) loadPorts('end_b', PRELOAD_END_B, PRELOAD_PB);
+</script>
+{% endblock %}

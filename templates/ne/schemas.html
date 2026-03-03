@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Global Schemas{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">⚙️ Global Parameter Schemas</h4>
+  <span class="text-muted small">Define fields for Site, POD, NE, and Interface entities</span>
+</div>
+<p class="text-muted small mb-4">
+  These schemas define which parameters are available on each entity type across all projects.
+  Projects can override them on their own schema page.
+</p>
+
+<ul class="nav nav-tabs mb-3" id="schemaTabs">
+  {% for entity in entity_types %}
+  <li class="nav-item">
+    <a class="nav-link {% if loop.first %}active{% endif %}"
+       data-bs-toggle="tab" href="#tab_{{ entity }}">
+       {{ entity | capitalize }}
+       <span class="badge bg-secondary ms-1">{{ schemas[entity] | length }}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content">
+  {% for entity in entity_types %}
+  <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="tab_{{ entity }}">
+    <form method="post">
+      {% with current_fields=schemas[entity], show_reset=False %}
+        {% include 'ne/_schema_editor.html' %}
+      {% endwith %}
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

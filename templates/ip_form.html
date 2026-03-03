@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}{% if addr %}Edit{% else %}Allocate{% endif %} IP{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-6">
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>{% if addr %}Edit {{ addr.ip }}{% else %}Allocate IP in {{ net.cidr }}{% endif %}</strong></div>
+    <div class="card-body">
+      <form method="post">
+        {% if not addr %}
+        <div class="mb-3">
+          <label class="form-label">IP Address *</label>
+          <input type="text" name="ip" class="form-control" required placeholder="e.g. 10.20.1.10">
+        </div>
+        {% endif %}
+        <div class="mb-3">
+          <label class="form-label">Hostname</label>
+          <input type="text" name="hostname" class="form-control" value="{{ addr.hostname if addr else '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <input type="text" name="description" class="form-control" value="{{ addr.description if addr else '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Status</label>
+          <select name="status" class="form-select">
+            {% for s in ['allocated','reserved','dhcp'] %}
+            <option value="{{ s }}" {% if addr and addr.status == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <a href="{{ url_for('ipam.network_detail', net_id=net.id) }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div></div>
+{% endblock %}

@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block title %}Subnet Requirements – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1">
+  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
+</div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <div>
+    <h4 class="mb-0">📋 Subnet Requirements <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+    <span class="text-muted small">
+      {{ total }} subnet{% if total != 1 %}s{% endif %} required ·
+      {{ pushed }} pushed to IPAM
+    </span>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(true)">Select All</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(false)">Deselect</button>
+    <button class="btn btn-sm btn-success" onclick="pushSelected()">⬆ Push Selected to IPAM</button>
+    <button class="btn btn-sm btn-primary" onclick="pushAll()">⬆ Push All to IPAM</button>
+  </div>
+</div>
+
+<div id="pushResult" class="mb-3"></div>
+
+{% if reqs %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-hover align-middle mb-0 small">
+    <thead class="table-light">
+      <tr>
+        <th><input type="checkbox" id="checkAll" onchange="selectAll(this.checked)"></th>
+        <th>Site</th>
+        <th>POD</th>
+        <th>NE Type</th>
+        <th>Interface</th>
+        <th>IP ver</th>
+        <th>Prefix</th>
+        <th>Sharing</th>
+        <th>Labels</th>
+        <th class="text-end">Count</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for req in reqs %}
+      <tr class="{% if req.pushed %}table-success{% endif %}">
+        <td>
+          {% if not req.pushed %}
+          <input type="checkbox" class="req-check" value="{{ req.key }}">
+          {% endif %}
+        </td>
+        <td>{{ req.site_name }}</td>
+        <td>{{ req.pod_name }}</td>
+        <td>
+          <strong>{{ req.ne_type_name }}</strong>
+          <span class="badge bg-secondary">{{ req.ne_kind }}</span>
+        </td>
+        <td><code>{{ req.iface_name }}</code></td>
+        <td><span class="badge bg-light text-dark border">{{ req.ip_version }}</span></td>
+        <td><code>/{{ req.prefix_len }}</code></td>
+        <td>
+          <span class="badge bg-light text-dark border
+            {% if req.sharing == 'project' %}border-danger
+            {% elif req.sharing == 'site' %}border-warning
+            {% elif req.sharing == 'pod' %}border-info
+            {% elif req.sharing == 'ne' %}border-primary
+            {% endif %}">
+            {{ req.sharing }}
+          </span>
+        </td>
+        <td>
+          {% for l in req.labels %}
+          <span class="label-pill" style="font-size:.65rem">{{ l }}</span>
+          {% endfor %}
+        </td>
+        <td class="text-end fw-semibold">{{ req.count }}</td>
+        <td>
+          {% if req.pushed %}
+          <span class="badge bg-success">pushed</span>
+          {% else %}
+          <span class="badge bg-secondary">pending</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="mt-3 text-muted small">
+  <strong>Sharing legend:</strong>
+  <span class="badge bg-light text-dark border border-danger ms-1">project</span> 1 subnet for whole project ·
+  <span class="badge bg-light text-dark border border-warning ms-1">site</span> 1 per site ·
+  <span class="badge bg-light text-dark border border-info ms-1">pod</span> 1 per pod ·
+  <span class="badge bg-light text-dark border border-primary ms-1">ne</span> 1 per NE type ·
+  <span class="badge bg-light text-dark border ms-1">interface</span> 1 per instance
+</div>
+
+{% else %}
+<div class="text-center py-5 text-muted">
+  <p>No requirements computed. Make sure you have:</p>
+  <ol class="text-start d-inline-block">
+    <li>NE Types defined with interfaces that have subnet requirements</li>
+    <li>PODs with NE slots assigned</li>
+    <li>PODs assigned to at least one Site</li>
+  </ol>
+</div>
+{% endif %}
+
+<script>
+const PROJ_ID = {{ proj.id | tojson }};
+
+function selectAll(checked){
+  document.querySelectorAll('.req-check').forEach(cb=>cb.checked=checked);
+  document.getElementById('checkAll').checked=checked;
+}
+
+async function pushSelected(){
+  const keys = [...document.querySelectorAll('.req-check:checked')].map(cb=>cb.value);
+  if(!keys.length){ showResult('Select at least one requirement.','warning'); return; }
+  await doPush({keys});
+}
+
+async function pushAll(){
+  if(!confirm('Push ALL unpushed requirements to IPAM?')) return;
+  await doPush({all:true});
+}
+
+async function doPush(payload){
+  const resp = await fetch(`/projects/${PROJ_ID}/requirements/push`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await resp.json();
+  const msg = `✓ ${d.pushed.length} subnet(s) pushed to IPAM` +
+              (d.errors.length ? ` · ${d.errors.length} error(s)` : '');
+  showResult(msg, d.errors.length?'warning':'success');
+  setTimeout(()=>location.reload(), 1200);
+}
+
+function showResult(msg, type){
+  document.getElementById('pushResult').innerHTML =
+    `<div class="alert alert-${type} py-2">${msg}</div>`;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% block title %}Sites – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1">
+  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
+</div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">📍 Sites <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('ne.bulk_add_sites', pid=proj.id) }}" class="btn btn-sm btn-outline-primary">⚡ Bulk Create</a>
+    <a href="{{ url_for('ne.add_site',       pid=proj.id) }}" class="btn btn-sm btn-primary">+ Add Site</a>
+  </div>
+</div>
+
+{% if sites %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th>Labels</th>
+        <th>PODs assigned</th>
+        {% for f in schema %}<th>{{ f.label }}</th>{% endfor %}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for site in sites %}
+      <tr>
+        <td>
+          <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}">
+            <strong>{{ site.name }}</strong>
+          </a>
+          {% if site.description %}<br><small class="text-muted">{{ site.description }}</small>{% endif %}
+        </td>
+        <td>{% for l in site.labels %}<span class="label-pill label-unknown">{{ l }}</span>{% endfor %}</td>
+        <td>
+          {% if site.pods %}
+            {% for pod in site.pods %}
+              <span class="badge bg-light text-dark border">{{ pod.name }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="text-muted small">none</span>
+          {% endif %}
+        </td>
+        {% for f in schema %}
+        <td class="small text-muted">
+          {% set v = site.params.get(f.id, '') %}
+          {% if v is iterable and v is not string %}{{ v | join(', ') }}
+          {% elif v is sameas true %}✓
+          {% elif v is sameas false %}—
+          {% else %}{{ v or '—' }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}"  class="btn btn-sm btn-outline-secondary">View</a>
+          <a href="{{ url_for('ne.edit_site',   pid=proj.id, sid=site.id) }}"  class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" action="{{ url_for('ne.delete_site_route', pid=proj.id, sid=site.id) }}" method="post"
+                onsubmit="return confirm('Delete site {{ site.name }}?')">
+            <button class="btn btn-sm btn-outline-danger">Del</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No sites yet.
+  <a href="{{ url_for('ne.add_site', pid=proj.id) }}">Add one</a> or
+  <a href="{{ url_for('ne.bulk_add_sites', pid=proj.id) }}">bulk create</a>.
+</div>
+{% endif %}
+{% endblock %}

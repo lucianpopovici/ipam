@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}Assign Template – {{ net.cidr }}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  {% if proj %}<a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a> /{% endif %}
+  <a href="{{ url_for('ipam.network_detail', net_id=net.id) }}" class="text-muted small"> {{ net.cidr }}</a>
+</div>
+<h4 class="mb-3">Assign Template to <code>{{ net.cidr }}</code></h4>
+
+<div class="row g-4">
+  {# ── Left: template picker ── #}
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-header">Select Template</div>
+      <div class="card-body">
+        {% set all_tmpls = templates.global + templates.project %}
+        {% if all_tmpls %}
+        <form method="post">
+          <div class="mb-3">
+            {% if templates.global %}
+            <div class="text-muted small mb-1 fw-semibold">🌐 Global</div>
+            {% for tmpl in templates.global %}
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="template_id"
+                     id="t_{{ tmpl.id }}" value="{{ tmpl.id }}"
+                     {% if selected_tid == tmpl.id %}checked{% endif %}
+                     onchange="loadPreview('{{ tmpl.id }}')">
+              <label class="form-check-label" for="t_{{ tmpl.id }}">
+                <strong>{{ tmpl.name }}</strong>
+                <span class="label-pill tmpl-global">global</span><br>
+                <small class="text-muted">{{ tmpl.rules|length }} rule(s){% if tmpl.description %} · {{ tmpl.description }}{% endif %}</small>
+              </label>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if templates.project %}
+            <div class="text-muted small mb-1 fw-semibold mt-2">🏷️ Project</div>
+            {% for tmpl in templates.project %}
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="template_id"
+                     id="t_{{ tmpl.id }}" value="{{ tmpl.id }}"
+                     {% if selected_tid == tmpl.id %}checked{% endif %}
+                     onchange="loadPreview('{{ tmpl.id }}')">
+              <label class="form-check-label" for="t_{{ tmpl.id }}">
+                <strong>{{ tmpl.name }}</strong>
+                <span class="label-pill tmpl-project">project</span><br>
+                <small class="text-muted">{{ tmpl.rules|length }} rule(s){% if tmpl.description %} · {{ tmpl.description }}{% endif %}</small>
+              </label>
+            </div>
+            {% endfor %}
+            {% endif %}
+          </div>
+
+          {% if net.template %}
+          <p class="small text-muted border-top pt-2">
+            Currently assigned: <strong>{{ net.template.name }}</strong>
+            <span class="label-pill tmpl-{{ net.template.scope }}">{{ net.template.scope }}</span>
+            {% if net.pending_slots %}
+            · <span class="text-warning">{{ net.pending_slots|length }} pending slot(s)</span>
+            {% endif %}
+          </p>
+          {% endif %}
+
+          <button type="submit" class="btn btn-primary w-100">
+            Assign Template &amp; Create Pending Slots
+          </button>
+          <div class="form-text mt-1">
+            IPs won't be created until you confirm each slot in the subnet view.
+          </div>
+        </form>
+        {% else %}
+        <p class="text-muted small">No templates available.
+          <a href="{{ url_for('ipam.add_template') }}">Create a global one</a>
+          {% if proj %}or <a href="{{ url_for('ipam.add_template', pid=proj.id) }}">a project one</a>{% endif %}.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Right: preview ── #}
+  <div class="col-md-8">
+    <div class="card shadow-sm">
+      <div class="card-header">Preview — slots that will be created as pending</div>
+      <div class="card-body py-2" id="previewPane">
+        {% if preview %}
+          {% with %}
+            {% set net_cidr = net.cidr %}
+            {% include '_template_preview_table.html' %}
+          {% endwith %}
+        {% else %}
+          <span class="text-muted small">Select a template to preview resolved slots.</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadPreview(tid) {
+  const resp = await fetch(`{{ url_for('ipam.apply_template', net_id=net.id) }}?tid=${tid}`);
+  const html = await resp.text();
+  const doc  = new DOMParser().parseFromString(html, 'text/html');
+  const pane = doc.getElementById('previewPane');
+  if (pane) document.getElementById('previewPane').innerHTML = pane.innerHTML;
+}
+</script>
+{% endblock %}

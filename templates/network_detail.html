@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block title %}{{ net.cidr }}{% endblock %}
+{% block content %}
+
+{# ── Header ── #}
+<div class="d-flex justify-content-between align-items-start mb-2">
+  <div>
+    {% if proj %}<a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a><br>{% endif %}
+    <h4 class="mb-0">{{ net.name }} <small class="text-muted fs-6"><code>{{ net.cidr }}</code></small></h4>
+    {% for lbl in net.labelled %}
+      <span class="label-pill label-{{ lbl.scope }}">{{ lbl.name }}</span>
+    {% endfor %}
+    {% if net.template %}
+      <span class="badge bg-light text-dark border ms-1">
+        📐 {{ net.template.name }}
+        <span class="label-pill tmpl-{{ net.template.scope }} ms-1" style="font-size:.65rem">{{ net.template.scope }}</span>
+      </span>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('ipam.apply_template', net_id=net.id) }}" class="btn btn-sm btn-outline-secondary">📐 Template</a>
+    <a href="{{ url_for('ipam.add_ip', net_id=net.id) }}"         class="btn btn-sm btn-primary">+ Allocate IP</a>
+  </div>
+</div>
+
+{# ── Subnet info bar ── #}
+<div class="card mb-3 shadow-sm">
+  <div class="card-body py-2">
+    <div class="row text-center g-0">
+      <div class="col"><strong>{{ net.network_addr }}</strong><br><small class="text-muted">Network</small></div>
+      <div class="col"><strong>{{ net.broadcast }}</strong><br><small class="text-muted">Broadcast</small></div>
+      <div class="col"><strong>{{ net.netmask }}</strong><br><small class="text-muted">Mask</small></div>
+      <div class="col"><strong>{{ net.total_hosts }}</strong><br><small class="text-muted">Hosts</small></div>
+      <div class="col"><strong>{{ net.used_count }}</strong><br><small class="text-muted">Allocated</small></div>
+      {% if pending_count > 0 %}
+      <div class="col"><strong class="text-warning">{{ pending_count }}</strong><br><small class="text-muted">Pending</small></div>
+      {% endif %}
+      <div class="col"><strong>IPv{{ net.ip_version }}</strong><br><small class="text-muted">Version</small></div>
+      {% if net.vlan %}<div class="col"><strong>{{ net.vlan }}</strong><br><small class="text-muted">VLAN</small></div>{% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Pending slots banner + bulk actions ── #}
+{% if pending_count > 0 %}
+<div class="alert alert-warning py-2 d-flex justify-content-between align-items-center">
+  <span>
+    <strong>⏳ {{ pending_count }} pending slot{% if pending_count != 1 %}s{% endif %}</strong>
+    from template <em>{{ net.template.name }}</em> — confirm to create IP records, or dismiss to discard.
+  </span>
+  <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('ipam.confirm_all_slots_route', net_id=net.id) }}">
+      <button class="btn btn-sm btn-success">✓ Confirm All</button>
+    </form>
+    <form method="post" action="{{ url_for('ipam.dismiss_all_slots_route', net_id=net.id) }}"
+          onsubmit="return confirm('Dismiss all pending slots?')">
+      <button class="btn btn-sm btn-outline-secondary">✕ Dismiss All</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ── IP / slot table ── #}
+{% if addresses %}
+<table class="table table-hover bg-white shadow-sm rounded align-middle">
+  <thead class="table-light">
+    <tr><th>IP</th><th>Hostname</th><th>Description / Role</th><th>Status</th><th>Source</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for a in addresses %}
+    <tr {% if a.phantom %}class="row-phantom"{% endif %}>
+      <td>
+        <code>{{ a.ip }}</code>
+        {% if a.phantom %}<span class="badge bg-warning text-dark ms-1">pending</span>{% endif %}
+      </td>
+      <td>{{ a.hostname or '—' }}</td>
+      <td>{{ a.description or '—' }}</td>
+      <td><span class="badge badge-{{ a.status }}">{{ a.status }}</span></td>
+      <td>
+        {% if a.phantom %}
+          <span class="badge bg-light text-dark border">📐 template slot</span>
+        {% elif a.from_template %}
+          <span class="badge bg-light text-dark border" title="Created from template">📐 template</span>
+        {% else %}
+          <span class="text-muted small">manual</span>
+        {% endif %}
+      </td>
+      <td class="text-end text-nowrap">
+        {% if a.phantom %}
+          {# Confirm: promotes to real IP record #}
+          <form class="d-inline" method="post" action="{{ url_for('ipam.confirm_slot_route', net_id=net.id) }}">
+            <input type="hidden" name="ip" value="{{ a.ip }}">
+            <button class="btn btn-sm btn-success" title="Confirm — create IP record">✓ Confirm</button>
+          </form>
+          {# Dismiss: removes the pending slot without creating a record #}
+          <form class="d-inline" method="post" action="{{ url_for('ipam.dismiss_slot_route', net_id=net.id) }}">
+            <input type="hidden" name="ip" value="{{ a.ip }}">
+            <button class="btn btn-sm btn-outline-secondary" title="Dismiss — discard this slot">✕</button>
+          </form>
+        {% else %}
+          <a href="{{ url_for('ipam.edit_ip', ip_str=a.ip) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" action="{{ url_for('ipam.delete_ip', ip_str=a.ip) }}" method="post"
+                onsubmit="return confirm('Release {{ a.ip }}?')">
+            <button class="btn btn-sm btn-outline-danger">Release</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted text-center py-4">No IPs allocated yet.</p>
+{% endif %}
+
+<button class="btn btn-sm btn-outline-secondary mt-1" onclick="fetchNext()">🔍 Next Available</button>
+<span id="next-result" class="ms-2 text-muted small"></span>
+<script>
+async function fetchNext() {
+  const d = await (await fetch('{{ url_for("ipam.next_available", net_id=net.id) }}')).json();
+  document.getElementById('next-result').textContent =
+    d.next_available ? '→ ' + d.next_available : (d.error || 'None available');
+}
+</script>
+{% endblock %}

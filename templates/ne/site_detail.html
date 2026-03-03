@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% from 'ne/_param_fields.html' import param_fields %}
+{% block title %}{{ site.name }}{% endblock %}
+{% block content %}
+<div class="mb-1">
+  <a href="{{ url_for('ne.list_sites', pid=proj.id) }}" class="text-muted small">← Sites</a>
+</div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <div>
+    <h4 class="mb-0">📍 {{ site.name }}</h4>
+    {% for l in site.labels %}<span class="label-pill label-unknown">{{ l }}</span>{% endfor %}
+    {% if site.description %}<p class="text-muted small mt-1 mb-0">{{ site.description }}</p>{% endif %}
+  </div>
+  <a href="{{ url_for('ne.edit_site', pid=proj.id, sid=site.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+</div>
+
+{% if schema %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header"><strong>Parameters</strong></div>
+  <div class="card-body py-2">
+    <table class="table table-sm mb-0">
+      {% for f in schema %}
+      <tr>
+        <td class="text-muted small" style="width:35%">{{ f.label }}</td>
+        <td>
+          {% set v = site.params.get(f.id, '') %}
+          {% if v is iterable and v is not string %}{{ v | join(', ') or '—' }}
+          {% elif v is sameas true %}✓
+          {% elif v is sameas false %}✗
+          {% else %}{{ v or '—' }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <h6 class="mb-2">Assigned PODs</h6>
+    {% if assigned_pods %}
+    <div class="card shadow-sm">
+      <ul class="list-group list-group-flush">
+        {% for pod in assigned_pods %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}">{{ pod.name }}</a>
+          <form method="post" action="{{ url_for('ne.unassign_pod_from_site_route', pid=proj.id, sid=site.id) }}">
+            <input type="hidden" name="pod_id" value="{{ pod.id }}">
+            <button class="btn btn-sm btn-outline-danger py-0">Remove</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <p class="text-muted small">No PODs assigned.</p>
+    {% endif %}
+  </div>
+
+  <div class="col-md-6">
+    <h6 class="mb-2">Assign a POD</h6>
+    {% if available_pods %}
+    <form method="post" action="{{ url_for('ne.assign_pod_to_site_route', pid=proj.id, sid=site.id) }}" class="d-flex gap-2">
+      <select name="pod_id" class="form-select">
+        {% for pod in available_pods %}
+        <option value="{{ pod.id }}">{{ pod.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary text-nowrap">Assign</button>
+    </form>
+    {% else %}
+    <p class="text-muted small">All PODs already assigned, or
+      <a href="{{ url_for('ne.add_pod', pid=proj.id) }}">create a new POD</a>.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

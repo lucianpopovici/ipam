@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block title %}{{ pod.name }}{% endblock %}
+{% block content %}
+<div class="mb-1">
+  <a href="{{ url_for('ne.list_pods', pid=proj.id) }}" class="text-muted small">← PODs</a>
+</div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <div>
+    <h4 class="mb-0">📦 {{ pod.name }}</h4>
+    {% for l in pod.labels %}<span class="label-pill label-unknown">{{ l }}</span>{% endfor %}
+    {% if pod.description %}<p class="text-muted small mt-1 mb-0">{{ pod.description }}</p>{% endif %}
+  </div>
+  <a href="{{ url_for('ne.edit_pod', pid=proj.id, pod_id=pod.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+</div>
+
+<div class="row g-4">
+  {# ── NE Slots ── #}
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>NE Slots</strong>
+        <button class="btn btn-sm btn-outline-primary" onclick="addSlot()">+ Add NE</button>
+      </div>
+      <div class="card-body p-0" id="slotList"></div>
+      <div class="card-footer">
+        <button class="btn btn-sm btn-primary" onclick="saveSlots()">Save Slots</button>
+        <span id="saveStatus" class="ms-2 small text-muted"></span>
+      </div>
+    </div>
+  </div>
+
+  {# ── Sites ── #}
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Assigned to Sites</strong></div>
+      <div class="card-body p-0">
+        {% if assigned_sites %}
+        <ul class="list-group list-group-flush">
+          {% for site in assigned_sites %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+            <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}">{{ site.name }}</a>
+            <form method="post" action="{{ url_for('ne.unassign_site_from_pod_route', pid=proj.id, pod_id=pod.id) }}">
+              <input type="hidden" name="site_id" value="{{ site.id }}">
+              <button class="btn btn-sm btn-outline-danger py-0">Remove</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted small p-3 mb-0">Not assigned to any site.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if available_sites %}
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Assign to Site</strong></div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('ne.assign_site_to_pod_route', pid=proj.id, pod_id=pod.id) }}"
+              class="d-flex gap-2">
+          <select name="site_id" class="form-select">
+            {% for site in available_sites %}
+            <option value="{{ site.id }}">{{ site.name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary text-nowrap">Assign</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+const POD_ID   = {{ pod.id | tojson }};
+const PROJ_ID  = {{ proj.id | tojson }};
+const ALL_TYPES = [
+  {% for group_name, group_types in [('Global', available_types.global), ('Project', available_types.project)] %}
+    {% for t in group_types %}
+    {id: {{ t.id|tojson }}, name: {{ t.name|tojson }}, kind: {{ t.kind|tojson }},
+     scope: {{ t.scope|tojson }}, iface_count: {{ t.interfaces|length }} },
+    {% endfor %}
+  {% endfor %}
+];
+
+let slots = {{ slots | tojson }};
+
+function addSlot(){
+  if(!ALL_TYPES.length){ alert('No NE types defined yet. Create one first.'); return; }
+  slots.push({ ne_type_id: ALL_TYPES[0].id, count: 1, label_override: [] });
+  render();
+}
+
+function removeSlot(i){ slots.splice(i,1); render(); }
+function moveSlot(i,d){ const j=i+d; if(j>=0&&j<slots.length){[slots[i],slots[j]]=[slots[j],slots[i]]; render();} }
+
+function render(){
+  const el = document.getElementById('slotList');
+  if(!slots.length){
+    el.innerHTML='<p class="text-muted small p-3 mb-0">No NE types assigned. Click "+ Add NE" above.</p>';
+    return;
+  }
+  el.innerHTML = slots.map((slot,i)=>{
+    const ne = ALL_TYPES.find(t=>t.id===slot.ne_type_id) || {};
+    return `
+    <div class="border-bottom p-3 d-flex gap-3 align-items-start flex-wrap">
+      <div style="flex:2;min-width:160px">
+        <label class="form-label small mb-0">NE Type</label>
+        <select class="form-select form-select-sm"
+                onchange="slots[${i}].ne_type_id=this.value; render()">
+          ${ALL_TYPES.map(t=>`<option value="${t.id}"${t.id===slot.ne_type_id?' selected':''}>${t.name} (${t.kind})</option>`).join('')}
+        </select>
+        ${ne.iface_count!==undefined?`<div class="text-muted" style="font-size:.7rem">${ne.iface_count} interface(s) · ${ne.scope||''}</div>`:''}
+      </div>
+      <div style="width:80px">
+        <label class="form-label small mb-0">Count</label>
+        <input type="number" class="form-control form-control-sm" min="1" max="500"
+               value="${slot.count}"
+               oninput="slots[${i}].count=parseInt(this.value)||1">
+      </div>
+      <div style="flex:2;min-width:140px">
+        <label class="form-label small mb-0">Label override <span class="text-muted">(comma-sep)</span></label>
+        <input class="form-control form-control-sm"
+               value="${(slot.label_override||[]).join(',')}"
+               oninput="slots[${i}].label_override=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+      </div>
+      <div class="d-flex gap-1 pt-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="moveSlot(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="moveSlot(${i}, 1)" ${i===slots.length-1?'disabled':''}>↓</button>
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                onclick="removeSlot(${i})">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveSlots(){
+  const status = document.getElementById('saveStatus');
+  status.textContent = 'Saving…';
+  const resp = await fetch(`/projects/${PROJ_ID}/pods/${POD_ID}/slots`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(slots)
+  });
+  const d = await resp.json();
+  status.textContent = d.ok ? `✓ ${d.count} slot(s) saved` : `Error: ${d.error}`;
+}
+
+render();
+</script>
+{% endblock %}

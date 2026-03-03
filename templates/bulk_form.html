@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block title %}Bulk Add Subnets{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-9">
+  <div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><strong>⚡ Bulk Add Subnets</strong> — {{ proj.name }} <span class="text-muted">({{ proj.supernet }})</span></span>
+      <a href="{{ url_for('ipam.manage_project_labels', pid=proj.id) }}" class="small text-muted">🏷️ Manage project labels</a>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-1">Labels are free-form strings. Use any combination of global or project labels.</p>
+
+      {# Label reference #}
+      <div class="mb-3">
+        {% if labels.global %}
+          <small class="text-muted">🌐 Global: </small>
+          {% for l in labels.global %}
+          <span class="label-pill label-global" style="cursor:pointer"
+                onclick="injectLabel('{{ l }}')">{{ l }}</span>
+          {% endfor %}
+        {% endif %}
+        {% if labels.project %}
+          <small class="text-muted ms-2">🏷️ Project: </small>
+          {% for l in labels.project %}
+          <span class="label-pill label-project" style="cursor:pointer"
+                onclick="injectLabel('{{ l }}')">{{ l }}</span>
+          {% endfor %}
+        {% endif %}
+      </div>
+
+      <textarea id="bulkJson" class="form-control font-monospace mb-3" rows="16" spellcheck="false"></textarea>
+      <div class="d-flex gap-2 mb-3">
+        <button class="btn btn-primary"           onclick="submitBulk()">⚡ Allocate All</button>
+        <button class="btn btn-outline-secondary" onclick="loadExample()">Load Example</button>
+        <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+      </div>
+      <div id="result"></div>
+    </div>
+  </div>
+</div></div>
+
+<script>
+const GLOBAL_LABELS  = {{ labels.global  | tojson }};
+const PROJECT_LABELS = {{ labels.project | tojson }};
+
+// Build example using actual available labels where possible
+function makeExample() {
+  const g = l => GLOBAL_LABELS.includes(l)  ? l : null;
+  const p = l => PROJECT_LABELS.includes(l) ? l : null;
+  const pick = (...candidates) => candidates.find(Boolean) || candidates[candidates.length-1];
+
+  return {
+    subnets: [
+      {prefix_len: 24, name: "web-london",  labels: [pick(g("London"),"London"),  pick(g("web"),"web"),  pick(g("PROD"),"PROD")]},
+      {prefix_len: 24, name: "db-london",   labels: [pick(g("London"),"London"),  pick(g("db"),"db"),    pick(g("PROD"),"PROD")]},
+      {prefix_len: 25, name: "k8s-london",  labels: [pick(g("London"),"London"),  pick(p("k8s-cluster-1"),"k8s"), pick(g("PROD"),"PROD")]},
+      {prefix_len: 28, name: "mgmt-london", labels: [pick(g("London"),"London"),  "mgmt", "MGMT"]},
+      {prefix_len: 24, name: "web-ams",     labels: [pick(g("Amsterdam"),"Amsterdam"), pick(g("web"),"web"), pick(g("PROD"),"PROD")]},
+    ]
+  };
+}
+
+function loadExample() {
+  document.getElementById('bulkJson').value = JSON.stringify(makeExample(), null, 2);
+}
+
+// Inject a label into the focused subnet's labels array in the JSON editor
+function injectLabel(label) {
+  const ta = document.getElementById('bulkJson');
+  const pos = ta.selectionStart;
+  const val = ta.value;
+  // Try to insert label string at cursor position as a convenience
+  const insert = `"${label}"`;
+  ta.value = val.slice(0, pos) + insert + val.slice(pos);
+  ta.selectionStart = ta.selectionEnd = pos + insert.length;
+  ta.focus();
+}
+
+async function submitBulk() {
+  const raw = document.getElementById('bulkJson').value;
+  let body;
+  try { body = JSON.parse(raw); } catch(e) { alert('Invalid JSON: ' + e.message); return; }
+
+  const resp = await fetch('{{ url_for("ipam.bulk_add_subnets", pid=proj.id) }}', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  const data = await resp.json();
+
+  let html = '';
+  if (data.allocated?.length) {
+    html += `<div class="alert alert-success"><strong>✅ Allocated ${data.allocated.length} subnet(s):</strong><ul class="mb-0 mt-1">`;
+    data.allocated.forEach(s => {
+      const pills = s.labels.map(l => {
+        const cls = GLOBAL_LABELS.includes(l) ? 'label-global'
+                  : PROJECT_LABELS.includes(l) ? 'label-project' : 'label-unknown';
+        return `<span class="label-pill ${cls}">${l}</span>`;
+      }).join('');
+      html += `<li><code>${s.cidr}</code>${s.name ? ' · ' + s.name : ''} ${pills}</li>`;
+    });
+    html += '</ul></div>';
+  }
+  if (data.errors?.length) {
+    html += `<div class="alert alert-danger"><strong>❌ ${data.errors.length} error(s):</strong><ul class="mb-0 mt-1">`;
+    data.errors.forEach(e => { html += `<li>/${e.request.prefix_len}: ${e.error}</li>`; });
+    html += '</ul></div>';
+  }
+  document.getElementById('result').innerHTML = html;
+}
+
+loadExample();
+</script>
+{% endblock %}

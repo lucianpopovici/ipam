@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Connector Types & Compatibility{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">🔌 Connector Types & Compatibility Matrix</h4>
+</div>
+
+<div class="row g-4">
+  {# ── Add / remove connectors ── #}
+  <div class="col-lg-3">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Connector Types</strong></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for c in connectors %}
+          <li class="list-group-item d-flex justify-content-between align-items-center py-1">
+            <code>{{ c }}</code>
+            <form method="post" class="d-inline">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="name"   value="{{ c }}">
+              <button class="btn btn-sm btn-outline-danger py-0 px-1"
+                      onclick="return confirm('Remove {{ c }}?')">✕</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="card-footer">
+        <form method="post" class="d-flex gap-2">
+          <input type="hidden" name="action" value="add">
+          <input type="text" name="name" class="form-control form-control-sm"
+                 placeholder="New connector…" required>
+          <button class="btn btn-sm btn-primary">Add</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Compatibility matrix ── #}
+  <div class="col-lg-9">
+    <div class="card shadow-sm">
+      <div class="card-header">
+        <strong>Compatibility Matrix</strong>
+        <span class="text-muted small ms-2">✅ = compatible &nbsp; click to toggle</span>
+      </div>
+      <div class="card-body p-0" style="overflow-x:auto">
+        <table class="table table-bordered table-sm mb-0 text-center"
+               style="min-width:600px">
+          <thead class="table-light">
+            <tr>
+              <th class="text-start" style="min-width:90px">↓ / →</th>
+              {% for c in connectors %}
+              <th style="font-size:.75rem;writing-mode:vertical-lr;height:80px">{{ c }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for ca in connectors %}
+            <tr>
+              <td class="text-start fw-semibold small"><code>{{ ca }}</code></td>
+              {% for cb in connectors %}
+              {% set compat = cb in matrix[ca] %}
+              <td class="p-0" style="cursor:pointer"
+                  onclick="toggleCompat('{{ ca }}','{{ cb }}',this)"
+                  title="{{ ca }} ↔ {{ cb }}">
+                <div class="d-flex align-items-center justify-content-center"
+                     style="height:32px;background:{% if compat %}#d1e7dd{% else %}#f8d7da{% endif %}">
+                  {% if compat %}✅{% else %}❌{% endif %}
+                </div>
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<form id="compatForm" method="post" class="d-none">
+  <input type="hidden" name="action"     value="compat">
+  <input type="hidden" name="conn_a"     id="compatA">
+  <input type="hidden" name="conn_b"     id="compatB">
+  <input type="hidden" name="compatible" id="compatVal">
+</form>
+
+<script>
+function toggleCompat(a, b, cell){
+  const isCompat = cell.querySelector('div').style.background.includes('d1e7dd');
+  document.getElementById('compatA').value   = a;
+  document.getElementById('compatB').value   = b;
+  document.getElementById('compatVal').value = isCompat ? '0' : '1';
+  document.getElementById('compatForm').submit();
+}
+</script>
+{% endblock %}

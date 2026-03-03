@@ -1,0 +1,35 @@
+{#
+  Reusable label picker snippet.
+  Expects:
+    labels        = {'global': [...], 'project': [...]}
+    current_value = current comma-separated string (optional)
+    input_id      = id for the <input> (default 'labelsInput')
+#}
+{% set input_id = input_id if input_id is defined else 'labelsInput' %}
+<div class="mb-3">
+  <label class="form-label">
+    Labels <span class="text-muted small">(comma-separated)</span>
+  </label>
+  <input type="text" name="labels" id="{{ input_id }}" class="form-control"
+         value="{{ current_value if current_value is defined else '' }}"
+         placeholder="e.g. London, PROD, k8s-cluster-1">
+
+  {% if labels.global or labels.project %}
+  <div class="mt-2 d-flex flex-wrap gap-1 align-items-center">
+    {% if labels.global %}
+      <span class="text-muted small me-1">🌐 Global:</span>
+      {% for l in labels.global %}
+      <span class="label-pill label-global" style="cursor:pointer"
+            onclick="addLabel('{{ l }}', '{{ input_id }}')">{{ l }}</span>
+      {% endfor %}
+    {% endif %}
+    {% if labels.project %}
+      <span class="text-muted small ms-2 me-1">🏷️ Project:</span>
+      {% for l in labels.project %}
+      <span class="label-pill label-project" style="cursor:pointer"
+            onclick="addLabel('{{ l }}', '{{ input_id }}')">{{ l }}</span>
+      {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

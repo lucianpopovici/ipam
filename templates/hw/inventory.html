@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Inventory – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">📦 Inventory <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.project_bom', pid=proj.id) }}"        class="btn btn-sm btn-outline-secondary">📋 BoM</a>
+    <a href="{{ url_for('hw.add_hw_instance', pid=proj.id) }}"    class="btn btn-sm btn-primary">+ Add Device</a>
+  </div>
+</div>
+
+{# Category filter #}
+<div class="mb-3">
+  <div class="btn-group btn-group-sm">
+    <a href="{{ url_for('hw.project_inventory', pid=proj.id) }}"
+       class="btn btn-outline-secondary {% if not selected_cat %}active{% endif %}">All</a>
+    {% for c in categories %}
+    <a href="{{ url_for('hw.project_inventory', pid=proj.id, category=c) }}"
+       class="btn btn-outline-secondary {% if selected_cat==c %}active{% endif %}">{{ c }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% set status_colors = {'in-stock':'secondary','deployed':'success','spare':'info','decommissioned':'danger','in-transit':'warning'} %}
+
+{% if instances %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-hover table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Asset Tag</th><th>Template</th><th>Category</th>
+        <th>Form Factor</th><th>Status</th><th>Location</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inst in instances %}
+      {% set tmpl = inst.template %}
+      <tr>
+        <td><strong><code>{{ inst.asset_tag or inst.id }}</code></strong>
+          {% if inst.serial %}<br><small class="text-muted">S/N: {{ inst.serial }}</small>{% endif %}
+        </td>
+        <td>
+          {% if tmpl %}<strong>{{ tmpl.name }}</strong>
+            <br><small class="text-muted">{{ tmpl.vendor or '' }} {{ tmpl.model or '' }}</small>
+          {% else %}<span class="text-danger small">Missing template</span>{% endif %}
+        </td>
+        <td><span class="badge bg-light text-dark border">{{ tmpl.category if tmpl else '?' }}</span></td>
+        <td><span class="badge bg-light text-dark border">{{ tmpl.form_factor if tmpl else '?' }}</span></td>
+        <td>
+          <span class="badge bg-{{ status_colors.get(inst.status,'secondary') }}">{{ inst.status }}</span>
+        </td>
+        <td class="small text-muted">
+          {% if inst.location and inst.location.rack_id %}
+            {% set rack = namespace(tag='?') %}
+            {% for r in racks %}{% if r.id == inst.location.rack_id %}{% set rack.tag = r.asset_tag %}{% endif %}{% endfor %}
+            🗄 {{ rack.tag }} U{{ inst.location.u_pos }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('hw.edit_hw_instance', pid=proj.id, iid=inst.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_instance_route', pid=proj.id, iid=inst.id) }}"
+                onsubmit="return confirm('Delete instance {{ inst.asset_tag }}?')">
+            <button class="btn btn-sm btn-outline-danger">Del</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No instances yet.
+  <a href="{{ url_for('hw.project_bom', pid=proj.id) }}">Build a BoM and generate them</a>
+  or <a href="{{ url_for('hw.add_hw_instance', pid=proj.id) }}">add manually</a>.
+</div>
+{% endif %}
+{% endblock %}

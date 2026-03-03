@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Racks – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🗄 Racks <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.rack_table', pid=proj.id) }}"       class="btn btn-sm btn-outline-secondary">📊 Table View</a>
+    <a href="{{ url_for('hw.hw_validate', pid=proj.id) }}"      class="btn btn-sm btn-outline-warning">⚠ Validate</a>
+  </div>
+</div>
+
+{% if racks %}
+<div class="row g-3">
+  {% for rack in racks %}
+  {% set tmpl = rack.template %}
+  <div class="col-sm-6 col-lg-4 col-xl-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong><code>{{ rack.asset_tag }}</code></strong>
+        <span class="badge bg-light text-dark border">{{ tmpl.form_factor if tmpl else '?' }}</span>
+      </div>
+      <div class="card-body py-2">
+        <div class="text-muted small mb-2">{{ tmpl.name if tmpl else 'Unknown template' }}
+          {% if tmpl %} · {{ tmpl.u_size }}U{% endif %}
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <div class="progress flex-fill" style="height:8px;border-radius:4px">
+            <div class="progress-bar {% if rack.utilization>90 %}bg-danger{% elif rack.utilization>70 %}bg-warning{% else %}bg-success{% endif %}"
+                 style="width:{{ rack.utilization }}%"></div>
+          </div>
+          <small class="text-muted">{{ rack.utilization }}%</small>
+        </div>
+        <div class="small text-muted">
+          {{ rack.used_u }}U used · {{ rack.free_u }}U free · {{ rack.slot_count }} device(s)
+        </div>
+      </div>
+      <div class="card-footer py-2">
+        <a href="{{ url_for('hw.rack_detail', pid=proj.id, rack_iid=rack.id) }}"
+           class="btn btn-sm btn-primary w-100">View Layout</a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No rack instances yet. Add rack hardware in the
+  <a href="{{ url_for('hw.project_bom', pid=proj.id) }}">Bill of Materials</a>
+  and generate instances.
+</div>
+{% endif %}
+{% endblock %}

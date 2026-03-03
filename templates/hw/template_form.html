@@ -1,0 +1,189 @@
+{% extends 'base.html' %}
+{% block title %}{% if tmpl %}Edit{% else %}New{% endif %} Hardware Template{% endblock %}
+{% block content %}
+<div class="mb-2">
+  {% if proj %}<a href="{{ url_for('hw.project_hw_templates', pid=proj.id) }}" class="text-muted small">← HW Templates</a>
+  {% else %}<a href="{{ url_for('hw.hw_templates_list') }}" class="text-muted small">← HW Templates</a>{% endif %}
+</div>
+<h4 class="mb-3">{% if tmpl %}Edit: {{ tmpl.name }}{% else %}New Hardware Template{% endif %}</h4>
+
+<form method="post">
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Identity</strong></div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-8">
+            <label class="form-label small">Name *</label>
+            <input type="text" name="name" class="form-control form-control-sm" required
+                   value="{{ tmpl.name if tmpl else '' }}" placeholder="e.g. Dell PowerEdge R650">
+          </div>
+          <div class="col-4">
+            <label class="form-label small">Category</label>
+            <select name="category" class="form-select form-select-sm" id="catSelect"
+                    onchange="onCatChange()">
+              {% for c in categories %}
+              <option value="{{ c }}" {% if tmpl and tmpl.category==c %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small">Vendor</label>
+            <input type="text" name="vendor" class="form-control form-control-sm"
+                   value="{{ tmpl.vendor if tmpl else '' }}" placeholder="Dell, Cisco…">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Model</label>
+            <input type="text" name="model" class="form-control form-control-sm"
+                   value="{{ tmpl.model if tmpl else '' }}" placeholder="R650, N9K-C9336C…">
+          </div>
+        </div>
+        <div class="row g-2 mb-2" id="rackFields">
+          <div class="col-4">
+            <label class="form-label small">Form Factor</label>
+            <select name="form_factor" class="form-select form-select-sm">
+              {% for ff in form_factors %}
+              <option value="{{ ff }}" {% if tmpl and tmpl.form_factor==ff %}selected{% endif %}>{{ ff }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label small">U Size</label>
+            <input type="number" name="u_size" class="form-control form-control-sm"
+                   min="0" max="100" value="{{ tmpl.u_size if tmpl else 1 }}">
+          </div>
+          <div class="col-4" id="cableTypeField">
+            <label class="form-label small">Cable Type</label>
+            <select name="cable_type" class="form-select form-select-sm">
+              <option value="">—</option>
+              {% for ct in cable_types %}
+              <option value="{{ ct }}" {% if tmpl and tmpl.get('cable_type')==ct %}selected{% endif %}>{{ ct }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Description</label>
+          <textarea name="description" class="form-control form-control-sm" rows="2">{{ tmpl.description if tmpl else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Port Layout</strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addPort()">+ Add Port</button>
+      </div>
+      <div class="card-body p-0" id="portList"></div>
+      <div class="card-footer text-muted small">
+        Each port entry represents a physical port <em>group</em> (e.g. "48× RJ45 1G data").
+        Use <strong>Count</strong> for identical repeated ports.
+      </div>
+    </div>
+    <input type="hidden" name="ports_json" id="portsJson">
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">Save Template</button>
+  {% if proj %}
+  <a href="{{ url_for('hw.project_hw_templates', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+  {% else %}
+  <a href="{{ url_for('hw.hw_templates_list') }}" class="btn btn-secondary">Cancel</a>
+  {% endif %}
+</div>
+</form>
+
+<script>
+const CONNECTORS  = {{ connectors | tojson }};
+const PORT_TYPES  = {{ port_types | tojson }};
+let   ports       = {{ (tmpl.ports if tmpl else []) | tojson }};
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+function addPort(){
+  ports.push({ id:uid(), name:'', port_type:'data', connector:'RJ45',
+               speed_gbps:1, count:1, breakout_fan_out:1, notes:'' });
+  render();
+}
+function removePort(i){ ports.splice(i,1); render(); }
+function movePort(i,d){ const j=i+d; if(j>=0&&j<ports.length){[ports[i],ports[j]]=[ports[j],ports[i]]; render();} }
+
+function render(){
+  const el = document.getElementById('portList');
+  if(!ports.length){
+    el.innerHTML='<p class="text-muted small p-3 mb-0">No ports defined.</p>';
+    return;
+  }
+  el.innerHTML = ports.map((p,i)=>`
+    <div class="border-bottom px-3 py-2 d-flex gap-2 align-items-end flex-wrap">
+      <div style="flex:2;min-width:110px">
+        <label class="form-label small mb-0">Name</label>
+        <input class="form-control form-control-sm" value="${esc(p.name)}"
+               placeholder="e.g. eth0, PSU1"
+               oninput="ports[${i}].name=this.value">
+      </div>
+      <div style="width:90px">
+        <label class="form-label small mb-0">Type</label>
+        <select class="form-select form-select-sm"
+                onchange="ports[${i}].port_type=this.value">
+          ${PORT_TYPES.map(t=>`<option value="${t}"${t===p.port_type?' selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width:110px">
+        <label class="form-label small mb-0">Connector</label>
+        <select class="form-select form-select-sm"
+                onchange="ports[${i}].connector=this.value">
+          ${CONNECTORS.map(c=>`<option value="${c}"${c===p.connector?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div style="width:80px">
+        <label class="form-label small mb-0">Speed (G)</label>
+        <input type="number" class="form-control form-control-sm" min="0"
+               value="${p.speed_gbps||''}"
+               oninput="ports[${i}].speed_gbps=parseFloat(this.value)||0">
+      </div>
+      <div style="width:65px">
+        <label class="form-label small mb-0">Count</label>
+        <input type="number" class="form-control form-control-sm" min="1"
+               value="${p.count||1}"
+               oninput="ports[${i}].count=parseInt(this.value)||1">
+      </div>
+      <div style="width:75px">
+        <label class="form-label small mb-0">Fan-out</label>
+        <input type="number" class="form-control form-control-sm" min="1"
+               value="${p.breakout_fan_out||1}"
+               title="Breakout fan-out (1 = no breakout)"
+               oninput="ports[${i}].breakout_fan_out=parseInt(this.value)||1">
+      </div>
+      <div style="flex:2;min-width:100px">
+        <label class="form-label small mb-0">Notes</label>
+        <input class="form-control form-control-sm" value="${esc(p.notes||'')}"
+               oninput="ports[${i}].notes=this.value">
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="movePort(${i},-1)" ${i===0?'disabled':''}>↑</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                onclick="movePort(${i}, 1)" ${i===ports.length-1?'disabled':''}>↓</button>
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                onclick="removePort(${i})">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function prepareSubmit(){ document.getElementById('portsJson').value=JSON.stringify(ports); }
+function onCatChange(){
+  const cat = document.getElementById('catSelect').value;
+  document.getElementById('cableTypeField').style.display = cat==='cable'?'':'none';
+}
+onCatChange();
+render();
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% from 'ne/_param_fields.html' import param_fields %}
+{% block title %}{% if pod %}Edit POD{% else %}Add POD{% endif %}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <a href="{{ url_for('ne.list_pods', pid=proj.id) }}" class="text-muted small">← PODs</a>
+</div>
+<h4 class="mb-3">{% if pod %}Edit: {{ pod.name }}{% else %}Add POD{% endif %}</h4>
+
+<div class="row justify-content-center"><div class="col-md-7">
+<form method="post">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">POD Name *</label>
+        <input type="text" name="name" class="form-control" required
+               value="{{ pod.name if pod else '' }}" placeholder="e.g. CORE-POD-1">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <input type="text" name="description" class="form-control"
+               value="{{ pod.description if pod else '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Labels <span class="text-muted small">(comma-separated)</span></label>
+        <input type="text" name="labels" class="form-control"
+               value="{{ (pod.labels if pod else []) | join(', ') }}">
+      </div>
+      {{ param_fields(schema, pod.params if pod else {}) }}
+    </div>
+    <div class="card-footer d-flex gap-2">
+      <button type="submit" class="btn btn-primary">{% if pod %}Update{% else %}Create{% endif %} POD</button>
+      <a href="{{ url_for('ne.list_pods', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </div>
+</form>
+</div></div>
+{% endblock %}

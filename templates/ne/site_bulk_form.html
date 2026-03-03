@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% from 'ne/_param_fields.html' import param_fields %}
+{% block title %}Bulk Create Sites{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <a href="{{ url_for('ne.list_sites', pid=proj.id) }}" class="text-muted small">← Sites</a>
+</div>
+<h4 class="mb-3">⚡ Bulk Create Sites</h4>
+
+<div class="row justify-content-center"><div class="col-md-7">
+<div class="card shadow-sm mb-3">
+  <div class="card-header"><strong>Pattern</strong></div>
+  <div class="card-body">
+    <p class="text-muted small">
+      Use <code>{start..end}</code> with zero-padded numbers to generate a sequence of site names.<br>
+      Examples: <code>ran{0001..1200}</code> → ran0001 … ran1200 &nbsp;|&nbsp;
+                <code>site-{01..50}-prod</code> → site-01-prod … site-50-prod
+    </p>
+    <div id="preview" class="mb-3 p-2 bg-light rounded small text-muted" style="min-height:36px"></div>
+  </div>
+</div>
+
+<form method="post">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Name Pattern *</label>
+        <input type="text" name="pattern" id="patternInput" class="form-control" required
+               placeholder="e.g. ran{0001..1200}" oninput="previewPattern(this.value)">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Description <span class="text-muted small">(applied to all)</span></label>
+        <input type="text" name="description" class="form-control">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Labels <span class="text-muted small">(applied to all, comma-separated)</span></label>
+        <input type="text" name="labels" class="form-control">
+      </div>
+      {{ param_fields(schema, {}) }}
+    </div>
+    <div class="card-footer d-flex gap-2">
+      <button type="submit" class="btn btn-primary" id="createBtn" disabled>Create Sites</button>
+      <a href="{{ url_for('ne.list_sites', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </div>
+</form>
+</div></div>
+
+<script>
+function previewPattern(val){
+  const m = val.match(/\{(\d+)\.\.(\d+)\}/);
+  const el = document.getElementById('preview');
+  const btn = document.getElementById('createBtn');
+  if(!m){ el.textContent='Enter a pattern with {start..end}'; btn.disabled=true; return; }
+  const start=parseInt(m[1]), end=parseInt(m[2]), w=m[1].length;
+  if(end<start){ el.textContent='End must be >= start'; btn.disabled=true; return; }
+  if(end-start>9999){ el.textContent='Range too large (max 10000)'; btn.disabled=true; return; }
+  const prefix=val.slice(0,val.indexOf('{')), suffix=val.slice(val.indexOf('}')+1);
+  const count=end-start+1;
+  const first=`${prefix}${String(start).padStart(w,'0')}${suffix}`;
+  const last =`${prefix}${String(end).padStart(w,'0')}${suffix}`;
+  el.innerHTML=`<strong>${count}</strong> sites: <code>${first}</code> … <code>${last}</code>`;
+  btn.disabled=false;
+  btn.textContent=`Create ${count} Sites`;
+}
+</script>
+{% endblock %}

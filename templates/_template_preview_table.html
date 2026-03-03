@@ -1,0 +1,22 @@
+{# Reusable preview table. Expects 'preview' list of {ip, role, status, already_allocated} #}
+{% if preview %}
+<table class="table table-sm mb-1 align-middle">
+  <thead class="table-light"><tr><th>IP</th><th>Role</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    {% for slot in preview %}
+    <tr class="{% if slot.already_allocated %}table-warning{% endif %}">
+      <td><code>{{ slot.ip }}</code></td>
+      <td>{{ slot.role }}</td>
+      <td><span class="badge badge-{{ slot.status }}">{{ slot.status }}</span></td>
+      <td>{% if slot.already_allocated %}<span class="badge bg-warning text-dark">already exists</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="text-muted small">
+  {{ preview | length }} IP(s) resolved ·
+  {{ preview | selectattr('already_allocated') | list | length }} already allocated (will be skipped)
+</div>
+{% else %}
+<span class="text-muted small">No IPs resolved for this template on {{ net.cidr if net is defined else 'this subnet' }}.</span>
+{% endif %}

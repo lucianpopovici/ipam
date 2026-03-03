@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}HW Validation – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">⚠ Hardware Validation <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <a href="{{ url_for('hw.hw_validate', pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">↺ Re-run</a>
+</div>
+
+{# Summary cards #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-4">
+    <div class="card shadow-sm text-center py-2 {% if errors %}border-danger{% endif %}">
+      <div class="fw-bold fs-4 {% if errors %}text-danger{% else %}text-success{% endif %}">{{ errors|length }}</div>
+      <div class="text-muted small">Errors</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card shadow-sm text-center py-2 {% if warnings %}border-warning{% endif %}">
+      <div class="fw-bold fs-4 {% if warnings %}text-warning{% else %}text-muted{% endif %}">{{ warnings|length }}</div>
+      <div class="text-muted small">Warnings</div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card shadow-sm text-center py-2">
+      <div class="fw-bold fs-4 {% if not issues %}text-success{% else %}text-muted{% endif %}">
+        {% if not issues %}✓{% else %}{{ issues|length }}{% endif %}
+      </div>
+      <div class="text-muted small">Total Issues</div>
+    </div>
+  </div>
+</div>
+
+{% if not issues %}
+<div class="alert alert-success">✅ No issues found. Hardware configuration looks valid.</div>
+{% else %}
+
+{# Error codes reference #}
+{% set code_descriptions = {
+  'CONNECTOR_MISMATCH':    'Cable connector type is not compatible with the port it is plugged into.',
+  'CABLE_PORT_TYPE_MISMATCH': 'Cable type does not match port type (e.g. power cable on data port).',
+  'SPEED_MISMATCH':        'DAC/AOC cable speed does not match the connected port speeds.',
+  'PORT_DOUBLE_CONNECTED': 'A port has more than one cable connected to it.',
+  'CABLE_UNCONNECTED_A':   'Cable end A is not connected to any device/port.',
+  'CABLE_UNCONNECTED_B':   'Cable end B is not connected to any device/port.',
+  'PORT_NOT_FOUND':        'Referenced port does not exist in the device template.',
+  'U_OVERFLOW':            'Device extends beyond the rack U boundary.',
+  'U_OVERLAP':             'Two devices occupy the same U slot.',
+  'U_OCCUPIED':            'Target U position is already occupied.',
+  'FORM_FACTOR_MISMATCH':  'Device form factor is incompatible with the rack form factor.',
+  'NOT_FOUND':             'Referenced rack or device instance not found.',
+  'TEMPLATE_NOT_FOUND':    'Hardware template not found for an instance.',
+} %}
+
+{% for severity, label, cls in [('error','Errors','danger'),('warning','Warnings','warning'),('info','Info','info')] %}
+{% set group = issues | selectattr('severity','equalto',severity) | list %}
+{% if group %}
+<h6 class="mb-2 mt-3">
+  <span class="badge bg-{{ cls }}">{{ group|length }}</span> {{ label }}
+</h6>
+<div class="card shadow-sm mb-3">
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr><th style="width:12%">Code</th><th>Message</th><th style="width:25%">Context</th></tr>
+    </thead>
+    <tbody>
+      {% for issue in group %}
+      <tr class="table-{{ cls }} bg-opacity-25">
+        <td><code class="small">{{ issue.code }}</code></td>
+        <td>
+          {{ issue.message }}
+          {% if code_descriptions.get(issue.code) %}
+          <br><small class="text-muted">{{ code_descriptions[issue.code] }}</small>
+          {% endif %}
+        </td>
+        <td class="small text-muted">
+          {% for k, v in issue.context.items() %}
+          <span class="d-block"><strong>{{ k }}:</strong> <code>{{ v }}</code></span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
+<div class="mt-3 d-flex gap-3 small text-muted">
+  <a href="{{ url_for('hw.rack_list',   pid=proj.id) }}">🗄 Racks</a>
+  <a href="{{ url_for('hw.cable_list',  pid=proj.id) }}">🔗 Cables</a>
+  <a href="{{ url_for('hw.project_inventory', pid=proj.id) }}">📦 Inventory</a>
+</div>
+{% endblock %}

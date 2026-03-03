@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Add Network{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-md-6">
+  <div class="card shadow-sm">
+    <div class="card-header"><strong>Add Network</strong></div>
+    <div class="card-body">
+      <form method="post">
+        <div class="mb-3">
+          <label class="form-label">Name *</label>
+          <input type="text" name="name" class="form-control" required placeholder="e.g. Office LAN">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">CIDR *</label>
+          <input type="text" name="cidr" class="form-control" required placeholder="e.g. 192.168.1.0/24">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <input type="text" name="description" class="form-control">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">VLAN ID</label>
+          <input type="number" name="vlan" class="form-control" min="1" max="4094">
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <a href="{{ url_for('ipam.index') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}

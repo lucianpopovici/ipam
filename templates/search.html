@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Search{% endblock %}
+{% block content %}
+<h5>Results for <em>"{{ q }}"</em></h5>
+{% if results %}
+<table class="table table-hover bg-white shadow-sm rounded">
+  <thead class="table-light"><tr><th>IP</th><th>Hostname</th><th>Description</th><th>Status</th><th>Network</th></tr></thead>
+  <tbody>
+    {% for a in results %}
+    <tr>
+      <td><code>{{ a.ip }}</code></td>
+      <td>{{ a.hostname or '—' }}</td>
+      <td>{{ a.description or '—' }}</td>
+      <td><span class="badge badge-{{ a.status }}">{{ a.status }}</span></td>
+      <td>{% if a.network %}<a href="{{ url_for('ipam.network_detail', net_id=a.network_id) }}">{{ a.network.cidr }}</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif q %}
+<p class="text-muted">No results found.</p>
+{% endif %}
+{% endblock %}

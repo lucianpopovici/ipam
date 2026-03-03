@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}PODs – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1">
+  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
+</div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">📦 PODs <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <a href="{{ url_for('ne.add_pod', pid=proj.id) }}" class="btn btn-sm btn-primary">+ Add POD</a>
+</div>
+
+{% if pods %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th>Labels</th>
+        <th>NE Slots</th>
+        <th>Sites</th>
+        {% for f in schema %}<th>{{ f.label }}</th>{% endfor %}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pod in pods %}
+      <tr>
+        <td>
+          <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}">
+            <strong>{{ pod.name }}</strong>
+          </a>
+          {% if pod.description %}<br><small class="text-muted">{{ pod.description }}</small>{% endif %}
+        </td>
+        <td>{% for l in pod.labels %}<span class="label-pill label-unknown">{{ l }}</span>{% endfor %}</td>
+        <td>
+          {% if pod.slots %}
+            <span class="badge bg-secondary">{{ pod.slot_count }}</span>
+            {% for slot in pod.slots[:3] %}
+              <span class="badge bg-light text-dark border">{{ slot.ne_type_id }}</span>
+            {% endfor %}
+            {% if pod.slot_count > 3 %}<span class="text-muted small">+{{ pod.slot_count-3 }}</span>{% endif %}
+          {% else %}
+            <span class="text-muted small">none</span>
+          {% endif %}
+        </td>
+        <td>
+          {% for site in pod.sites %}
+            <span class="badge bg-light text-dark border">{{ site.name }}</span>
+          {% else %}
+            <span class="text-muted small">none</span>
+          {% endfor %}
+        </td>
+        {% for f in schema %}
+        <td class="small text-muted">{{ pod.params.get(f.id, '—') }}</td>
+        {% endfor %}
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+          <a href="{{ url_for('ne.edit_pod',   pid=proj.id, pod_id=pod.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" action="{{ url_for('ne.delete_pod_route', pid=proj.id, pod_id=pod.id) }}" method="post"
+                onsubmit="return confirm('Delete POD {{ pod.name }}?')">
+            <button class="btn btn-sm btn-outline-danger">Del</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No PODs yet. <a href="{{ url_for('ne.add_pod', pid=proj.id) }}">Create one.</a>
+</div>
+{% endif %}
+{% endblock %}

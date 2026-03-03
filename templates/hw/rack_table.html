@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Rack Table Placement – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('hw.rack_list', pid=proj.id) }}" class="text-muted small">← Racks</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">📊 Bulk Rack Placement <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="addRow()">+ Add Row</button>
+    <button class="btn btn-sm btn-primary" onclick="submitAll()">⬆ Apply All</button>
+  </div>
+</div>
+
+<p class="text-muted small mb-3">
+  Define device placements in bulk. Useful for provisioning multiple racks at once.
+  The tool validates each placement and reports errors before committing.
+</p>
+
+<div class="card shadow-sm mb-3">
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0" id="placementTable">
+    <thead class="table-light">
+      <tr>
+        <th style="width:35%">Rack</th>
+        <th style="width:35%">Device</th>
+        <th style="width:10%">U pos</th>
+        <th style="width:15%">Status</th>
+        <th style="width:5%"></th>
+      </tr>
+    </thead>
+    <tbody id="placementBody">
+      <tr id="emptyRow"><td colspan="5" class="text-muted text-center py-3">No placements defined. Click "+ Add Row".</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div id="resultSummary"></div>
+
+<script>
+const RACKS   = {{ racks   | tojson }};
+const DEVICES = {{ devices | tojson }};
+let   rows    = [];
+
+const rackOpts   = RACKS.map(r =>
+  `<option value="${r.id}">${r.asset_tag} (${r.template ? r.template.name : '?'} ${r.template ? r.template.u_size+'U' : ''})</option>`).join('');
+const deviceOpts = DEVICES.map(d =>
+  `<option value="${d.id}">${d.asset_tag} (${d.template ? d.template.name+' '+d.template.u_size+'U' : '?'})</option>`).join('');
+
+function addRow(){
+  rows.push({ rack_id:'', instance_id:'', u_pos:1, status:'' });
+  render();
+}
+function removeRow(i){ rows.splice(i,1); render(); }
+
+function render(){
+  const tbody = document.getElementById('placementBody');
+  document.getElementById('emptyRow') && rows.length && document.getElementById('emptyRow').remove();
+  if(!rows.length){
+    tbody.innerHTML = '<tr id="emptyRow"><td colspan="5" class="text-muted text-center py-3">No placements defined.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((row,i) => `
+    <tr id="row_${i}">
+      <td>
+        <select class="form-select form-select-sm" onchange="rows[${i}].rack_id=this.value">
+          <option value="">— Rack —</option>${rackOpts.replace(`value="${row.rack_id}"`,`value="${row.rack_id}" selected`)}
+        </select>
+      </td>
+      <td>
+        <select class="form-select form-select-sm" onchange="rows[${i}].instance_id=this.value">
+          <option value="">— Device —</option>${deviceOpts.replace(`value="${row.instance_id}"`,`value="${row.instance_id}" selected`)}
+        </select>
+      </td>
+      <td>
+        <input type="number" class="form-control form-control-sm" min="1" value="${row.u_pos}"
+               oninput="rows[${i}].u_pos=parseInt(this.value)||1">
+      </td>
+      <td id="status_${i}">
+        ${row.status ? `<span class="badge bg-${row.status==='ok'?'success':'danger'}">${row.status}</span>` : ''}
+      </td>
+      <td>
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                onclick="removeRow(${i})">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function submitAll(){
+  const payload = rows.filter(r => r.rack_id && r.instance_id)
+                      .map(r => ({ rack_id: r.rack_id, instance_id: r.instance_id, u_pos: r.u_pos }));
+  if(!payload.length){ alert('Add at least one complete row.'); return; }
+
+  const resp    = await fetch('', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const results = await resp.json();
+
+  let errors = 0, ok = 0;
+  results.forEach((res, i) => {
+    rows[i].status = res.ok ? 'ok' : 'error';
+    if(res.ok) ok++; else errors++;
+    const cell = document.getElementById(`status_${i}`);
+    if(cell){
+      const errs = (res.issues||[]).filter(x=>x.severity==='error').map(x=>x.message).join('\n');
+      cell.innerHTML = res.ok
+        ? `<span class="badge bg-success">✓ placed</span>`
+        : `<span class="badge bg-danger" title="${errs.replace(/"/g,'&quot;')}">✕ error</span>`;
+    }
+  });
+
+  document.getElementById('resultSummary').innerHTML =
+    `<div class="alert alert-${errors?'warning':'success'} py-2">
+       ✓ ${ok} placement(s) applied · ${errors} error(s)
+       ${errors?'<br><small>Hover ✕ badges for details.</small>':''}
+     </div>`;
+}
+
+render();
+</script>
+{% endblock %}

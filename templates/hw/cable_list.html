@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Cable Plant – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🔗 Cable Plant <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.hw_validate', pid=proj.id) }}" class="btn btn-sm btn-outline-warning">⚠ Validate</a>
+    <a href="{{ url_for('hw.add_cable', pid=proj.id) }}"   class="btn btn-sm btn-primary">+ Add Cable</a>
+  </div>
+</div>
+
+{% if cables %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-hover table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Asset Tag</th><th>Type</th><th>End A</th><th>End B</th>
+        <th>Length</th><th>Label</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for cable in cables %}
+      {% set has_issue = cable.id in cable_issue_ids %}
+      <tr class="{% if has_issue %}table-danger{% endif %}">
+        <td>
+          <code>{{ cable.asset_tag or cable.id }}</code>
+          {% if has_issue %}<span class="badge bg-danger ms-1">⚠</span>{% endif %}
+        </td>
+        <td>
+          {% if cable.template %}
+          <span class="badge bg-light text-dark border">{{ cable.template.get('cable_type','?') }}</span>
+          <small class="text-muted">{{ cable.template.name }}</small>
+          {% else %}—{% endif %}
+        </td>
+        <td class="small">
+          {% if cable.inst_a %}
+          <strong>{{ cable.inst_a.asset_tag }}</strong>
+          <span class="text-muted">/ {{ cable.end_a.get('port_id','?') }}</span>
+          {% else %}<span class="text-warning">unconnected</span>{% endif %}
+        </td>
+        <td class="small">
+          {% if cable.inst_b %}
+          <strong>{{ cable.inst_b.asset_tag }}</strong>
+          <span class="text-muted">/ {{ cable.end_b.get('port_id','?') }}</span>
+          {% else %}<span class="text-warning">unconnected</span>{% endif %}
+        </td>
+        <td class="small text-muted">{{ cable.length_m or '—' }}{% if cable.length_m %}m{% endif %}</td>
+        <td class="small text-muted">{{ cable.label or '—' }}</td>
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('hw.edit_cable', pid=proj.id, cid=cable.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" method="post" action="{{ url_for('hw.delete_cable_route', pid=proj.id, cid=cable.id) }}"
+                onsubmit="return confirm('Delete cable {{ cable.asset_tag }}?')">
+            <button class="btn btn-sm btn-outline-danger">Del</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No cables yet. <a href="{{ url_for('hw.add_cable', pid=proj.id) }}">Add one.</a>
+</div>
+{% endif %}
+{% endblock %}

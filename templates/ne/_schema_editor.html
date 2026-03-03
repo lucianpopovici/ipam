@@ -1,0 +1,121 @@
+{#
+  Reusable schema editor widget.
+  Include with: {% include 'ne/_schema_editor.html' %}
+  Expects context vars: entity, current_fields (list), field_types (tuple)
+  Emits a hidden input 'fields_json' with the JSON array on submit.
+#}
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>Fields for <code>{{ entity }}</code></strong>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addField_{{entity}}()">+ Add Field</button>
+  </div>
+  <div class="card-body p-0">
+    <div id="fieldList_{{entity}}">
+      {# rows rendered by JS #}
+    </div>
+  </div>
+  <div class="card-footer">
+    <input type="hidden" name="fields_json" id="fieldsJson_{{entity}}">
+    <input type="hidden" name="entity"      value="{{ entity }}">
+    <button type="submit" class="btn btn-sm btn-primary" onclick="prepareSubmit_{{entity}}()">
+      Save {{ entity }} schema
+    </button>
+    {% if show_reset %}
+    <button type="submit" name="reset_to_global" value="1" class="btn btn-sm btn-outline-secondary ms-2"
+            onclick="return confirm('Reset to global schema?')">
+      Reset to global
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  const ENTITY   = {{ entity | tojson }};
+  const FT       = {{ field_types | tojson }};
+  let   fields   = {{ current_fields | tojson }};
+
+  function uid(){ return Math.random().toString(36).slice(2,10); }
+
+  function addField_x(){
+    fields.push({id:uid(), name:'', label:'New Field', field_type:'text',
+                 required:false, options:[], default:''});
+    render();
+  }
+  window['addField_'+ENTITY] = addField_x;
+
+  function removeField(i){ fields.splice(i,1); render(); }
+  function moveField(i,d){
+    const j=i+d;
+    if(j<0||j>=fields.length) return;
+    [fields[i],fields[j]]=[fields[j],fields[i]]; render();
+  }
+  function updateF(i,k,v){ fields[i][k]=v; render(); }
+  function toggleRequired(i){ fields[i].required=!fields[i].required; render(); }
+
+  function render(){
+    const el = document.getElementById('fieldList_'+ENTITY);
+    if(!fields.length){
+      el.innerHTML='<p class="text-muted small p-3 mb-0">No fields defined.</p>';
+      return;
+    }
+    el.innerHTML = fields.map((f,i)=>`
+      <div class="border-bottom px-3 py-2 d-flex gap-2 align-items-start flex-wrap">
+        <div style="flex:1;min-width:120px">
+          <label class="form-label small mb-0">Label</label>
+          <input class="form-control form-control-sm" value="${esc(f.label)}"
+                 oninput="schemaFields_${ENTITY}[${i}].label=this.value">
+        </div>
+        <div style="flex:1;min-width:100px">
+          <label class="form-label small mb-0">Name (key)</label>
+          <input class="form-control form-control-sm" value="${esc(f.name)}"
+                 oninput="schemaFields_${ENTITY}[${i}].name=this.value">
+        </div>
+        <div style="width:120px">
+          <label class="form-label small mb-0">Type</label>
+          <select class="form-select form-select-sm"
+                  onchange="schemaFields_${ENTITY}[${i}].field_type=this.value; renderSchema_${ENTITY}()">
+            ${FT.map(t=>`<option value="${t}"${t===f.field_type?' selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        ${(f.field_type==='dropdown'||f.field_type==='multi-select')?`
+        <div style="flex:2;min-width:160px">
+          <label class="form-label small mb-0">Options (comma-sep)</label>
+          <input class="form-control form-control-sm" value="${esc((f.options||[]).join(','))}"
+                 oninput="schemaFields_${ENTITY}[${i}].options=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+        </div>`:''}
+        <div style="width:90px">
+          <label class="form-label small mb-0">Default</label>
+          <input class="form-control form-control-sm" value="${esc(f.default||'')}"
+                 oninput="schemaFields_${ENTITY}[${i}].default=this.value">
+        </div>
+        <div class="d-flex flex-column gap-1 pt-3">
+          <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="checkbox" ${f.required?'checked':''}
+                   onchange="schemaFields_${ENTITY}[${i}].required=this.checked">
+            <label class="form-check-label small">Req</label>
+          </div>
+        </div>
+        <div class="d-flex gap-1 pt-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveSchemaField_${ENTITY}(${i},-1)" ${i===0?'disabled':''}>↑</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveSchemaField_${ENTITY}(${i}, 1)" ${i===fields.length-1?'disabled':''}>↓</button>
+          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  onclick="removeSchemaField_${ENTITY}(${i})">✕</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+
+  // expose helpers with entity-namespaced names so multiple editors can coexist
+  window['schemaFields_'+ENTITY]        = fields;
+  window['renderSchema_'+ENTITY]        = render;
+  window['removeSchemaField_'+ENTITY]   = (i)=>{ fields.splice(i,1); render(); };
+  window['moveSchemaField_'+ENTITY]     = (i,d)=>{ const j=i+d; if(j>=0&&j<fields.length){[fields[i],fields[j]]=[fields[j],fields[i]]; render();} };
+  window['prepareSubmit_'+ENTITY]       = ()=>{ document.getElementById('fieldsJson_'+ENTITY).value=JSON.stringify(fields); };
+
+  render();
+})();
+</script>

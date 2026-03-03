@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+{% block title %}{{ proj.name }}{% endblock %}
+{% block content %}
+
+{# ── Header ── #}
+<div class="d-flex justify-content-between align-items-center mb-1">
+  <div>
+    <h4 class="mb-0">{{ proj.name }}</h4>
+    <span class="text-muted small">
+      <code>{{ proj.supernet }}</code>{% if proj.description %} · {{ proj.description }}{% endif %}
+    </span>
+  </div>
+  <div class="d-flex gap-2 flex-wrap justify-content-end">
+    <a href="{{ url_for('ipam.manage_project_labels',    pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🏷️ Labels</a>
+    <a href="{{ url_for('ipam.manage_project_templates', pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📐 Templates</a>
+    <a href="{{ url_for('ipam.add_subnet',               pid=proj.id) }}" class="btn btn-sm btn-primary">+ Add Subnet</a>
+    <a href="{{ url_for('ipam.bulk_add_subnets',         pid=proj.id) }}" class="btn btn-sm btn-outline-primary">⚡ Bulk Add</a>
+  </div>
+</div>
+
+{# Label legend #}
+{% if labels.project %}
+<div class="mb-2 mt-2">
+  <small class="text-muted">Project: </small>
+  {% for l in labels.project %}<span class="label-pill label-project">{{ l }}</span>{% endfor %}
+  <small class="text-muted ms-2">Global: </small>
+  {% for l in labels.global %}<span class="label-pill label-global">{{ l }}</span>{% endfor %}
+</div>
+{% endif %}
+
+{# ── Summary cards ── #}
+<div class="row g-3 mt-1 mb-2">
+  <div class="col-6 col-sm-3">
+    <div class="card shadow-sm text-center py-2 h-100">
+      <div class="fw-bold fs-5">{{ summary.total_ips | format_num }}</div>
+      <div class="text-muted small">Total IPs</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card shadow-sm text-center py-2 h-100">
+      <div class="fw-bold fs-5 text-primary">{{ summary.allocated_ips | format_num }}</div>
+      <div class="text-muted small">Allocated</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card shadow-sm text-center py-2 h-100">
+      <div class="fw-bold fs-5 text-success">{{ summary.free_ips | format_num }}</div>
+      <div class="text-muted small">Free</div>
+    </div>
+  </div>
+  <div class="col-6 col-sm-3">
+    <div class="card shadow-sm text-center py-2 h-100">
+      {% if summary.pending > 0 %}
+      <div class="fw-bold fs-5 text-warning">{{ summary.pending }}</div>
+      <div class="text-muted small">Pending slots</div>
+      {% else %}
+      <div class="fw-bold fs-5">{{ summary.subnet_count }}</div>
+      <div class="text-muted small">Subnets</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Master utilization bar ── #}
+{% set util = summary.utilization %}
+<div class="d-flex align-items-center gap-2 mb-1">
+  <div class="progress flex-fill" style="height:12px; border-radius:6px">
+    <div class="progress-bar
+      {% if util > 90 %}bg-danger{% elif util > 70 %}bg-warning{% else %}bg-success{% endif %}"
+      style="width:{{ util }}%"></div>
+  </div>
+  <span class="fw-semibold small
+    {% if util > 90 %}text-danger{% elif util > 70 %}text-warning{% else %}text-success{% endif %}"
+    style="min-width:3rem; text-align:right">{{ util }}%</span>
+</div>
+<div class="text-muted small mb-4">
+  {{ summary.allocated_ips | format_num }} of {{ summary.total_ips | format_num }} IPs used
+  · {{ summary.subnet_count }} subnet{% if summary.subnet_count != 1 %}s{% endif %}
+  {% if summary.pending > 0 %}
+  · <span class="text-warning fw-semibold">⏳ {{ summary.pending }} pending</span>
+  {% endif %}
+</div>
+
+{# ── Pool breakdown by label set ── #}
+{% if summary.pools %}
+<h6 class="mb-2">Pools by Label Set</h6>
+<div class="card shadow-sm mb-4">
+  <div class="table-responsive">
+  <table class="table table-sm table-hover mb-0 align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Label set</th>
+        <th class="text-end">Subnets</th>
+        <th class="text-end">Total</th>
+        <th class="text-end">Alloc</th>
+        <th class="text-end">Free</th>
+        <th style="min-width:100px">Utilization</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pool in summary.pools %}
+      <tr>
+        <td>
+          {% if pool.label_set %}
+            {% for l in pool.label_set %}
+              {% if l in labels.global %}
+                <span class="label-pill label-global">{{ l }}</span>
+              {% elif l in labels.project %}
+                <span class="label-pill label-project">{{ l }}</span>
+              {% else %}
+                <span class="label-pill label-unknown">{{ l }}</span>
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            <span class="text-muted fst-italic small">No labels</span>
+          {% endif %}
+          {% if pool.pending > 0 %}
+            <span class="badge bg-warning text-dark ms-1" title="{{ pool.pending }} pending slot(s)">⏳ {{ pool.pending }}</span>
+          {% endif %}
+        </td>
+        <td class="text-end text-muted small">{{ pool.subnet_count }}</td>
+        <td class="text-end small">{{ pool.total_ips | format_num }}</td>
+        <td class="text-end small text-primary">{{ pool.alloc_ips | format_num }}</td>
+        <td class="text-end small text-success">{{ pool.free_ips | format_num }}</td>
+        <td>
+          <div class="d-flex align-items-center gap-2">
+            <div class="progress flex-fill" style="height:6px; border-radius:3px">
+              <div class="progress-bar
+                {% if pool.utilization > 90 %}bg-danger{% elif pool.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+                style="width:{{ pool.utilization }}%"></div>
+            </div>
+            <small class="text-muted" style="min-width:2.8rem; text-align:right">{{ pool.utilization }}%</small>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Subnet list ── #}
+
+
+{# ── Hardware Management section ── #}
+<div class="card shadow-sm mt-2 mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <strong>🖥 Hardware</strong>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('hw.project_bom',         pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📋 BoM</a>
+      <a href="{{ url_for('hw.project_inventory',   pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📦 Inventory</a>
+      <a href="{{ url_for('hw.rack_list',           pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🗄 Racks</a>
+      <a href="{{ url_for('hw.cable_list',          pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🔗 Cables</a>
+      <a href="{{ url_for('hw.project_hw_templates',pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🖥 Templates</a>
+      <a href="{{ url_for('hw.hw_validate',         pid=proj.id) }}" class="btn btn-sm btn-outline-warning">⚠ Validate</a>
+    </div>
+  </div>
+</div>
+
+{# ── Network Elements section ── #}
+<div class="card shadow-sm mt-4 mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <strong>🔧 Network Elements</strong>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('ne.list_sites',          pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📍 Sites</a>
+      <a href="{{ url_for('ne.list_pods',           pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📦 PODs</a>
+      <a href="{{ url_for('ne.list_project_ne_types', pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🔧 NE Types</a>
+      <a href="{{ url_for('ne.project_schemas',     pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">⚙️ Schemas</a>
+      <a href="{{ url_for('ne.requirements',        pid=proj.id) }}" class="btn btn-sm btn-success">📋 Requirements</a>
+    </div>
+  </div>
+</div>
+
+{% if nets %}
+<h6 class="mb-2">All Subnets</h6>
+<div class="table-responsive">
+<table class="table table-hover bg-white shadow-sm rounded align-middle">
+  <thead class="table-light">
+    <tr>
+      <th>CIDR</th>
+      <th>Name</th>
+      <th>Labels</th>
+      <th class="text-end">Total</th>
+      <th class="text-end">Free</th>
+      <th style="min-width:110px">Utilization</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for n in nets %}
+    <tr>
+      <td><code>{{ n.cidr }}</code></td>
+      <td>
+        {{ n.name }}
+        {% if n.pending_slots %}
+          <span class="badge bg-warning text-dark ms-1" title="{{ n.pending_slots|length }} pending slot(s)">
+            ⏳ {{ n.pending_slots|length }}
+          </span>
+        {% endif %}
+      </td>
+      <td>
+        {% for l in n.labels %}
+          {% if l in labels.global %}
+            <span class="label-pill label-global">{{ l }}</span>
+          {% elif l in labels.project %}
+            <span class="label-pill label-project">{{ l }}</span>
+          {% else %}
+            <span class="label-pill label-unknown">{{ l }}</span>
+          {% endif %}
+        {% endfor %}
+      </td>
+      <td class="text-end small text-muted">{{ n.total_hosts | format_num }}</td>
+      <td class="text-end small text-success">{{ (n.total_hosts - n.used_count) | format_num }}</td>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <div class="progress flex-fill util-bar">
+            <div class="progress-bar
+              {% if n.utilization > 90 %}bg-danger{% elif n.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+              style="width:{{ n.utilization }}%"></div>
+          </div>
+          <small class="text-muted" style="min-width:2.8rem; text-align:right">{{ n.utilization }}%</small>
+        </div>
+      </td>
+      <td class="text-end text-nowrap">
+        <a href="{{ url_for('ipam.network_detail', net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">IPs</a>
+        <a href="{{ url_for('ipam.edit_network',   net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+        <form class="d-inline" action="{{ url_for('ipam.delete_network', net_id=n.id) }}" method="post"
+              onsubmit="return confirm('Delete subnet {{ n.cidr }}?')">
+          <button class="btn btn-sm btn-outline-danger">Del</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted text-center py-4">No subnets yet. Add one manually or use Bulk Add.</p>
+{% endif %}
+
+{% endblock %}

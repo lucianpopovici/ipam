@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}Subnet Templates{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">📐 Global Subnet Templates</h4>
+  <a href="{{ url_for('ipam.add_template') }}" class="btn btn-primary btn-sm">+ New Global Template</a>
+</div>
+<p class="text-muted small mb-4">
+  Global templates are available to all projects.
+  Project-scoped templates are managed from the project's own Templates page and are only visible within that project.
+</p>
+
+{% macro template_card(tmpl) %}
+<div class="card shadow-sm h-100">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span>
+      <strong>{{ tmpl.name }}</strong>
+      <span class="label-pill tmpl-{{ tmpl.scope }} ms-1">{{ tmpl.scope }}</span>
+    </span>
+    <span class="badge bg-secondary">{{ tmpl.rules | length }} rule{% if tmpl.rules|length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="card-body py-2">
+    {% if tmpl.description %}<p class="small text-muted mb-2">{{ tmpl.description }}</p>{% endif %}
+    <table class="table table-sm mb-0">
+      <thead class="table-light"><tr><th>Type</th><th>Position</th><th>Role</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for rule in tmpl.rules %}
+        <tr>
+          <td><code>{{ rule.type }}</code></td>
+          <td class="text-muted small">
+            {% if rule.type == 'from_start' %}offset {{ rule.offset }} from start
+            {% elif rule.type == 'from_end' %}last {{ rule.count }} address{% if rule.count != 1 %}es{% endif %}
+            {% elif rule.type == 'range' %}offsets {{ rule.from }}–{{ rule.to }}
+            {% endif %}
+          </td>
+          <td>{{ rule.role }}</td>
+          <td><span class="badge badge-{{ rule.status }}">{{ rule.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-footer d-flex gap-2 py-2">
+    <a href="{{ url_for('ipam.edit_template', tid=tmpl.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">Edit</a>
+    <form action="{{ url_for('ipam.delete_template_route', tid=tmpl.id) }}" method="post"
+          onsubmit="return confirm('Delete template \'{{ tmpl.name }}\'?')">
+      <button class="btn btn-sm btn-outline-danger">Delete</button>
+    </form>
+  </div>
+</div>
+{% endmacro %}
+
+{% if global_tmpl %}
+<div class="row g-3">
+  {% for tmpl in global_tmpl %}
+  <div class="col-md-6">{{ template_card(tmpl) }}</div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  No global templates yet. <a href="{{ url_for('ipam.add_template') }}">Create your first one.</a>
+</div>
+{% endif %}
+{% endblock %}

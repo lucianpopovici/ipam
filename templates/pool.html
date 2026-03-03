@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}Pool Query{% endblock %}
+{% block content %}
+<h4 class="mb-1">Pool Query by Labels</h4>
+<p class="text-muted small mb-3">
+  Enter one or more labels. Returns all subnets tagged with <strong>all</strong> of them,
+  then groups them by their <strong>exact label set</strong> and sums IP space per group.
+</p>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <form method="get" class="d-flex gap-2 align-items-end flex-wrap">
+      <div class="flex-fill">
+        <label class="form-label mb-1">Labels <span class="text-muted small">(comma-separated)</span></label>
+        <input type="text" name="labels" class="form-control" id="labelsInput"
+               value="{{ labels_param }}" placeholder="e.g. London, PROD">
+      </div>
+      <button type="submit" class="btn btn-primary">Query</button>
+    </form>
+    {% if labels %}
+    <div class="mt-2">
+      <small class="text-muted">All known labels:</small><br>
+      {% for l in labels %}
+      <span class="label-pill" style="cursor:pointer" onclick="addLabel('{{ l }}')">{{ l }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if result %}
+{# Top-level summary #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-4"><div class="card shadow-sm text-center py-2">
+    <div class="fw-bold fs-5">{{ result.total_ips }}</div>
+    <div class="text-muted small">Total IPs matched</div>
+  </div></div>
+  <div class="col-sm-4"><div class="card shadow-sm text-center py-2">
+    <div class="fw-bold fs-5">{{ result.subnet_count }}</div>
+    <div class="text-muted small">Matching Subnets</div>
+  </div></div>
+  <div class="col-sm-4"><div class="card shadow-sm text-center py-2">
+    <div class="fw-bold fs-5">{{ result.pools | length }}</div>
+    <div class="text-muted small">Distinct Pools</div>
+  </div></div>
+</div>
+
+{# Pool groups — each group = subnets sharing the SAME exact label set #}
+{% if result.pools %}
+<h6 class="mb-2">Pools (grouped by exact label set)</h6>
+{% for pool in result.pools %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <div>
+      {% if pool.label_set %}
+        {% for l in pool.label_set %}<span class="label-pill">{{ l }}</span>{% endfor %}
+      {% else %}
+        <span class="text-muted fst-italic">No labels</span>
+      {% endif %}
+    </div>
+    <div class="text-end">
+      <strong>{{ pool.total_ips }}</strong> IPs &nbsp;·&nbsp;
+      <span class="text-muted small">{{ pool.subnet_count }} subnet{% if pool.subnet_count != 1 %}s{% endif %}</span>
+    </div>
+  </div>
+  <div class="card-body py-2">
+    <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th>CIDR</th><th>Name</th><th>Project</th><th>IPs</th><th>Used</th></tr>
+      </thead>
+      <tbody>
+        {% for s in result.subnets if s.labels | sort == pool.label_set %}
+        <tr>
+          <td><code>{{ s.cidr }}</code></td>
+          <td><a href="{{ url_for('ipam.network_detail', net_id=s.id) }}">{{ s.name }}</a></td>
+          <td>{% if s.project_id %}<a href="{{ url_for('ipam.project_detail', pid=s.project_id) }}">{{ s.project_id }}</a>{% else %}—{% endif %}</td>
+          <td>{{ s.total_hosts + 2 }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-fill util-bar" style="min-width:50px">
+                <div class="progress-bar {% if s.utilization > 90 %}bg-danger{% elif s.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
+                     style="width:{{ s.utilization }}%"></div>
+              </div>
+              <small>{{ s.used_count }}</small>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<p class="text-muted text-center py-3">No subnets match all the given labels.</p>
+{% endif %}
+
+{% elif labels_param %}
+<p class="text-muted">No results.</p>
+{% endif %}
+
+<script>
+function addLabel(label) {
+  const inp = document.getElementById('labelsInput');
+  const existing = inp.value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!existing.includes(label)) { existing.push(label); inp.value = existing.join(', '); }
+}
+</script>
+{% endblock %}

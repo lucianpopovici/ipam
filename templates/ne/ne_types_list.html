@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block title %}NE Types{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  {% if proj %}
+  <div>
+    <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
+    <h4 class="mb-0 mt-1">NE Types <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  </div>
+  {% else %}
+  <h4 class="mb-0">🔧 Global NE Types</h4>
+  {% endif %}
+  <div class="d-flex gap-2">
+    {% if proj %}
+    <a href="{{ url_for('ne.add_ne_type', pid=proj.id) }}" class="btn btn-sm btn-primary">+ Project NE Type</a>
+    {% endif %}
+    <a href="{{ url_for('ne.add_ne_type') }}" class="btn btn-sm btn-outline-primary">+ Global NE Type</a>
+  </div>
+</div>
+
+{% macro ne_card(ne) %}
+<div class="card shadow-sm h-100">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <span>
+      <strong>{{ ne.name }}</strong>
+      <span class="badge bg-secondary ms-1">{{ ne.kind }}</span>
+      <span class="label-pill tmpl-{{ ne.scope }} ms-1">{{ ne.scope }}</span>
+    </span>
+    <span class="badge bg-light text-dark border">{{ ne.interfaces | length }} iface{% if ne.interfaces|length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="card-body py-2">
+    {% if ne.description %}<p class="small text-muted mb-2">{{ ne.description }}</p>{% endif %}
+    {% for l in ne.labels %}<span class="label-pill label-unknown">{{ l }}</span>{% endfor %}
+    {% if ne.interfaces %}
+    <table class="table table-sm mt-2 mb-0">
+      <thead class="table-light">
+        <tr><th>Interface</th><th>IPv4</th><th>IPv6</th><th>Sharing</th></tr>
+      </thead>
+      <tbody>
+        {% for iface in ne.interfaces %}
+        <tr>
+          <td><strong>{{ iface.name }}</strong>
+            {% for l in iface.labels %}<span class="label-pill label-unknown" style="font-size:.65rem">{{ l }}</span>{% endfor %}
+          </td>
+          <td>{% if iface.ipv4 %}<code>/{{ iface.ipv4.prefix_len }}</code>{% else %}—{% endif %}</td>
+          <td>{% if iface.ipv6 %}<code>/{{ iface.ipv6.prefix_len }}</code>{% else %}—{% endif %}</td>
+          <td><span class="badge bg-light text-dark border">{{ iface.sharing }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  <div class="card-footer d-flex gap-2 py-2">
+    <a href="{{ url_for('ne.edit_ne_type', tid=ne.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">Edit</a>
+    <form action="{{ url_for('ne.delete_ne_type_route', tid=ne.id) }}" method="post"
+          onsubmit="return confirm('Delete NE type \'{{ ne.name }}\'?')">
+      <button class="btn btn-sm btn-outline-danger">Delete</button>
+    </form>
+  </div>
+</div>
+{% endmacro %}
+
+{% if proj and project_types %}
+<h6 class="mb-2">🏷️ Project NE Types</h6>
+<div class="row g-3 mb-4">
+  {% for ne in project_types %}<div class="col-md-6">{{ ne_card(ne) }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<h6 class="mb-2">🌐 Global NE Types</h6>
+{% if global_types %}
+<div class="row g-3">
+  {% for ne in global_types %}<div class="col-md-6">{{ ne_card(ne) }}</div>{% endfor %}
+</div>
+{% else %}
+<div class="text-center py-4 text-muted">No global NE types yet. <a href="{{ url_for('ne.add_ne_type') }}">Create one.</a></div>
+{% endif %}
+{% endblock %}

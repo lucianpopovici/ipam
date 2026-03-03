@@ -1,0 +1,58 @@
+{#
+  Reusable macro: renders form fields for a given schema.
+  Usage: {% from 'ne/_param_fields.html' import param_fields %}
+         {{ param_fields(schema, values) }}
+  values: dict of field_id → current value (optional, for edit forms)
+#}
+{% macro param_fields(schema, values={}) %}
+{% for f in schema %}
+<div class="mb-3">
+  <label class="form-label">
+    {{ f.label }}{% if f.required %} <span class="text-danger">*</span>{% endif %}
+  </label>
+
+  {% set val = values.get(f.id, f.default) %}
+
+  {% if f.field_type == 'text' %}
+    <input type="text" name="{{ f.id }}" class="form-control"
+           value="{{ val }}" {% if f.required %}required{% endif %}>
+
+  {% elif f.field_type == 'number' %}
+    <input type="number" name="{{ f.id }}" class="form-control"
+           value="{{ val }}" {% if f.required %}required{% endif %}>
+
+  {% elif f.field_type == 'textarea' %}
+    <textarea name="{{ f.id }}" class="form-control" rows="3"
+              {% if f.required %}required{% endif %}>{{ val }}</textarea>
+
+  {% elif f.field_type == 'checkbox' %}
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="{{ f.id }}" id="cb_{{ f.id }}"
+             {% if val %}checked{% endif %}>
+      <label class="form-check-label" for="cb_{{ f.id }}">{{ f.label }}</label>
+    </div>
+
+  {% elif f.field_type == 'dropdown' %}
+    <select name="{{ f.id }}" class="form-select" {% if f.required %}required{% endif %}>
+      <option value="">— select —</option>
+      {% for opt in f.options %}
+        <option value="{{ opt }}" {% if opt == val %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+
+  {% elif f.field_type == 'multi-select' %}
+    <select name="{{ f.id }}" class="form-select" multiple
+            {% if f.required %}required{% endif %} size="{{ [f.options|length, 5]|min }}">
+      {% for opt in f.options %}
+        <option value="{{ opt }}"
+          {% if val is iterable and val is not string and opt in val %}selected{% endif %}>
+          {{ opt }}
+        </option>
+      {% endfor %}
+    </select>
+    <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+
+  {% endif %}
+</div>
+{% endfor %}
+{% endmacro %}

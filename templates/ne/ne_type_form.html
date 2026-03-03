@@ -1,0 +1,216 @@
+{% extends 'base.html' %}
+{% from 'ne/_param_fields.html' import param_fields %}
+{% block title %}{% if ne %}Edit NE Type{% else %}New NE Type{% endif %}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  {% if proj %}
+    <a href="{{ url_for('ne.list_project_ne_types', pid=proj.id) }}" class="text-muted small">← NE Types</a>
+  {% else %}
+    <a href="{{ url_for('ne.list_ne_types') }}" class="text-muted small">← NE Types</a>
+  {% endif %}
+</div>
+<h4 class="mb-3">{% if ne %}Edit: {{ ne.name }}{% else %}New NE Type{% endif %}</h4>
+
+<form method="post">
+<div class="row g-4">
+  {# ── Left: NE identity + params ── #}
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Identity</strong></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Name *</label>
+          <input type="text" name="name" class="form-control" required
+                 value="{{ ne.name if ne else '' }}" placeholder="e.g. Firewall-VNF">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Kind</label>
+          <select name="kind" class="form-select">
+            {% for k in ne_kinds %}
+            <option value="{{ k }}" {% if ne and ne.kind == k %}selected{% endif %}>{{ k }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <input type="text" name="description" class="form-control"
+                 value="{{ ne.description if ne else '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Labels <span class="text-muted small">(comma-separated)</span></label>
+          <input type="text" name="labels" id="labelsInput" class="form-control"
+                 value="{{ (ne.labels if ne else []) | join(', ') }}">
+        </div>
+      </div>
+    </div>
+
+    {% if ne_schema %}
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>NE Parameters</strong></div>
+      <div class="card-body">
+        {{ param_fields(ne_schema, ne.params if ne else {}) }}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ── Right: Interface builder ── #}
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Interfaces</strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInterface()">+ Add Interface</button>
+      </div>
+      <div class="card-body p-0" id="ifaceList"></div>
+    </div>
+    <input type="hidden" name="interfaces_json" id="ifacesJson">
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">Save NE Type</button>
+  <a href="{{ url_for('ne.list_project_ne_types', pid=proj.id) if proj else url_for('ne.list_ne_types') }}"
+     class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+
+<script>
+const SHARING_LEVELS = {{ sharing_levels | tojson }};
+const IFACE_SCHEMA   = {{ iface_schema | tojson }};
+let   ifaces         = {{ (ne.interfaces if ne else []) | tojson }};
+
+function newIface(){
+  return {
+    id: Math.random().toString(36).slice(2,10),
+    name:'', description:'', labels:[], params:{},
+    ipv4: null, ipv6: null, sharing:'interface'
+  };
+}
+
+function addInterface(){ ifaces.push(newIface()); render(); }
+function removeIface(i){ ifaces.splice(i,1); render(); }
+function moveIface(i,d){ const j=i+d; if(j>=0&&j<ifaces.length){[ifaces[i],ifaces[j]]=[ifaces[j],ifaces[i]]; render();} }
+
+function toggleSubnet(i, ver){
+  if(ifaces[i][ver]) ifaces[i][ver]=null;
+  else ifaces[i][ver]={prefix_len: ver==='ipv4'?24:64};
+  render();
+}
+
+function renderParamInputs(iface, i){
+  if(!IFACE_SCHEMA.length) return '';
+  return IFACE_SCHEMA.map(f => {
+    const v = (iface.params||{})[f.id] || f.default || '';
+    if(f.field_type==='checkbox') return `
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" id="ip_${i}_${f.id}"
+               onchange="ifaces[${i}].params['${f.id}']=this.checked"
+               ${v?'checked':''}>
+        <label class="form-check-label small" for="ip_${i}_${f.id}">${esc(f.label)}</label>
+      </div>`;
+    if(f.field_type==='dropdown') return `
+      <div class="mb-1"><label class="form-label small mb-0">${esc(f.label)}</label>
+      <select class="form-select form-select-sm"
+              onchange="ifaces[${i}].params['${f.id}']=this.value">
+        <option value="">—</option>
+        ${f.options.map(o=>`<option value="${esc(o)}"${o===v?' selected':''}>${esc(o)}</option>`).join('')}
+      </select></div>`;
+    return `
+      <div class="mb-1"><label class="form-label small mb-0">${esc(f.label)}</label>
+      <input class="form-control form-control-sm" value="${esc(v)}"
+             oninput="ifaces[${i}].params['${f.id}']=this.value"></div>`;
+  }).join('');
+}
+
+function render(){
+  const el = document.getElementById('ifaceList');
+  if(!ifaces.length){
+    el.innerHTML='<p class="text-muted small p-3 mb-0">No interfaces. Add one above.</p>';
+    return;
+  }
+  el.innerHTML = ifaces.map((iface,i)=>`
+    <div class="border-bottom p-3">
+      <div class="d-flex gap-2 align-items-start flex-wrap mb-2">
+        <div style="flex:1;min-width:120px">
+          <label class="form-label small mb-0">Name <span class="text-danger">*</span></label>
+          <input class="form-control form-control-sm" value="${esc(iface.name)}" required
+                 placeholder="e.g. mgmt"
+                 oninput="ifaces[${i}].name=this.value">
+        </div>
+        <div style="flex:2;min-width:140px">
+          <label class="form-label small mb-0">Description</label>
+          <input class="form-control form-control-sm" value="${esc(iface.description||'')}"
+                 oninput="ifaces[${i}].description=this.value">
+        </div>
+        <div style="flex:1;min-width:100px">
+          <label class="form-label small mb-0">Labels</label>
+          <input class="form-control form-control-sm" value="${esc((iface.labels||[]).join(','))}"
+                 placeholder="comma-sep"
+                 oninput="ifaces[${i}].labels=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+        </div>
+        <div class="d-flex gap-1 pt-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveIface(${i},-1)" ${i===0?'disabled':''}>↑</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveIface(${i}, 1)" ${i===ifaces.length-1?'disabled':''}>↓</button>
+          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  onclick="removeIface(${i})">✕</button>
+        </div>
+      </div>
+
+      <div class="d-flex gap-3 flex-wrap mb-2">
+        {# IPv4 subnet #}
+        <div>
+          <div class="form-check form-check-inline mb-1">
+            <input class="form-check-input" type="checkbox" id="ipv4_${i}"
+                   ${iface.ipv4?'checked':''}
+                   onchange="toggleSubnet(${i},'ipv4')">
+            <label class="form-check-label small" for="ipv4_${i}">IPv4 subnet</label>
+          </div>
+          ${iface.ipv4?`
+          <div class="input-group input-group-sm" style="width:110px">
+            <span class="input-group-text">/</span>
+            <input type="number" class="form-control" min="1" max="32"
+                   value="${iface.ipv4.prefix_len}"
+                   oninput="ifaces[${i}].ipv4={prefix_len:parseInt(this.value)||24}">
+          </div>`:''}
+        </div>
+        {# IPv6 subnet #}
+        <div>
+          <div class="form-check form-check-inline mb-1">
+            <input class="form-check-input" type="checkbox" id="ipv6_${i}"
+                   ${iface.ipv6?'checked':''}
+                   onchange="toggleSubnet(${i},'ipv6')">
+            <label class="form-check-label small" for="ipv6_${i}">IPv6 subnet</label>
+          </div>
+          ${iface.ipv6?`
+          <div class="input-group input-group-sm" style="width:120px">
+            <span class="input-group-text">/</span>
+            <input type="number" class="form-control" min="1" max="128"
+                   value="${iface.ipv6.prefix_len}"
+                   oninput="ifaces[${i}].ipv6={prefix_len:parseInt(this.value)||64}">
+          </div>`:''}
+        </div>
+        {# Sharing level #}
+        <div>
+          <label class="form-label small mb-0">Sharing</label>
+          <select class="form-select form-select-sm" style="width:120px"
+                  onchange="ifaces[${i}].sharing=this.value">
+            ${SHARING_LEVELS.map(s=>`<option value="${s}"${s===iface.sharing?' selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      ${IFACE_SCHEMA.length?`
+      <details class="mt-1"><summary class="small text-muted">Interface parameters</summary>
+        <div class="mt-2">${renderParamInputs(iface,i)}</div>
+      </details>`:''}
+    </div>`).join('');
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function prepareSubmit(){ document.getElementById('ifacesJson').value=JSON.stringify(ifaces); }
+
+render();
+</script>
+{% endblock %}

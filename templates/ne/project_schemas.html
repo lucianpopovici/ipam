@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Schemas – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-2">
+  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
+</div>
+<h4 class="mb-1">⚙️ Project Schemas <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+<p class="text-muted small mb-4">
+  Override global schemas for this project. Fields not overridden fall back to the global definition.
+</p>
+
+<ul class="nav nav-tabs mb-3" id="schemaTabs">
+  {% for entity in entity_types %}
+  <li class="nav-item">
+    <a class="nav-link {% if loop.first %}active{% endif %}"
+       data-bs-toggle="tab" href="#tab_{{ entity }}">
+       {{ entity | capitalize }}
+       {% set proj_has = schemas[entity] | length %}
+       {% if proj_has %}
+         <span class="badge bg-warning text-dark ms-1">override</span>
+       {% else %}
+         <span class="badge bg-secondary ms-1">global</span>
+       {% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content">
+  {% for entity in entity_types %}
+  <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="tab_{{ entity }}">
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <form method="post">
+          {% with current_fields=schemas[entity], show_reset=True %}
+            {% include 'ne/_schema_editor.html' %}
+          {% endwith %}
+        </form>
+      </div>
+      <div class="col-lg-5">
+        <div class="card bg-light border-0">
+          <div class="card-body">
+            <h6 class="mb-2 text-muted">🌐 Global definition (reference)</h6>
+            {% if global_schemas[entity] %}
+            <table class="table table-sm mb-0">
+              <thead class="table-light"><tr><th>Label</th><th>Type</th><th>Req</th></tr></thead>
+              <tbody>
+                {% for f in global_schemas[entity] %}
+                <tr>
+                  <td>{{ f.label }}</td>
+                  <td><code>{{ f.field_type }}</code></td>
+                  <td>{% if f.required %}✓{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <span class="text-muted small">No global fields defined.</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

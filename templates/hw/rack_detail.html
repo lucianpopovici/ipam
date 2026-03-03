@@ -1,0 +1,170 @@
+{% extends 'base.html' %}
+{% block title %}Rack: {{ view.rack_instance.asset_tag }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('hw.rack_list', pid=proj.id) }}" class="text-muted small">← Racks</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <div>
+    <h4 class="mb-0">🗄 {{ view.rack_instance.asset_tag }}</h4>
+    <span class="text-muted small">
+      {{ view.rack_template.name if view.rack_template else '' }}
+      · {{ view.rack_u }}U
+      · {{ view.rack_template.form_factor if view.rack_template else '' }}
+    </span>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.hw_validate', pid=proj.id) }}" class="btn btn-sm btn-outline-warning">⚠ Validate</a>
+  </div>
+</div>
+
+{% if issues %}
+<div class="alert alert-danger py-2 mb-3">
+  <strong>{{ issues|length }} issue(s) in this rack:</strong>
+  {% for iss in issues %}
+  <div class="small">{{ iss.severity | upper }}: {{ iss.message }}</div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="row g-4">
+  {# ── Visual rack diagram ── #}
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Visual Layout</strong>
+        <span class="text-muted small ms-2">(drag device to re-place)</span>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-bordered mb-0" id="rackTable"
+               style="font-size:.78rem; table-layout:fixed">
+          <colgroup>
+            <col style="width:40px">
+            <col>
+            <col style="width:90px">
+          </colgroup>
+          <tbody>
+            {% for row in view.rows %}
+            {% if row.type == 'device' and row.is_top %}
+            <tr class="rack-device"
+                draggable="true"
+                data-iid="{{ row.instance.id }}"
+                data-u="{{ row.u }}"
+                ondragstart="dragStart(event)"
+                style="background:#d1e7dd">
+              <td class="text-center text-muted fw-bold" rowspan="{{ row.u_size }}">{{ row.u }}</td>
+              <td rowspan="{{ row.u_size }}" class="align-middle">
+                <strong>{{ row.instance.asset_tag }}</strong><br>
+                <span class="text-muted" style="font-size:.7rem">
+                  {{ row.template.name if row.template else '' }}
+                  ({{ row.u_size }}U)
+                </span>
+              </td>
+              <td rowspan="{{ row.u_size }}" class="align-middle text-end">
+                <form method="post" action="{{ url_for('hw.remove_from_rack_route', pid=proj.id, rack_iid=view.rack_instance.id) }}">
+                  <input type="hidden" name="instance_id" value="{{ row.instance.id }}">
+                  <button class="btn btn-sm btn-outline-danger py-0">↑ Remove</button>
+                </form>
+              </td>
+            </tr>
+            {% elif row.type == 'empty' %}
+            <tr class="rack-empty"
+                data-u="{{ row.u }}"
+                ondragover="event.preventDefault()"
+                ondrop="dropHere(event, {{ row.u }})"
+                style="background:#f8f9fa; height:22px">
+              <td class="text-center text-muted" style="font-size:.7rem">{{ row.u }}</td>
+              <td colspan="2" class="text-muted" style="font-size:.7rem">— empty —</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Place device panel ── #}
+  <div class="col-lg-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Place Device</strong></div>
+      <div class="card-body">
+        {% if unplaced %}
+        <form method="post" action="{{ url_for('hw.place_device', pid=proj.id, rack_iid=view.rack_instance.id) }}"
+              class="d-flex gap-2 align-items-end">
+          <div class="flex-fill">
+            <label class="form-label small mb-1">Device</label>
+            <select name="instance_id" class="form-select form-select-sm">
+              {% for inst in unplaced %}
+              <option value="{{ inst.id }}">
+                {{ inst.asset_tag }}
+                ({{ inst.template.name if inst.template else '?' }}
+                 · {{ inst.template.u_size if inst.template else '?' }}U)
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="width:80px">
+            <label class="form-label small mb-1">U position</label>
+            <input type="number" name="u_pos" class="form-control form-control-sm"
+                   min="1" max="{{ view.rack_u }}" value="1">
+          </div>
+          <button class="btn btn-sm btn-primary">Place</button>
+        </form>
+        {% else %}
+        <p class="text-muted small mb-0">All devices are placed or no unplaced devices available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Placed devices summary #}
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Placed Devices</strong></div>
+      <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr><th>U</th><th>Asset Tag</th><th>Template</th><th>Size</th></tr>
+        </thead>
+        <tbody>
+          {% for row in view.rows %}
+          {% if row.type == 'device' and row.is_top %}
+          <tr>
+            <td class="fw-bold">{{ row.u }}</td>
+            <td><code>{{ row.instance.asset_tag }}</code></td>
+            <td class="small text-muted">{{ row.template.name if row.template else '?' }}</td>
+            <td>{{ row.u_size }}U</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let dragIid = null;
+
+function dragStart(e){
+  dragIid = e.currentTarget.dataset.iid;
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function dropHere(e, uPos){
+  e.preventDefault();
+  if(!dragIid) return;
+  fetch(`/api/projects/{{ proj.id }}/hw/racks/{{ view.rack_instance.id }}/place`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({instance_id: dragIid, u_pos: uPos})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if(d.ok){
+      location.reload();
+    } else {
+      const errs = d.issues.filter(i=>i.severity==='error').map(i=>i.message).join('\n');
+      alert('Cannot place here:\n' + errs);
+    }
+  });
+}
+</script>
+{% endblock %}

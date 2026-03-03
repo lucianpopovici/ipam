@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}HW Templates – {{ proj.name }}{% endblock %}
+{% block content %}
+<div class="mb-1"><a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a></div>
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🖥 Hardware Templates <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <a href="{{ url_for('hw.add_hw_template', pid=proj.id) }}" class="btn btn-sm btn-primary">+ Project Template</a>
+</div>
+
+{% set cat_icons = {'server':'🖥','switch':'🔀','router':'🌐','pdu':'⚡','rack':'🗄','cable':'🔗','other':'📦'} %}
+
+{% macro tmpl_table(tmpls, editable) %}
+{% for cat in categories %}
+{% set ct = tmpls | selectattr('category','equalto',cat) | list %}
+{% if ct %}
+<h6 class="mb-1 mt-3 text-uppercase text-muted small">{{ cat_icons.get(cat,'📦') }} {{ cat }}</h6>
+<div class="card shadow-sm mb-2">
+  <div class="table-responsive">
+  <table class="table table-sm table-hover align-middle mb-0">
+    <thead class="table-light">
+      <tr><th>Name</th><th>Vendor/Model</th><th>FF</th><th>U</th><th>Ports</th>{% if editable %}<th></th>{% endif %}</tr>
+    </thead>
+    <tbody>
+      {% for t in ct %}
+      <tr>
+        <td><strong>{{ t.name }}</strong></td>
+        <td class="small text-muted">{{ t.vendor or '' }} {{ t.model or '' }}</td>
+        <td><span class="badge bg-light text-dark border">{{ t.form_factor }}</span></td>
+        <td class="text-center small">{{ t.u_size or '—' }}</td>
+        <td>
+          {% for p in t.ports[:3] %}
+          <span class="badge bg-light text-dark border" style="font-size:.6rem">{{ p.count }}×{{ p.connector }}</span>
+          {% endfor %}
+          {% if t.ports|length > 3 %}<span class="text-muted" style="font-size:.7rem">+{{ t.ports|length-3 }}</span>{% endif %}
+        </td>
+        {% if editable %}
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('hw.edit_hw_template', tid=t.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_template_route', tid=t.id) }}"
+                onsubmit="return confirm('Delete?')">
+            <button class="btn btn-sm btn-outline-danger">Del</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endmacro %}
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <h6 class="mb-2">🏷️ Project Templates (editable)</h6>
+    {% if project_tmpls %}
+      {{ tmpl_table(project_tmpls, True) }}
+    {% else %}
+      <p class="text-muted small">No project-specific templates.
+        <a href="{{ url_for('hw.add_hw_template', pid=proj.id) }}">Add one.</a></p>
+    {% endif %}
+  </div>
+  <div class="col-lg-5">
+    <h6 class="mb-2">🌐 Global Templates (read-only reference)</h6>
+    {{ tmpl_table(global_tmpls, False) }}
+  </div>
+</div>
+{% endblock %}
