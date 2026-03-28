@@ -13,13 +13,15 @@ def format_num(value):
     except (ValueError, TypeError):
         return value
 
-from ipam import ipam_bp
-from ne   import ne_bp
-from hw   import hw_bp
+from ipam   import ipam_bp
+from ne     import ne_bp
+from hw     import hw_bp
+from vmware import vmware_bp
 
 app.register_blueprint(ipam_bp)
 app.register_blueprint(ne_bp)
 app.register_blueprint(hw_bp)
+app.register_blueprint(vmware_bp)
 
 if __name__ == '__main__':
     app.run(host='192.168.56.107',debug=True)

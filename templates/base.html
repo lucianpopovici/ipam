@@ -48,6 +48,7 @@
       <a class="nav-link text-white-50" href="{{ url_for('ne.admin_schemas') }}">⚙️ Schemas</a>
       <a class="nav-link text-white-50" href="{{ url_for('hw.hw_templates_list') }}">🖥 HW Templates</a>
       <a class="nav-link text-white-50" href="{{ url_for('hw.hw_connectors') }}">🔌 Connectors</a>
+      <a class="nav-link text-white-50" href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a>
     </div>
     <form class="d-flex" action="{{ url_for('ipam.search') }}" method="get">
       <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="Search IP / hostname…">
