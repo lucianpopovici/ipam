@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}VMware Connector{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">VMware IP Connector</h4>
+  <span class="text-muted small">Manage which subnets expose IPs to VMware environments</span>
+</div>
+
+<!-- API reference card -->
+<div class="card mb-4 border-0 shadow-sm">
+  <div class="card-header bg-dark text-white py-2">
+    <strong>REST API</strong>
+    <span class="text-white-50 ms-2 small">Base URL: <code class="text-warning">/api/vmware</code></span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+      </thead>
+      <tbody class="font-monospace small">
+        <tr>
+          <td><span class="badge bg-success">GET</span></td>
+          <td>/api/vmware/networks</td>
+          <td class="font-monospace-reset text-muted">List all enabled subnets</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-primary">POST</span></td>
+          <td>/api/vmware/networks/&lt;net_id&gt;/allocate</td>
+          <td class="font-monospace-reset text-muted">Allocate next available IP — body: <code>{"vm_name","datacenter","cluster"}</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-success">GET</span></td>
+          <td>/api/vmware/networks/&lt;net_id&gt;/ips</td>
+          <td class="font-monospace-reset text-muted">List VMware-allocated IPs in a subnet</td>
+        </tr>
+        <tr>
+          <td><span class="badge bg-danger">DELETE</span></td>
+          <td>/api/vmware/ip/&lt;ip&gt;/release</td>
+          <td class="font-monospace-reset text-muted">Release a VMware-allocated IP</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Subnet table -->
+{% if networks %}
+<div class="card border-0 shadow-sm">
+  <div class="card-header py-2">
+    <strong>Subnets</strong>
+    <span class="badge bg-secondary ms-2">{{ networks|length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Subnet</th>
+          <th>Name</th>
+          <th>Project</th>
+          <th>Utilisation</th>
+          <th>VMware Allocs</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for net in networks %}
+        <tr>
+          <td><code>{{ net.cidr }}</code></td>
+          <td>{{ net.name }}</td>
+          <td>
+            <a href="{{ url_for('ipam.project_detail', pid=net.project_id) }}" class="text-decoration-none">
+              {{ net.project_name }}
+            </a>
+          </td>
+          <td style="min-width:120px">
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-grow-1 util-bar" style="height:6px">
+                <div class="progress-bar {% if net.utilization > 80 %}bg-danger{% elif net.utilization > 50 %}bg-warning{% else %}bg-success{% endif %}"
+                     style="width:{{ net.utilization }}%"></div>
+              </div>
+              <span class="text-muted small">{{ net.utilization }}%</span>
+            </div>
+          </td>
+          <td>
+            {% if net.vmware_allocs %}
+              <span class="badge bg-primary">{{ net.vmware_allocs|length }}</span>
+              <button class="btn btn-link btn-sm p-0 ms-1 text-decoration-none"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#allocs-{{ net.id }}">
+                details
+              </button>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if net.vmware_enabled %}
+              <span class="badge bg-success">enabled</span>
+            {% else %}
+              <span class="badge bg-secondary">disabled</span>
+            {% endif %}
+          </td>
+          <td class="text-end">
+            {% if net.vmware_enabled %}
+              <form method="post" action="{{ url_for('vmware.disable_network_route', net_id=net.id) }}" class="d-inline">
+                <button class="btn btn-sm btn-outline-secondary">Disable</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('vmware.enable_network_route', net_id=net.id) }}" class="d-inline">
+                <button class="btn btn-sm btn-outline-success">Enable</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% if net.vmware_allocs %}
+        <tr class="collapse" id="allocs-{{ net.id }}">
+          <td colspan="7" class="bg-light py-2 px-4">
+            <table class="table table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>IP</th><th>VM Name</th><th>Datacenter</th><th>Cluster</th><th>Allocated At</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for alloc in net.vmware_allocs %}
+                <tr>
+                  <td><code>{{ alloc.ip }}</code></td>
+                  <td>{{ alloc.vm_name or '—' }}</td>
+                  <td>{{ alloc.datacenter or '—' }}</td>
+                  <td>{{ alloc.cluster or '—' }}</td>
+                  <td class="text-muted small">{{ alloc.allocated_at }}</td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="releaseIP('{{ alloc.ip }}')">Release</button>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+  No subnets found. <a href="{{ url_for('ipam.index') }}">Create a project and subnet first</a>, then enable it for VMware here.
+</div>
+{% endif %}
+
+<script>
+function releaseIP(ip) {
+  if (!confirm('Release ' + ip + ' from VMware? The IP will be freed in IPAM.')) return;
+  fetch('/api/vmware/ip/' + ip + '/release', {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+      if (data.released) { location.reload(); }
+      else { alert('Error: ' + (data.error || 'Unknown error')); }
+    });
+}
+</script>
+{% endblock %}
