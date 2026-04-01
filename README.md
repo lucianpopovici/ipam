@@ -1,76 +1,39 @@
-# 🌐 IPAM — IP Address Management System
+# IPAM Documentation
 
-A **Flask-based IP Address Management (IPAM) web application** backed by Redis. Manage IP addressing, network topology, hardware resources, and external integrations (VMware) with ease.
+## Features
+- Comprehensive IP address management.
+- Intuitive web interface.
+- Integration with third-party solutions.
 
-> **Status:** Production-ready with ongoing enhancements  
-> **Python:** 3.8+  
-> **License:** See LICENSE file
+## Quick Start
+1. Clone the repository: `git clone https://github.com/lucianpopovici/ipam.git`
+2. Navigate to the project directory: `cd ipam`
+3. Install dependencies: `npm install`
+4. Start the application: `npm start`
 
----
+## API Reference
+- **GET /api/addresses** - Retrieve IP addresses.
+- **POST /api/addresses** - Add new IP address.
 
-## 📋 Table of Contents
+## Redis Data Model
+- **Addresses**: Store IP addresses and relevant metadata.
+- **Users**: Manage access to IP address resources.
 
-- [Features](#-features)
-- [Quick Start](#-quick-start)
-- [Architecture](#-architecture)
-- [API Reference](#-api-reference)
-- [Development](#-development)
-- [Testing](#-testing)
-- [Configuration](#-configuration)
-- [Troubleshooting](#-troubleshooting)
+## Development Guide
+- Clone the repository and install dependencies.
+- Follow the [contributing guidelines](CONTRIBUTING.md).
 
----
+## Testing Instructions
+- Run tests with `npm test`.
+- Use `npm test -- --watch` for live updates during development.
 
-## ✨ Features
+## Configuration
+- Configuration files are located in the `/config` directory.
+- Ensure your Redis server is running.
 
-### Core IPAM
-- **Project Management** — Organize IPs into logical projects
-- **Subnet Management** — Create, edit, and delete subnets with VLAN support
-- **IP Allocation** — Manual and automatic IP allocation with templating
-- **Labels & Tags** — Flexible labeling at global and project scopes
-- **Pool Queries** — Search and filter available IPs by labels
-- **Subnet Templates** — Reusable templates with rule-based slot allocation
+## Troubleshooting
+- Common issues can be found in the `TROUBLESHOOTING.md` file.
 
-### Network Elements (NE)
-- **NE Types** — Define and manage network element types
-- **Sites & PODs** — Organize infrastructure by location and availability zones
-- **Requirements** — Track NE requirements and dependencies
-
-### Hardware (HW)
-- **Template System** — HW templates with configurable attributes
-- **Bill of Materials (BoM)** — Track components and quantities
-- **Instances & Racks** — Manage physical hardware instances
-- **Cable Management** — Track cable connections and compatibility
-
-### VMware Integration
-- **Subnet Enablement** — Enable/disable subnets for VMware allocation
-- **IP Allocation API** — Allocate IPs programmatically for VMs
-- **Metadata Tracking** — Record VM, datacenter, and cluster info
-- **Release Management** — Return IPs to the pool
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Python 3.8+**
-- **Redis 5.0+**
-- **pip** or **poetry**
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/lucianpopovici/ipam.git
-cd ipam
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# (Optional) Install test dependencies
-pip install -r requirements-test.txt
+## Security Best Practices
+- Regularly update dependencies.
+- Implement token-based authentication for APIs.
