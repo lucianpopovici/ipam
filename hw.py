@@ -6,7 +6,7 @@ Covers: connector types, compatibility matrix, hardware templates,
 """
 from flask import (Blueprint, render_template, request, jsonify,
                    redirect, url_for, flash, abort)
-import json, uuid, math
+import json, uuid
 from db import r
 
 hw_bp = Blueprint('hw', __name__, url_prefix='')
@@ -482,8 +482,10 @@ def validate_project(pid: str) -> list:
     issues = []
     seed_connectors()
 
-    cables    = project_cables(pid)
+    cables = project_cables(pid)
     used_ports = _used_ports(pid)
+    if used_ports:
+        pass
 
     # ── Cable validation ──────────────────────────────────────────────────────
     seen_cable_ends = {}
@@ -554,8 +556,8 @@ def validate_project(pid: str) -> list:
             if key in seen_cable_ends:
                 inst = get_hw_instance(key[0])
                 issues.append(_issue('error', 'PORT_DOUBLE_CONNECTED',
-                    f'Port already used by cable '
-                    f'{seen_cable_ends[key]} and {cable["asset_tag"]}',
+                    f'Cable {cable["asset_tag"]} end {end_name} port already used by cable '
+                    f'{seen_cable_ends[key]}',
                     {'cable': cid,
                      'device': inst['asset_tag'] if inst else key[0]}))
             else:
@@ -744,19 +746,21 @@ def edit_hw_template(tid):
 @hw_bp.route('/hw/templates/<tid>/delete', methods=['POST'])
 def delete_hw_template_route(tid):
     tmpl = get_hw_template(tid)
-    if not tmpl: abort(404)
+    if not tmpl:
+        abort(404)
     pid = tmpl.get('project_id') or None
     delete_hw_template(tid)
     flash(f'Template "{tmpl["name"]}" deleted.', 'info')
-    return redirect(url_for('hw.project_hw_templates', pid=pid) if pid
+    return redirect(url_for('hw.project_hw_templates_route', pid=pid) if pid
                     else url_for('hw.hw_templates_list'))
 
 
 @hw_bp.route('/projects/<pid>/hw/templates')
-def project_hw_templates(pid):
+def project_hw_templates_route(pid):
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     return render_template('hw/project_templates.html',
                            proj=proj,
                            global_tmpls=global_hw_templates(),
