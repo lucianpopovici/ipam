@@ -8,8 +8,8 @@
 ## Quick Start
 1. Clone the repository: `git clone https://github.com/lucianpopovici/ipam.git`
 2. Navigate to the project directory: `cd ipam`
-3. Install dependencies: `npm install`
-4. Start the application: `npm start`
+3. Install dependencies: `pip  install -r requirements.txt`
+4. Start the application: `python app py`
 
 ## API Reference
 - **GET /api/addresses** - Retrieve IP addresses.
