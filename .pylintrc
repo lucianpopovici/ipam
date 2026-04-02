@@ -1,0 +1,29 @@
+[MASTER]
+jobs=4
+extension-pkg-whitelist=redis,flask
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    too-many-arguments,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    fixme,
+    import-outside-toplevel,
+    broad-except,
+
+[FORMAT]
+max-line-length=120
+indent-string='    '
+
+[DESIGN]
+max-attributes=10
+max-args=7
+max-locals=15
+
+[BASIC]
+good-names=i,j,k,ex,Run,_
+
+[PYLINT]
+unsafe-load-any-extension=True
