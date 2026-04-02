@@ -25,12 +25,14 @@ from vmware import (
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _make_project(supernet='10.0.0.0/16'):
+    """Create and save a project for testing."""
     pid = new_id()
     save_project({'id': pid, 'name': 'Test', 'supernet': supernet, 'description': ''})
     return pid
 
 
 def _make_network(pid, cidr='10.0.1.0/24'):
+    """Create and save a network for testing."""
     nid = new_id()
     net = {'id': nid, 'name': cidr, 'cidr': cidr, 'description': '',
            'vlan': '', 'project_id': pid, 'pending_slots': []}
@@ -44,7 +46,10 @@ def _make_network(pid, cidr='10.0.1.0/24'):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestEnableDisable:
+    """Test enabling and disabling networks for VMware."""
+
     def test_enable_adds_to_set(self):
+        """Test enabling a network adds it to the Redis set."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -52,17 +57,20 @@ class TestEnableDisable:
         assert _vmware.r.sismember(VMWARE_SUBNETS_KEY, nid)
 
     def test_is_enabled_true_after_enable(self):
+        """Test is_enabled returns True after enabling."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
         assert is_enabled(nid) is True
 
     def test_is_enabled_false_before_enable(self):
+        """Test is_enabled returns False before enabling."""
         pid = _make_project()
         nid = _make_network(pid)
         assert is_enabled(nid) is False
 
     def test_disable_removes_from_set(self):
+        """Test disabling a network removes it from the Redis set."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -70,6 +78,7 @@ class TestEnableDisable:
         assert is_enabled(nid) is False
 
     def test_enabled_network_ids_returns_all(self):
+        """Test enabled_network_ids returns all enabled networks."""
         pid  = _make_project()
         nid1 = _make_network(pid, '10.0.1.0/24')
         nid2 = _make_network(pid, '10.0.2.0/24')
@@ -79,6 +88,7 @@ class TestEnableDisable:
         assert nid1 in ids and nid2 in ids
 
     def test_enabled_networks_returns_sorted_list(self):
+        """Test enabled_networks returns networks sorted by CIDR."""
         pid  = _make_project()
         nid1 = _make_network(pid, '10.0.2.0/24')
         nid2 = _make_network(pid, '10.0.1.0/24')
@@ -94,7 +104,10 @@ class TestEnableDisable:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAllocCRUD:
+    """Test CRUD operations for VMware IP allocations."""
+
     def _alloc(self, ip='10.0.1.5', net_id='net1'):
+        """Helper to create a sample allocation dict."""
         return {
             'ip': ip, 'network_id': net_id, 'cidr': '10.0.1.0/24',
             'vm_name': 'vm-01', 'datacenter': 'DC1', 'cluster': 'C1',
@@ -102,20 +115,24 @@ class TestAllocCRUD:
         }
 
     def test_save_and_get(self):
+        """Test saving and retrieving an allocation."""
         a = self._alloc()
         save_vmware_alloc(a)
         assert get_vmware_alloc('10.0.1.5') == a
 
     def test_get_missing_returns_none(self):
+        """Test retrieving a missing allocation returns None."""
         assert get_vmware_alloc('1.2.3.4') is None
 
     def test_save_adds_to_net_ips_set(self):
+        """Test saving an allocation adds the IP to the network's set."""
         a = self._alloc()
         save_vmware_alloc(a)
         import vmware as _vmware
         assert _vmware.r.sismember(_net_ips_key('net1'), '10.0.1.5')
 
     def test_delete_removes_key_and_set_member(self):
+        """Test deleting an allocation removes both metadata and set membership."""
         a = self._alloc()
         save_vmware_alloc(a)
         delete_vmware_alloc('10.0.1.5', 'net1')
@@ -124,6 +141,7 @@ class TestAllocCRUD:
         assert not _vmware.r.sismember(_net_ips_key('net1'), '10.0.1.5')
 
     def test_network_vmware_ips_sorted(self):
+        """Test network_vmware_ips returns allocations sorted by IP."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         for ip in ['10.0.1.10', '10.0.1.2', '10.0.1.5']:
@@ -140,12 +158,16 @@ class TestAllocCRUD:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestFindNextAvailable:
+    """Test the internal _find_next_available IP logic."""
+
     def test_returns_first_host(self):
+        """Test it returns the first usable host IP in a subnet."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         assert _find_next_available(nid) == '10.0.1.1'
 
     def test_skips_allocated_ips(self):
+        """Test it skips IPs already allocated in IPAM."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         from ipam import save_ip, net_ips_key
@@ -154,6 +176,7 @@ class TestFindNextAvailable:
         assert _find_next_available(nid) == '10.0.1.2'
 
     def test_skips_pending_slots(self):
+        """Test it skips IPs reserved in pending slots."""
         pid = _make_project()
         nid = new_id()
         net = {'id': nid, 'name': 'n', 'cidr': '10.0.1.0/24', 'description': '',
@@ -163,6 +186,7 @@ class TestFindNextAvailable:
         assert _find_next_available(nid) == '10.0.1.2'
 
     def test_returns_none_when_exhausted(self):
+        """Test it returns None when no IPs are available in the subnet."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/30')
         # /30 has 2 usable hosts: .1 and .2
@@ -173,6 +197,7 @@ class TestFindNextAvailable:
         assert _find_next_available(nid) is None
 
     def test_returns_none_for_missing_network(self):
+        """Test it returns None if the network does not exist."""
         assert _find_next_available('nonexistent') is None
 
 
@@ -181,7 +206,10 @@ class TestFindNextAvailable:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAllocateIP:
+    """Test public allocate_ip function."""
+
     def test_allocates_first_available(self):
+        """Test it allocates the first available IP."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -191,6 +219,7 @@ class TestAllocateIP:
         assert alloc['network_id'] == nid
 
     def test_allocate_registers_in_ipam(self):
+        """Test it registers the allocated IP in IPAM."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -201,6 +230,7 @@ class TestAllocateIP:
         assert ip_rec['status'] == 'allocated'
 
     def test_allocate_stores_vmware_metadata(self):
+        """Test it stores VMware-specific metadata for the allocation."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -208,6 +238,7 @@ class TestAllocateIP:
         assert get_vmware_alloc(alloc['ip']) is not None
 
     def test_allocate_advances_pointer(self):
+        """Test it allocates sequential IPs on successive calls."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -217,17 +248,20 @@ class TestAllocateIP:
         assert ipaddress.ip_address(a1['ip']) < ipaddress.ip_address(a2['ip'])
 
     def test_raises_when_not_enabled(self):
+        """Test it raises ValueError if the network is not enabled for VMware."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         with pytest.raises(ValueError, match='not enabled'):
             allocate_ip(nid)
 
     def test_raises_when_network_missing(self):
+        """Test it raises ValueError if the network does not exist."""
         enable_network('ghost')
         with pytest.raises(ValueError, match='not found'):
             allocate_ip('ghost')
 
     def test_raises_when_exhausted(self):
+        """Test it raises ValueError if the network has no available IPs."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/30')
         enable_network(nid)
@@ -237,6 +271,7 @@ class TestAllocateIP:
             allocate_ip(nid, vm_name='vm-03')
 
     def test_allocated_at_present(self):
+        """Verify the allocated_at timestamp is present."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -244,6 +279,7 @@ class TestAllocateIP:
         assert 'allocated_at' in alloc and alloc['allocated_at']
 
     def test_hostname_set_from_vm_name(self):
+        """Test it sets the IPAM hostname from the VM name."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -257,7 +293,10 @@ class TestAllocateIP:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestReleaseIP:
+    """Test public release_ip function."""
+
     def test_release_removes_from_ipam(self):
+        """Test it removes the IP from IPAM when released."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -268,6 +307,7 @@ class TestReleaseIP:
         assert get_ip(ip) is None
 
     def test_release_removes_vmware_metadata(self):
+        """Test it removes VMware-specific metadata when released."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -277,9 +317,11 @@ class TestReleaseIP:
         assert get_vmware_alloc(ip) is None
 
     def test_release_returns_false_for_nonexistent(self):
+        """Test it returns False when releasing an IP that was not allocated."""
         assert release_ip('1.2.3.4') is False
 
     def test_released_ip_can_be_reallocated(self):
+        """Test that a released IP becomes available for future allocations."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)

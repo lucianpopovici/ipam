@@ -1,7 +1,4 @@
 """
-
-pytestmark = pytest.mark.api
-
 API tests for ne.py routes using Flask test client.
 """
 import json
@@ -16,12 +13,14 @@ from ne import (
     load_requirements,
 )
 
+pytestmark = pytest.mark.api
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _create_project(client, supernet='10.0.0.0/8'):
+    """Create a test project and return its ID."""
     resp = client.post('/projects/add', data={
         'name': 'NE Test Project', 'supernet': supernet, 'description': '',
     }, follow_redirects=False)
@@ -29,6 +28,7 @@ def _create_project(client, supernet='10.0.0.0/8'):
 
 
 def _ne_type_data(pid='', kind='PNF', scope='global'):
+    """Return a standard NE type data dict."""
     return {
         'name':        'Test Router',
         'kind':        kind,
@@ -56,10 +56,14 @@ def _ne_type_data(pid='', kind='PNF', scope='global'):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAdminSchemas:
+    """Test suite for administrative schema routes."""
+
     def test_schemas_page_200(self, client):
+        """Verify schemas page loads."""
         assert client.get('/admin/schemas').status_code == 200
 
     def test_save_global_schema(self, client):
+        """Verify saving a global schema."""
         fields = json.dumps([{
             'id': 'f1', 'name': 'region', 'label': 'Region',
             'field_type': 'text', 'required': False, 'options': [], 'default': '',
@@ -73,16 +77,19 @@ class TestAdminSchemas:
         assert schema[0]['label'] == 'Region'
 
     def test_invalid_json_rejected(self, client):
+        """Verify invalid schema JSON is rejected."""
         resp = client.post('/admin/schemas', data={
             'entity': 'site', 'fields_json': 'not-json',
         }, follow_redirects=True)
         assert b'invalid' in resp.data.lower()
 
     def test_project_schemas_page_200(self, client):
+        """Verify project schemas page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/schemas').status_code == 200
 
     def test_save_project_schema(self, client):
+        """Verify saving a project-specific schema."""
         pid    = _create_project(client)
         fields = json.dumps([{
             'id': 'f2', 'name': 'site_code', 'label': 'Site Code',
@@ -98,6 +105,7 @@ class TestAdminSchemas:
 
 
 def get_schema_direct(entity):
+    """Helper to get a global schema."""
     from ne import get_schema
     return get_schema(entity)
 
@@ -107,19 +115,25 @@ def get_schema_direct(entity):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestNETypes:
+    """Test suite for NE type management routes."""
+
     def test_ne_types_list_200(self, client):
+        """Verify NE types list loads."""
         assert client.get('/ne-types').status_code == 200
 
     def test_add_ne_type_form_200(self, client):
+        """Verify add NE type form loads."""
         assert client.get('/ne-types/add').status_code == 200
 
     def test_add_global_ne_type(self, client):
+        """Verify adding a global NE type."""
         resp = client.post('/ne-types/add', data=_ne_type_data())
         assert resp.status_code in (200, 302)
         from ne import global_ne_types
         assert any(t['name'] == 'Test Router' for t in global_ne_types())
 
     def test_add_project_ne_type(self, client):
+        """Verify adding a project-specific NE type."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/ne-types/add',
                            data=_ne_type_data(pid=pid, scope='project'))
@@ -128,6 +142,7 @@ class TestNETypes:
         assert any(t['name'] == 'Test Router' for t in project_ne_types(pid))
 
     def test_edit_ne_type(self, client):
+        """Verify editing an NE type."""
         client.post('/ne-types/add', data=_ne_type_data())
         from ne import global_ne_types
         neid = global_ne_types()[0]['id']
@@ -137,6 +152,7 @@ class TestNETypes:
         assert get_ne_type(neid)['name'] == 'Renamed Router'
 
     def test_delete_ne_type(self, client):
+        """Verify deleting an NE type."""
         client.post('/ne-types/add', data=_ne_type_data())
         from ne import global_ne_types
         neid = global_ne_types()[0]['id']
@@ -145,10 +161,12 @@ class TestNETypes:
         assert get_ne_type(neid) is None
 
     def test_project_ne_types_list_200(self, client):
+        """Verify project NE types list loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/ne-types').status_code == 200
 
     def test_ne_type_invalid_json_interfaces(self, client):
+        """Verify invalid interface JSON is rejected."""
         data = _ne_type_data()
         data['interfaces_json'] = 'not-json'
         resp = client.post('/ne-types/add', data=data, follow_redirects=True)
@@ -160,15 +178,20 @@ class TestNETypes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestSites:
+    """Test suite for site management routes."""
+
     def test_sites_list_200(self, client):
+        """Verify sites list loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/sites').status_code == 200
 
     def test_add_site_form_200(self, client):
+        """Verify add site form loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/sites/add').status_code == 200
 
     def test_add_site(self, client):
+        """Verify adding a site."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/sites/add', data={
             'name': 'LON-DC1', 'description': '', 'labels': '',
@@ -179,6 +202,7 @@ class TestSites:
         assert any(s['name'] == 'LON-DC1' for s in sites)
 
     def test_add_site_empty_name_rejected(self, client):
+        """Verify site without name is rejected."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/sites/add', data={
             'name': '', 'description': '', 'labels': '', 'params_json': '{}',
@@ -186,6 +210,7 @@ class TestSites:
         assert b'required' in resp.data.lower() or resp.status_code == 200
 
     def test_bulk_site_creation(self, client):
+        """Verify bulk site creation."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/sites/bulk', data={
             'pattern': 'ran{0001..0005}', 'description': '', 'labels': '',
@@ -199,6 +224,7 @@ class TestSites:
         assert len(names) == 5
 
     def test_bulk_site_invalid_pattern(self, client):
+        """Verify invalid bulk site pattern is rejected."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/sites/bulk', data={
             'pattern': 'no-pattern', 'description': '', 'labels': '',
@@ -207,6 +233,7 @@ class TestSites:
         assert b'invalid' in resp.data.lower() or b'pattern' in resp.data.lower()
 
     def test_site_detail_200(self, client):
+        """Verify site detail page loads."""
         pid  = _create_project(client)
         client.post(f'/projects/{pid}/sites/add', data={
             'name': 'LON-DC1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -215,6 +242,7 @@ class TestSites:
         assert client.get(f'/projects/{pid}/sites/{site["id"]}').status_code == 200
 
     def test_delete_site(self, client):
+        """Verify deleting a site."""
         pid  = _create_project(client)
         client.post(f'/projects/{pid}/sites/add', data={
             'name': 'TMP', 'description': '', 'labels': '', 'params_json': '{}',
@@ -226,6 +254,7 @@ class TestSites:
         assert get_site(sid) is None
 
     def test_edit_site(self, client):
+        """Verify editing a site."""
         pid = _create_project(client)
         client.post(f'/projects/{pid}/sites/add', data={
             'name': 'Before', 'description': '', 'labels': '', 'params_json': '{}',
@@ -242,11 +271,15 @@ class TestSites:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestPODs:
+    """Test suite for POD management routes."""
+
     def test_pods_list_200(self, client):
+        """Verify PODs list loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/pods').status_code == 200
 
     def test_add_pod(self, client):
+        """Verify adding a POD."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/pods/add', data={
             'name': 'CORE-POD-1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -256,6 +289,7 @@ class TestPODs:
         assert any(p['name'] == 'CORE-POD-1' for p in pods)
 
     def test_delete_pod(self, client):
+        """Verify deleting a POD."""
         pid  = _create_project(client)
         client.post(f'/projects/{pid}/pods/add', data={
             'name': 'TMP-POD', 'description': '', 'labels': '', 'params_json': '{}',
@@ -266,6 +300,7 @@ class TestPODs:
         assert get_pod(pod['id']) is None
 
     def test_pod_detail_200(self, client):
+        """Verify POD detail page loads."""
         pid  = _create_project(client)
         client.post(f'/projects/{pid}/pods/add', data={
             'name': 'P1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -274,6 +309,7 @@ class TestPODs:
         assert client.get(f'/projects/{pid}/pods/{pod["id"]}').status_code == 200
 
     def test_pod_slot_save(self, client):
+        """Verify saving POD slots."""
         pid = _create_project(client)
         client.post(f'/projects/{pid}/pods/add', data={
             'name': 'P1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -290,6 +326,7 @@ class TestPODs:
         assert data['saved'] == 1
 
     def test_assign_pod_to_site(self, client):
+        """Verify assigning a POD to a site."""
         pid = _create_project(client)
         client.post(f'/projects/{pid}/sites/add', data={
             'name': 'S1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -307,6 +344,7 @@ class TestPODs:
         assert any(p['id'] == pod['id'] for p in site_pods(site['id']))
 
     def test_unassign_pod_from_site(self, client):
+        """Verify unassigning a POD from a site."""
         pid  = _create_project(client)
         client.post(f'/projects/{pid}/sites/add', data={
             'name': 'S1', 'description': '', 'labels': '', 'params_json': '{}',
@@ -330,7 +368,10 @@ class TestPODs:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestRequirements:
+    """Test suite for requirements engine routes."""
+
     def _build_full_hierarchy(self, client):
+        """Helper to build a complete NE hierarchy."""
         pid = _create_project(client)
         # Add NE type with 1 interface
         client.post('/ne-types/add', data=_ne_type_data())
@@ -352,15 +393,18 @@ class TestRequirements:
         return pid, neid, site, pod
 
     def test_requirements_page_200(self, client):
+        """Verify requirements page loads."""
         pid, *_ = self._build_full_hierarchy(client)
         assert client.get(f'/projects/{pid}/requirements').status_code == 200
 
     def test_requirements_computed(self, client):
+        """Verify requirements are computed."""
         pid, *_ = self._build_full_hierarchy(client)
         resp    = client.get(f'/projects/{pid}/requirements')
         assert b'mgmt' in resp.data
 
     def test_push_requirement_creates_subnet(self, client):
+        """Verify pushing a requirement creates a subnet."""
         pid, *_ = self._build_full_hierarchy(client)
         reqs    = load_requirements(pid)
         if not reqs:
@@ -375,6 +419,7 @@ class TestRequirements:
             assert resp.status_code in (200, 302)
 
     def test_push_all_requirements(self, client):
+        """Verify pushing all requirements."""
         pid, *_ = self._build_full_hierarchy(client)
         resp = client.post(f'/projects/{pid}/requirements/push-all',
                            follow_redirects=False)

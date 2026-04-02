@@ -14,11 +14,13 @@ from playwright.sync_api import Page, expect
 # (pytest collects fixtures from all conftest.py files in the path)
 
 def goto(page: Page, base: str, path: str):
+    """Navigate to a path relative to base."""
     page.goto(f'{base}{path}')
 
 
 
 def _create_project(page: Page, base: str, name='NE E2E', supernet='10.0.0.0/8'):
+    """Helper to create a project."""
     goto(page, base, '/projects/add')
     page.fill('input[name="name"]', name)
     page.fill('input[name="supernet"]', supernet)
@@ -31,13 +33,17 @@ def _create_project(page: Page, base: str, name='NE E2E', supernet='10.0.0.0/8')
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ESchemas:
+    """End-to-end tests for schemas."""
+
     def test_admin_schemas_page_loads(self, page_base):
+        """Test admin schemas page loads."""
         page, base = page_base
         goto(page, base, '/admin/schemas')
         expect(page).to_have_url(re.compile(r'/admin/schemas'))
         expect(page.locator('h4, h3')).to_be_visible()
 
     def test_add_field_to_schema(self, page_base):
+        """Test adding a field to a schema."""
         page, base = page_base
         goto(page, base, '/admin/schemas')
         # Use the JS schema editor to add a field and submit
@@ -65,6 +71,7 @@ class TestE2ESchemas:
         expect(page.locator('body')).to_be_visible()
 
     def test_project_schemas_page_loads(self, page_base):
+        """Test project schemas page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Schema E2E')
         goto(page, base, f'/projects/{pid}/schemas')
@@ -76,12 +83,16 @@ class TestE2ESchemas:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ENETypes:
+    """End-to-end tests for NE types."""
+
     def test_ne_types_list_loads(self, page_base):
+        """Test NE types list loads."""
         page, base = page_base
         goto(page, base, '/ne-types')
         expect(page.locator('body')).to_be_visible()
 
     def test_create_ne_type(self, page_base):
+        """Test NE type creation."""
         page, base = page_base
         goto(page, base, '/ne-types/add')
         page.fill('input[name="name"]', 'E2E Router')
@@ -106,24 +117,28 @@ class TestE2ENETypes:
         expect(page.locator('body')).to_contain_text('E2E Router')
 
     def test_project_ne_types_page(self, page_base):
+        """Test project NE types page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='NEType Project')
         goto(page, base, f'/projects/{pid}/ne-types')
         expect(page).to_have_url(re.compile(rf'/projects/{pid}/ne-types'))
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Sites
+# IPAM E2E: Sites
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ESites:
+    """End-to-end tests for sites."""
+
     def test_sites_list_loads(self, page_base):
+        """Test sites list loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Sites E2E')
         goto(page, base, f'/projects/{pid}/sites')
         expect(page).to_have_url(re.compile(rf'/projects/{pid}/sites'))
 
     def test_create_single_site(self, page_base):
+        """Test single site creation."""
         page, base = page_base
         pid = _create_project(page, base, name='Single Site')
         goto(page, base, f'/projects/{pid}/sites/add')
@@ -135,6 +150,7 @@ class TestE2ESites:
         expect(page.locator('body')).to_contain_text('LON-DC1')
 
     def test_bulk_site_creation(self, page_base):
+        """Test bulk site creation."""
         page, base = page_base
         pid = _create_project(page, base, name='Bulk Sites')
         goto(page, base, f'/projects/{pid}/sites/bulk')
@@ -149,7 +165,7 @@ class TestE2ESites:
         assert site_rows.count() >= 5
 
     def test_bulk_site_preview(self, page_base):
-        """The pattern preview shows count before submit."""
+        """Test bulk site preview."""
         page, base = page_base
         pid = _create_project(page, base, name='Bulk Preview')
         goto(page, base, f'/projects/{pid}/sites/bulk')
@@ -162,6 +178,7 @@ class TestE2ESites:
             expect(preview.first).to_contain_text('10')
 
     def test_delete_site(self, page_base):
+        """Test site deletion."""
         page, base = page_base
         pid = _create_project(page, base, name='Delete Site')
         goto(page, base, f'/projects/{pid}/sites/add')
@@ -184,7 +201,10 @@ class TestE2ESites:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EPODs:
+    """End-to-end tests for PODs."""
+
     def test_create_pod(self, page_base):
+        """Test POD creation."""
         page, base = page_base
         pid = _create_project(page, base, name='POD E2E')
         goto(page, base, f'/projects/{pid}/pods/add')
@@ -195,6 +215,7 @@ class TestE2EPODs:
         expect(page.locator('body')).to_contain_text('CORE-POD-1')
 
     def test_assign_pod_to_site(self, page_base):
+        """Test assigning a POD to a site."""
         page, base = page_base
         from db import new_id
         from ne import save_site, save_pod
@@ -218,7 +239,7 @@ class TestE2EPODs:
             expect(page.locator('body')).to_contain_text('ASSIGN-POD')
 
     def test_pod_slot_builder(self, page_base):
-        """Verify the NE slot builder JS renders on the pod detail page."""
+        """Test POD slot builder."""
         page, base = page_base
         from db import new_id
         from ne import save_pod
@@ -240,11 +261,10 @@ class TestE2EPODs:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ERequirements:
+    """End-to-end tests for requirements engine."""
+
     def _build_hierarchy(self, base_url):
-        """
-        Build a full site → pod → NE type hierarchy via the helper functions
-        (faster than driving the full UI for setup).
-        """
+        """Helper to build a full site hierarchy."""
         from db import new_id
         from ne import (save_ne_type, save_site, save_pod,
                         assign_pod_to_site, save_pod_slots)
@@ -278,6 +298,7 @@ class TestE2ERequirements:
         return pid
 
     def test_requirements_page_shows_results(self, page_base):
+        """Test requirements page results."""
         page, base = page_base
         pid = self._build_hierarchy(base)
         goto(page, base, f'/projects/{pid}/requirements')
@@ -286,12 +307,14 @@ class TestE2ERequirements:
         expect(page.locator('table tbody tr, .requirement-row')).not_to_have_count(0)
 
     def test_requirements_show_interface_name(self, page_base):
+        """Test interface name in requirements."""
         page, base = page_base
         pid = self._build_hierarchy(base)
         goto(page, base, f'/projects/{pid}/requirements')
         expect(page.locator('body')).to_contain_text('mgmt')
 
     def test_push_requirements_to_ipam(self, page_base):
+        """Test pushing requirements to IPAM."""
         page, base = page_base
         pid = self._build_hierarchy(base)
         goto(page, base, f'/projects/{pid}/requirements')
@@ -304,6 +327,7 @@ class TestE2ERequirements:
             expect(page.locator('body')).to_be_visible()
 
     def test_push_all_button(self, page_base):
+        """Test push all button."""
         page, base = page_base
         pid = self._build_hierarchy(base)
         goto(page, base, f'/projects/{pid}/requirements')

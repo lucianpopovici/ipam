@@ -1,10 +1,8 @@
-"""
+"""Unit tests for hardware helper functions in hw_logic.py."""
+import pytest
 
 pytestmark = pytest.mark.unit
 
-Unit tests for hw.py helper functions.
-"""
-import pytest
 from hw_logic import (
     seed_connectors, all_connectors, add_connector, remove_connector,
     set_compat, connectors_compatible, full_compat_matrix,
@@ -29,7 +27,10 @@ from ipam import save_project
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestConnectorHelpers:
+    """Unit tests for connector helpers."""
+
     def test_seed_connectors_populates(self):
+        """Test seeding connectors populates default values."""
         seed_connectors()
         conns = all_connectors()
         assert 'RJ45'    in conns
@@ -38,25 +39,30 @@ class TestConnectorHelpers:
         assert 'IEC-C13' in conns
 
     def test_seed_idempotent(self):
+        """Test seeding is idempotent."""
         seed_connectors()
         seed_connectors()
         assert all_connectors().count('RJ45') == 1
 
     def test_add_connector(self):
+        """Test adding a connector."""
         add_connector('CUSTOM-X')
         assert 'CUSTOM-X' in all_connectors()
 
     def test_new_connector_self_compatible(self):
+        """Test new connector is self-compatible."""
         add_connector('CUSTOM-Y')
         assert connectors_compatible('CUSTOM-Y', 'CUSTOM-Y')
 
     def test_remove_connector(self):
+        """Test removing a connector."""
         seed_connectors()
         add_connector('TEMP')
         remove_connector('TEMP')
         assert 'TEMP' not in all_connectors()
 
     def test_remove_cleans_compat(self):
+        """Test removing a connector cleans compatibility matrix."""
         seed_connectors()
         add_connector('AA')
         add_connector('BB')
@@ -65,6 +71,7 @@ class TestConnectorHelpers:
         assert not connectors_compatible('AA', 'BB')
 
     def test_set_compat_symmetric(self):
+        """Test setting compatibility is symmetric."""
         seed_connectors()
         add_connector('C1'); add_connector('C2')
         set_compat('C1', 'C2', True)
@@ -72,6 +79,7 @@ class TestConnectorHelpers:
         assert connectors_compatible('C2', 'C1')
 
     def test_unset_compat_symmetric(self):
+        """Test unsetting compatibility is symmetric."""
         seed_connectors()
         add_connector('D1'); add_connector('D2')
         set_compat('D1', 'D2', True)
@@ -81,37 +89,49 @@ class TestConnectorHelpers:
 
 
 class TestDefaultCompatMatrix:
+    """Unit tests for default compatibility matrix."""
+
     def setup_method(self):
+        """Setup for compatibility matrix tests."""
         seed_connectors()
 
     def test_rj45_only_compatible_with_rj45(self):
+        """Verify RJ45 only compatible with RJ45."""
         assert connectors_compatible('RJ45', 'RJ45')
         assert not connectors_compatible('RJ45', 'SFP')
         assert not connectors_compatible('RJ45', 'SFP28')
 
     def test_sfp28_accepts_sfp_plus(self):
+        """Verify SFP28 accepts SFP+."""
         assert connectors_compatible('SFP28', 'SFP+')
 
     def test_sfp28_accepts_sfp(self):
+        """Verify SFP28 accepts SFP."""
         assert connectors_compatible('SFP28', 'SFP')
 
     def test_sfp_plus_accepts_sfp(self):
+        """Verify SFP+ accepts SFP."""
         assert connectors_compatible('SFP+', 'SFP')
 
     def test_qsfp28_accepts_qsfp_dd(self):
+        """Verify QSFP28 accepts QSFP-DD."""
         assert connectors_compatible('QSFP28', 'QSFP-DD')
 
     def test_qsfp_dd_accepts_qsfp28(self):
+        """Verify QSFP-DD accepts QSFP28."""
         assert connectors_compatible('QSFP-DD', 'QSFP28')
 
     def test_power_connectors_isolated(self):
+        """Verify power connectors are isolated from data connectors."""
         assert not connectors_compatible('IEC-C13', 'RJ45')
         assert not connectors_compatible('IEC-C13', 'SFP28')
 
     def test_iec_c13_c14_compatible(self):
+        """Verify IEC-C13 and IEC-C14 are compatible."""
         assert connectors_compatible('IEC-C13', 'IEC-C14')
 
     def test_full_matrix_returns_all(self):
+        """Verify full matrix returns all connectors."""
         matrix = full_compat_matrix()
         assert 'RJ45' in matrix
         assert 'SFP28' in matrix
@@ -123,7 +143,10 @@ class TestDefaultCompatMatrix:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestHWTemplateHelpers:
+    """Unit tests for hardware template helpers."""
+
     def _tmpl(self, name='Server-1U', cat='server', scope='global', pid=''):
+        """Create a template dictionary for testing."""
         return {
             'id':          new_id(),
             'name':        name,
@@ -140,34 +163,40 @@ class TestHWTemplateHelpers:
         }
 
     def test_save_and_get(self):
+        """Test saving and retrieving a template."""
         t = self._tmpl()
         save_hw_template(t)
         assert get_hw_template(t['id'])['name'] == 'Server-1U'
 
     def test_delete(self):
+        """Test deleting a template."""
         t = self._tmpl()
         save_hw_template(t)
         delete_hw_template(t['id'])
         assert get_hw_template(t['id']) is None
 
     def test_global_template_in_list(self):
+        """Verify global template appears in global list."""
         t = self._tmpl()
         save_hw_template(t)
         assert any(x['id'] == t['id'] for x in global_hw_templates())
 
     def test_project_template_in_project_list(self):
+        """Verify project template appears in project list."""
         pid = new_id()
         t   = self._tmpl(scope='project', pid=pid)
         save_hw_template(t)
         assert any(x['id'] == t['id'] for x in project_hw_templates(pid))
 
     def test_category_filter(self):
+        """Test filtering templates by category."""
         save_hw_template(self._tmpl(name='S1', cat='server'))
         save_hw_template(self._tmpl(name='R1', cat='rack'))
         servers = global_hw_templates(category='server')
         assert all(t['category'] == 'server' for t in servers)
 
     def test_available_templates_flat_list(self):
+        """Verify flat list includes both global and project templates."""
         pid = new_id()
         g   = self._tmpl(name='Global')
         p   = self._tmpl(name='Proj', scope='project', pid=pid)
@@ -178,6 +207,7 @@ class TestHWTemplateHelpers:
         assert p['id'] in ids
 
     def test_sorted_by_category_then_name(self):
+        """Verify templates are sorted by category then name."""
         for name, cat in [('Z-server', 'server'), ('A-server', 'server'), ('A-rack', 'rack')]:
             save_hw_template(self._tmpl(name=name, cat=cat))
         tmpls = global_hw_templates()
@@ -186,6 +216,7 @@ class TestHWTemplateHelpers:
         assert cats.index('rack') < cats.index('server')
 
     def test_ports_stored(self):
+        """Verify template ports are correctly stored and retrieved."""
         t = self._tmpl()
         t['ports'] = [
             {'id': 'p1', 'name': 'eth0', 'port_type': 'data',
@@ -203,7 +234,10 @@ class TestHWTemplateHelpers:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestBomHelpers:
+    """Unit tests for BoM (Bill of Materials) helpers."""
+
     def _setup(self):
+        """Set up a test project and template."""
         pid  = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         tmpl = {
@@ -216,10 +250,12 @@ class TestBomHelpers:
         return pid, tmpl
 
     def test_empty_bom(self):
+        """Test retrieving BoM for a project with no items."""
         pid, _ = self._setup()
         assert get_bom(pid) == []
 
     def test_save_and_get_bom(self):
+        """Test saving and retrieving BoM items."""
         pid, tmpl = self._setup()
         bom = [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 5,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
@@ -229,6 +265,7 @@ class TestBomHelpers:
         assert loaded[0]['qty'] == 5
 
     def test_bom_with_templates_enriches(self):
+        """Verify bom_with_templates correctly enriches BoM items with template data."""
         pid, tmpl = self._setup()
         bom = [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
@@ -237,6 +274,7 @@ class TestBomHelpers:
         assert enriched[0]['template']['name'] == 'Server-1U'
 
     def test_bom_missing_template_still_returned(self):
+        """Verify BoM items with missing templates are still returned with None template."""
         pid, _ = self._setup()
         bom = [{'id': new_id(), 'template_id': 'nonexistent', 'qty': 1,
                 'tag_prefix': 'x', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
@@ -245,6 +283,7 @@ class TestBomHelpers:
         assert enriched[0]['template'] is None
 
     def test_bom_overwritten(self):
+        """Test that saving a BoM overwrites the existing one."""
         pid, tmpl = self._setup()
         save_bom(pid, [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 1,
                         'tag_prefix': 'a', 'tag_start': 1, 'tag_pad': 3, 'description': ''}])
@@ -257,7 +296,10 @@ class TestBomHelpers:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestInstanceGeneration:
+    """Unit tests for hardware instance generation from BoM."""
+
     def _setup(self):
+        """Set up a test project and template."""
         pid  = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         tmpl = {
@@ -270,6 +312,7 @@ class TestInstanceGeneration:
         return pid, tmpl
 
     def test_generates_correct_count(self):
+        """Test that the correct number of instances are generated."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 5,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}
@@ -277,6 +320,7 @@ class TestInstanceGeneration:
         assert len(created) == 5
 
     def test_asset_tags_sequential(self):
+        """Verify generated asset tags are sequential."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 3,
                 'tag_prefix': 'srv', 'tag_start': 10, 'tag_pad': 3, 'description': ''}
@@ -285,6 +329,7 @@ class TestInstanceGeneration:
         assert tags == ['srv-010', 'srv-011', 'srv-012']
 
     def test_zero_padding(self):
+        """Verify asset tag sequential numbers are correctly padded."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'rack', 'tag_start': 1, 'tag_pad': 4, 'description': ''}
@@ -293,6 +338,7 @@ class TestInstanceGeneration:
         assert created[1]['asset_tag'] == 'rack-0002'
 
     def test_instances_saved_to_redis(self):
+        """Verify generated instances are persisted."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'sw', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
@@ -301,6 +347,7 @@ class TestInstanceGeneration:
             assert get_hw_instance(inst['id']) is not None
 
     def test_instances_appear_in_project_list(self):
+        """Verify generated instances appear in project instance list."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
@@ -311,6 +358,7 @@ class TestInstanceGeneration:
             assert inst['id'] in ids
 
     def test_missing_template_raises(self):
+        """Test that generation fails if template is missing."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         item = {'id': new_id(), 'template_id': 'no-such-tmpl', 'qty': 1,
@@ -319,6 +367,7 @@ class TestInstanceGeneration:
             generate_instances_from_bom_line(pid, item)
 
     def test_instance_status_defaults_to_in_stock(self):
+        """Verify default status for new instances."""
         pid, tmpl = self._setup()
         item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 1,
                 'tag_prefix': 'x', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
@@ -331,7 +380,10 @@ class TestInstanceGeneration:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestRackPlacement:
+    """Unit tests for rack placement and layout helpers."""
+
     def _make_rack_instance(self, pid, ff='19"', u_size=42):
+        """Create a rack instance for testing."""
         tmpl = {
             'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'AR3000',
             'category': 'rack', 'form_factor': ff, 'u_size': u_size,
@@ -346,6 +398,7 @@ class TestRackPlacement:
         return inst, tmpl
 
     def _make_device_instance(self, pid, ff='19"', u_size=1, cat='server'):
+        """Create a device instance for testing rack placement."""
         tmpl = {
             'id': new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
             'category': cat, 'form_factor': ff, 'u_size': u_size,
@@ -360,6 +413,7 @@ class TestRackPlacement:
         return inst, tmpl
 
     def test_place_success(self):
+        """Test successful placement of a device in a rack."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
@@ -371,6 +425,7 @@ class TestRackPlacement:
         assert any(s['instance_id'] == dev_inst['id'] for s in slots)
 
     def test_place_updates_instance_location(self):
+        """Verify that placement updates the device's location field."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
@@ -381,6 +436,7 @@ class TestRackPlacement:
         assert updated['location']['u_pos']   == 5
 
     def test_u_overflow_error(self):
+        """Verify error when device exceeds rack height."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, u_size=10)
@@ -389,6 +445,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'U_OVERFLOW' for i in issues)
 
     def test_u_overlap_error(self):
+        """Verify error when placing a device in occupied slots."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
@@ -399,6 +456,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'U_OCCUPIED' for i in issues)
 
     def test_form_factor_mismatch_ocp_in_19inch(self):
+        """Verify error when placing OCP device in 19" rack."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='19"')
@@ -407,6 +465,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'FORM_FACTOR_MISMATCH' for i in issues)
 
     def test_form_factor_mismatch_19inch_in_ocp(self):
+        """Verify error when placing 19" device in OCP rack."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='OCP')
@@ -415,6 +474,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'FORM_FACTOR_MISMATCH' for i in issues)
 
     def test_21inch_rack_accepts_19inch(self):
+        """Verify that 21" racks can accept 19" devices."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='21"')
@@ -424,6 +484,7 @@ class TestRackPlacement:
         assert ff_errs == []
 
     def test_replace_existing_placement(self):
+        """Verify that re-placing a device moves it from its old position."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
@@ -435,6 +496,7 @@ class TestRackPlacement:
         assert positions == [3]
 
     def test_rack_layout_view_structure(self):
+        """Verify the structure of the rack layout view data."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, u_size=5)
@@ -447,6 +509,7 @@ class TestRackPlacement:
         assert 'empty'  in types
 
     def test_remove_from_rack(self):
+        """Test removing a device from a rack."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
@@ -461,7 +524,10 @@ class TestRackPlacement:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestCableHelpers:
+    """Unit tests for cable-related helpers."""
+
     def _make_cable(self, pid):
+        """Create a cable dictionary for testing."""
         return {
             'id':            new_id(),
             'template_id':   None,
@@ -476,12 +542,14 @@ class TestCableHelpers:
         }
 
     def test_save_and_get(self):
+        """Test saving and retrieving a cable."""
         pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
         assert get_cable(c['id'])['asset_tag'] == 'CAB-001'
 
     def test_delete(self):
+        """Test deleting a cable."""
         pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
@@ -489,6 +557,7 @@ class TestCableHelpers:
         assert get_cable(c['id']) is None
 
     def test_project_cables_list(self):
+        """Verify cable appears in project cable list."""
         pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
@@ -496,12 +565,14 @@ class TestCableHelpers:
         assert any(x['id'] == c['id'] for x in cables)
 
     def test_cables_isolated_between_projects(self):
+        """Verify cables are isolated between projects."""
         p1 = new_id(); p2 = new_id()
         c1 = self._make_cable(p1); c2 = self._make_cable(p2)
         save_cable(c1); save_cable(c2)
         assert not any(x['id'] == c2['id'] for x in project_cables(p1))
 
     def test_used_ports_detected(self):
+        """Verify that _used_ports correctly identifies ports with connected cables."""
         pid  = new_id()
         iid  = new_id()
         cable = {**self._make_cable(pid),
@@ -518,12 +589,16 @@ class TestCableHelpers:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestValidationEngine:
+    """Unit tests for the hardware validation engine."""
+
     def _make_project(self):
+        """Create a project for validation tests."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         return pid
 
     def _server_tmpl(self, sfp_connector='SFP28'):
+        """Create a server template for validation tests."""
         t = {
             'id': new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
@@ -545,6 +620,7 @@ class TestValidationEngine:
         return t
 
     def _switch_tmpl(self):
+        """Create a switch template for validation tests."""
         t = {
             'id': new_id(), 'name': 'Switch', 'vendor': 'Cisco', 'model': 'N9K',
             'category': 'switch', 'form_factor': '19"', 'u_size': 1,
@@ -563,6 +639,7 @@ class TestValidationEngine:
         return t
 
     def _instance(self, pid, tmpl):
+        """Create a hardware instance for validation tests."""
         inst = {
             'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
             'asset_tag': f'{tmpl["name"][:3]}-{new_id()}',
@@ -573,6 +650,7 @@ class TestValidationEngine:
         return inst
 
     def _dac_cable_tmpl(self, pid=''):
+        """Create a DAC cable template for validation tests."""
         t = {
             'id': new_id(), 'name': 'DAC25G', 'vendor': 'ACME', 'model': 'D25',
             'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
@@ -583,6 +661,7 @@ class TestValidationEngine:
         return t
 
     def _cable(self, pid, tmpl_id, inst_a_id, port_a, inst_b_id, port_b, tag='CAB-001'):
+        """Create a cable for validation tests."""
         c = {
             'id':            new_id(),
             'template_id':   tmpl_id,
@@ -599,6 +678,7 @@ class TestValidationEngine:
         return c
 
     def test_clean_project_no_issues(self):
+        """Verify that a valid project configuration returns no issues."""
         seed_connectors()
         pid    = self._make_project()
         srv_t  = self._server_tmpl()
@@ -612,6 +692,7 @@ class TestValidationEngine:
         assert errors == []
 
     def test_connector_mismatch_detected(self):
+        """Verify detection of mismatched connectors between cable and port."""
         seed_connectors()
         pid   = self._make_project()
         # Server has RJ45 eth0, switch has SFP28 swp0 — incompatible
@@ -625,6 +706,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'CONNECTOR_MISMATCH' for i in issues)
 
     def test_power_cable_on_data_port(self):
+        """Verify detection of cable port type mismatch."""
         seed_connectors()
         pid   = self._make_project()
         srv_t = self._server_tmpl()
@@ -645,6 +727,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'CABLE_PORT_TYPE_MISMATCH' for i in issues)
 
     def test_speed_mismatch_warning_for_dac(self):
+        """Verify warning for speed mismatch on DAC cables."""
         seed_connectors()
         pid   = self._make_project()
         # Server SFP28 @25G, switch SFP28 @25G → OK
@@ -661,6 +744,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'SPEED_MISMATCH' and i['severity'] == 'warning' for i in issues)
 
     def test_port_double_connected(self):
+        """Verify detection of ports connected to multiple cables."""
         seed_connectors()
         pid   = self._make_project()
         srv_t = self._server_tmpl()
@@ -676,6 +760,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'PORT_DOUBLE_CONNECTED' for i in issues)
 
     def test_unconnected_cable_warning(self):
+        """Verify warning for cables with unconnected ends."""
         seed_connectors()
         pid = self._make_project()
         c = {
@@ -692,6 +777,7 @@ class TestValidationEngine:
         assert 'CABLE_UNCONNECTED_B' in codes
 
     def test_rack_u_overlap_detected(self):
+        """Verify detection of overlapping devices in rack slots."""
         seed_connectors()
         pid      = self._make_project()
         rack_t   = {
@@ -721,6 +807,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'U_OVERLAP' for i in issues)
 
     def test_form_factor_mismatch_in_validation(self):
+        """Verify detection of form factor mismatch between device and rack."""
         seed_connectors()
         pid    = self._make_project()
         rack_t = {
@@ -745,6 +832,7 @@ class TestValidationEngine:
         assert any(i['code'] == 'FORM_FACTOR_MISMATCH' for i in issues)
 
     def test_no_issues_cached(self):
+        """Verify that validation issues are correctly cached."""
         seed_connectors()
         pid    = self._make_project()
         issues = validate_project(pid)
@@ -753,6 +841,7 @@ class TestValidationEngine:
         assert cached == issues
 
     def test_empty_project_no_issues(self):
+        """Verify that an empty project has no validation issues."""
         pid    = self._make_project()
         issues = validate_project(pid)
         assert issues == []

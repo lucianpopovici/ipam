@@ -1,9 +1,4 @@
-import pytest
-
-pytestmark = pytest.mark.e2e
-
 """
-
 End-to-end tests for hardware management flows using Playwright.
 
 Covers:
@@ -16,22 +11,25 @@ Covers:
   - Cable plant (add cable, dynamic port dropdown, edit, delete)
   - Validation page (clean project, mismatch detection)
 """
+import pytest
 import time
 import json
 import re
 from playwright.sync_api import Page, expect
 
+pytestmark = pytest.mark.e2e
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
 def goto(page: Page, base: str, path: str):
+    """Navigate to a relative path."""
     page.goto(f'{base}{path}')
-
 
 
 def _create_project(page: Page, base: str,
                     name: str = 'HW E2E Project',
                     supernet: str = '10.0.0.0/8') -> str:
+    """Create a project via UI and return its ID."""
     goto(page, base, '/projects/add')
     page.fill('input[name="name"]', name)
     page.fill('input[name="supernet"]', supernet)
@@ -78,6 +76,7 @@ def _make_server_template():
 
 
 def _make_rack_template():
+    """Create a rack template directly and return it."""
     from db import new_id
     from hw import save_hw_template
     tmpl = {
@@ -91,6 +90,7 @@ def _make_rack_template():
 
 
 def _make_cable_template():
+    """Create a cable template directly and return it."""
     from db import new_id
     from hw import save_hw_template
     tmpl = {
@@ -104,6 +104,7 @@ def _make_cable_template():
 
 
 def _make_instance(pid: str, tmpl: dict) -> dict:
+    """Create a hardware instance directly."""
     from db import new_id
     from hw import save_hw_instance
     inst = {
@@ -125,7 +126,10 @@ def _make_instance(pid: str, tmpl: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EConnectors:
+    """E2E tests for connector management."""
+
     def test_connectors_page_loads(self, page_base):
+        """Verify connectors page loads."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -134,6 +138,7 @@ class TestE2EConnectors:
         expect(page.locator('body')).to_contain_text('SFP28')
 
     def test_default_connectors_visible(self, page_base):
+        """Verify default connectors are shown."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -141,6 +146,7 @@ class TestE2EConnectors:
             expect(page.locator('body')).to_contain_text(conn)
 
     def test_add_custom_connector(self, page_base):
+        """Verify adding a custom connector."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -149,6 +155,7 @@ class TestE2EConnectors:
         expect(page.locator('body')).to_contain_text('CUSTOM-E2E')
 
     def test_delete_connector(self, page_base):
+        """Verify deleting a connector."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -161,6 +168,7 @@ class TestE2EConnectors:
         expect(page.locator('body')).not_to_contain_text('DEL-CONN-E2E')
 
     def test_compat_matrix_rendered(self, page_base):
+        """Verify compatibility matrix is rendered."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -169,7 +177,7 @@ class TestE2EConnectors:
         assert matrix.count() > 0
 
     def test_toggle_compat_cell(self, page_base):
-        """Click a cell to toggle compatibility and verify the POST fires."""
+        """Verify toggling a compatibility cell."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
@@ -187,18 +195,23 @@ class TestE2EConnectors:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EHWTemplates:
+    """E2E tests for hardware template management."""
+
     def test_hw_templates_list_loads(self, page_base):
+        """Verify hardware templates list loads."""
         page, base = page_base
         goto(page, base, '/hw/templates')
         expect(page).to_have_url(re.compile(r'/hw/templates'))
 
     def test_templates_list_shows_seeded_templates(self, page_base):
+        """Verify seeded templates are visible."""
         page, base = page_base
         _make_server_template()
         goto(page, base, '/hw/templates')
         expect(page.locator('body')).to_contain_text('E2E-Server-1U')
 
     def test_add_template_form_loads(self, page_base):
+        """Verify add template form loads."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
@@ -206,6 +219,7 @@ class TestE2EHWTemplates:
         expect(page.locator('input[name="name"]')).to_be_visible()
 
     def test_create_minimal_template(self, page_base):
+        """Verify creating a minimal template."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
@@ -219,7 +233,7 @@ class TestE2EHWTemplates:
         expect(page.locator('body')).to_contain_text('Minimal-Switch')
 
     def test_port_builder_add_port(self, page_base):
-        """Verify clicking '+ Add Port' inserts a port row."""
+        """Verify port builder '+ Add Port' button."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
@@ -229,6 +243,7 @@ class TestE2EHWTemplates:
         assert port_rows.count() >= 1
 
     def test_port_builder_remove_port(self, page_base):
+        """Verify port builder remove button."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
@@ -240,6 +255,7 @@ class TestE2EHWTemplates:
         assert after == before - 1
 
     def test_create_template_with_ports(self, page_base):
+        """Verify creating a template with ports."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
@@ -265,6 +281,7 @@ class TestE2EHWTemplates:
         expect(page.locator('body')).to_contain_text('Ported-Switch')
 
     def test_edit_template(self, page_base):
+        """Verify editing a hardware template."""
         page, base = page_base
         _seed_connectors(base)
         tmpl = _make_server_template()
@@ -276,6 +293,7 @@ class TestE2EHWTemplates:
         expect(page.locator('body')).to_contain_text('Renamed-Server')
 
     def test_delete_template(self, page_base):
+        """Verify deleting a hardware template."""
         page, base = page_base
         from db import new_id
         from hw import save_hw_template
@@ -294,6 +312,7 @@ class TestE2EHWTemplates:
         expect(page.locator('body')).not_to_contain_text('DELETE-ME-TMPL')
 
     def test_project_templates_page_loads(self, page_base):
+        """Verify project hardware templates page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='ProjTmpl E2E')
         goto(page, base, f'/projects/{pid}/hw/templates')
@@ -305,19 +324,24 @@ class TestE2EHWTemplates:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EBOM:
+    """E2E tests for Bill of Materials flows."""
+
     def test_bom_page_loads(self, page_base):
+        """Verify BOM page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='BoM E2E')
         goto(page, base, f'/projects/{pid}/bom')
         expect(page).to_have_url(re.compile(rf'/projects/{pid}/bom'))
 
     def test_empty_bom_shows_no_lines(self, page_base):
+        """Verify empty BOM message."""
         page, base = page_base
         pid = _create_project(page, base, name='Empty BoM')
         goto(page, base, f'/projects/{pid}/bom')
         expect(page.locator('#bomList')).to_contain_text('No BoM lines')
 
     def test_add_bom_line_via_js(self, page_base):
+        """Verify adding a BOM line."""
         page, base = page_base
         pid  = _create_project(page, base, name='BoM Add Line')
         tmpl = _make_server_template()
@@ -328,6 +352,7 @@ class TestE2EBOM:
         assert rows.count() >= 1
 
     def test_save_bom(self, page_base):
+        """Verify saving a BOM."""
         page, base = page_base
         pid  = _create_project(page, base, name='BoM Save')
         tmpl = _make_server_template()
@@ -354,6 +379,7 @@ class TestE2EBOM:
         expect(page.locator('body')).to_contain_text('E2E-Server-1U')
 
     def test_generate_instances_from_line(self, page_base):
+        """Verify generating instances from BOM line."""
         page, base = page_base
         from db import new_id
         from hw import save_bom
@@ -372,6 +398,7 @@ class TestE2EBOM:
         expect(page.locator('body')).to_contain_text('srv-003')
 
     def test_generate_all_instances(self, page_base):
+        """Verify generating all instances from BOM."""
         page, base = page_base
         from db import new_id
         from hw import save_bom
@@ -393,6 +420,7 @@ class TestE2EBOM:
         assert rows.count() >= 3
 
     def test_bom_template_dropdown_populated(self, page_base):
+        """Verify template dropdown is populated in BOM editor."""
         page, base = page_base
         pid  = _create_project(page, base, name='BoM Dropdown')
         tmpl = _make_server_template()
@@ -409,13 +437,17 @@ class TestE2EBOM:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EInventory:
+    """E2E tests for inventory management."""
+
     def test_inventory_page_loads(self, page_base):
+        """Verify inventory page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Inventory E2E')
         goto(page, base, f'/projects/{pid}/hw/inventory')
         expect(page).to_have_url(re.compile(r'inventory'))
 
     def test_inventory_shows_instances(self, page_base):
+        """Verify instances are shown in inventory."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Show')
         tmpl = _make_server_template()
@@ -424,6 +456,7 @@ class TestE2EInventory:
         expect(page.locator('body')).to_contain_text(inst['asset_tag'])
 
     def test_inventory_category_filter(self, page_base):
+        """Verify inventory category filter."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Filter')
         srv  = _make_server_template()
@@ -435,6 +468,7 @@ class TestE2EInventory:
         expect(page.locator('body')).not_to_contain_text('E2E-Server-1U')
 
     def test_add_instance_manually(self, page_base):
+        """Verify adding an instance manually via UI."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Add')
         tmpl = _make_server_template()
@@ -447,6 +481,7 @@ class TestE2EInventory:
         expect(page.locator('body')).to_contain_text('MANUAL-E2E-001')
 
     def test_edit_instance(self, page_base):
+        """Verify editing an instance via UI."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Edit')
         tmpl = _make_server_template()
@@ -459,6 +494,7 @@ class TestE2EInventory:
         expect(page.locator('body')).to_contain_text('EDITED-E2E-TAG')
 
     def test_delete_instance(self, page_base):
+        """Verify deleting an instance via UI."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Delete')
         tmpl = _make_server_template()
@@ -470,6 +506,7 @@ class TestE2EInventory:
         expect(page.locator('body')).not_to_contain_text(inst['asset_tag'])
 
     def test_instance_status_badges(self, page_base):
+        """Verify status badges in inventory list."""
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Status')
         tmpl = _make_server_template()
@@ -492,7 +529,10 @@ class TestE2EInventory:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ERackVisual:
+    """E2E tests for visual rack layout."""
+
     def _setup_rack(self, page: Page, base: str):
+        """Helper to set up a rack and device."""
         pid   = _create_project(page, base, name=f'Rack Visual {time.time():.0f}')
         rck_t = _make_rack_template()
         srv_t = _make_server_template()
@@ -501,12 +541,14 @@ class TestE2ERackVisual:
         return pid, rack, dev
 
     def test_rack_list_loads(self, page_base):
+        """Verify rack list page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Rack List E2E')
         goto(page, base, f'/projects/{pid}/hw/racks')
         expect(page).to_have_url(re.compile(r'racks'))
 
     def test_rack_detail_loads(self, page_base):
+        """Verify rack detail page loads."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
@@ -514,6 +556,7 @@ class TestE2ERackVisual:
         expect(page.locator('body')).to_contain_text(rack['asset_tag'])
 
     def test_rack_shows_u_slots(self, page_base):
+        """Verify U slots are shown in rack diagram."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
@@ -522,6 +565,7 @@ class TestE2ERackVisual:
         assert u_labels.count() > 0
 
     def test_place_device_via_form(self, page_base):
+        """Verify placing a device via the form."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
@@ -533,6 +577,7 @@ class TestE2ERackVisual:
         expect(page.locator('body')).to_contain_text(dev['asset_tag'])
 
     def test_placed_device_shows_in_placed_table(self, page_base):
+        """Verify placed device appears in the placements table."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         from hw import place_in_rack
@@ -542,6 +587,7 @@ class TestE2ERackVisual:
         expect(page.locator('body')).to_contain_text('U5')
 
     def test_remove_device_from_rack(self, page_base):
+        """Verify removing a device from the rack diagram."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         from hw import place_in_rack
@@ -557,7 +603,7 @@ class TestE2ERackVisual:
             expect(placed_table).not_to_contain_text(dev['asset_tag'])
 
     def test_drag_and_drop_api_call(self, page_base):
-        """Verify the drag API endpoint is reachable and responds correctly."""
+        """Verify the drag-and-drop placement API."""
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
@@ -578,6 +624,7 @@ class TestE2ERackVisual:
         assert result['ok'] is True
 
     def test_drag_overlap_returns_error(self, page_base):
+        """Verify API returns error on overlapping placement."""
         page, base = page_base
         pid, rack, dev1 = self._setup_rack(page, base)
         srv_t = _make_server_template()
@@ -603,6 +650,7 @@ class TestE2ERackVisual:
         assert 'U_OCCUPIED' in codes
 
     def test_rack_utilization_shown(self, page_base):
+        """Verify rack utilization is shown in rack list."""
         page, base = page_base
         pid = _create_project(page, base, name='Rack Util E2E')
         rck_t = _make_rack_template()
@@ -618,13 +666,17 @@ class TestE2ERackVisual:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ERackTable:
+    """E2E tests for bulk rack table placement."""
+
     def test_rack_table_loads(self, page_base):
+        """Verify rack table page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Rack Table E2E')
         goto(page, base, f'/projects/{pid}/hw/rack-table')
         expect(page).to_have_url(re.compile(r'rack-table'))
 
     def test_add_placement_row(self, page_base):
+        """Verify adding a row to the rack table."""
         page, base = page_base
         pid = _create_project(page, base, name='Rack Tbl Add')
         goto(page, base, f'/projects/{pid}/hw/rack-table')
@@ -634,6 +686,7 @@ class TestE2ERackTable:
         assert rows.count() >= 1
 
     def test_bulk_place_via_js(self, page_base):
+        """Verify bulk placement via API."""
         page, base = page_base
         pid   = _create_project(page, base, name='Rack Tbl Place')
         rck_t = _make_rack_template()
@@ -660,6 +713,7 @@ class TestE2ERackTable:
         assert result[0]['ok'] is True
 
     def test_bulk_place_error_shown_in_ui(self, page_base):
+        """Verify bulk placement errors are shown."""
         page, base = page_base
         pid   = _create_project(page, base, name='Rack Tbl Err')
         rck_t = _make_rack_template()
@@ -681,6 +735,7 @@ class TestE2ERackTable:
         assert error_badges.count() >= 1
 
     def test_rack_and_device_dropdowns_populated(self, page_base):
+        """Verify dropdowns are populated in rack table."""
         page, base = page_base
         pid   = _create_project(page, base, name='Rack Tbl Dropdown')
         rck_t = _make_rack_template()
@@ -701,7 +756,10 @@ class TestE2ERackTable:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ECablePlant:
+    """E2E tests for cable plant management."""
+
     def _setup(self, page: Page, base: str, project_name: str = 'Cable E2E'):
+        """Helper to set up devices and cable template."""
         pid   = _create_project(page, base, name=project_name)
         srv_t = _make_server_template()
         cab_t = _make_cable_template()
@@ -710,18 +768,21 @@ class TestE2ECablePlant:
         return pid, dev1, dev2, cab_t
 
     def test_cable_list_loads(self, page_base):
+        """Verify cable list page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Cable List E2E')
         goto(page, base, f'/projects/{pid}/hw/cables')
         expect(page).to_have_url(re.compile(r'cables'))
 
     def test_cable_list_empty_state(self, page_base):
+        """Verify empty cable list message."""
         page, base = page_base
         pid = _create_project(page, base, name='Cable Empty')
         goto(page, base, f'/projects/{pid}/hw/cables')
         expect(page.locator('body')).to_contain_text('No cables')
 
     def test_add_cable_form_loads(self, page_base):
+        """Verify add cable form loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Cable Form')
         goto(page, base, f'/projects/{pid}/hw/cables/add')
@@ -729,6 +790,7 @@ class TestE2ECablePlant:
         expect(page.locator('select[name="template_id"]')).to_be_visible()
 
     def test_add_cable(self, page_base):
+        """Verify adding a cable via UI."""
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Add E2E')
         goto(page, base, f'/projects/{pid}/hw/cables/add')
@@ -749,7 +811,7 @@ class TestE2ECablePlant:
         expect(page.locator('body')).to_contain_text('E2E-CAB-001')
 
     def test_dynamic_port_dropdown_loads(self, page_base):
-        """Selecting a device triggers the JS fetch and populates the port dropdown."""
+        """Verify port dropdown populates after selecting a device."""
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Dynamic')
         goto(page, base, f'/projects/{pid}/hw/cables/add')
@@ -764,7 +826,7 @@ class TestE2ECablePlant:
         assert any('sfp0' in t for t in opt_texts)
 
     def test_port_in_use_marked(self, page_base):
-        """A port already connected by another cable shows '⚠ in use'."""
+        """Verify 'in use' indicator in port dropdown."""
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable InUse')
         # Create a cable that uses dev1 sfp0
@@ -785,6 +847,7 @@ class TestE2ECablePlant:
         assert any('in use' in t for t in texts)
 
     def test_edit_cable(self, page_base):
+        """Verify editing a cable via UI."""
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Edit E2E')
         from db import new_id
@@ -806,6 +869,7 @@ class TestE2ECablePlant:
         expect(page.locator('body')).not_to_contain_text('EDIT-BEFORE')
 
     def test_delete_cable(self, page_base):
+        """Verify deleting a cable via UI."""
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Delete E2E')
         from db import new_id
@@ -823,7 +887,7 @@ class TestE2ECablePlant:
         expect(page.locator('body')).not_to_contain_text('DELETE-CAB')
 
     def test_cable_list_shows_issue_badge(self, page_base):
-        """A cable with a connector mismatch gets a red badge in the list."""
+        """Verify issue badge for incompatible cable in list."""
         page, base = page_base
         _seed_connectors(base)
         pid = _create_project(page, base, name='Cable Badge E2E')
@@ -877,19 +941,24 @@ class TestE2ECablePlant:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EValidation:
+    """E2E tests for the hardware validation page."""
+
     def test_validation_page_loads(self, page_base):
+        """Verify validation page loads."""
         page, base = page_base
         pid = _create_project(page, base, name='Validation E2E')
         goto(page, base, f'/projects/{pid}/hw/validate')
         expect(page).to_have_url(re.compile(r'validate'))
 
     def test_clean_project_shows_no_issues(self, page_base):
+        """Verify clean project has no issues."""
         page, base = page_base
         pid = _create_project(page, base, name='Clean Validate')
         goto(page, base, f'/projects/{pid}/hw/validate')
         expect(page.locator('body')).to_contain_text('No issues')
 
     def test_issue_count_summary_cards(self, page_base):
+        """Verify summary cards on validation page."""
         page, base = page_base
         pid = _create_project(page, base, name='Issue Cards')
         goto(page, base, f'/projects/{pid}/hw/validate')
@@ -898,6 +967,7 @@ class TestE2EValidation:
         assert cards.count() >= 3
 
     def test_connector_mismatch_shown_on_page(self, page_base):
+        """Verify connector mismatch appears on validation page."""
         page, base = page_base
         _seed_connectors(base)
         pid = _create_project(page, base, name='Mismatch Validate')
@@ -941,6 +1011,7 @@ class TestE2EValidation:
         expect(page.locator('body')).to_contain_text('BAD-CAB-V')
 
     def test_form_factor_mismatch_shown(self, page_base):
+        """Verify form factor mismatch appears on validation page."""
         page, base = page_base
         pid = _create_project(page, base, name='FF Mismatch Validate')
         from db import new_id
@@ -971,6 +1042,7 @@ class TestE2EValidation:
         expect(page.locator('body')).to_contain_text('FORM_FACTOR_MISMATCH')
 
     def test_re_run_validation_button(self, page_base):
+        """Verify the re-run validation button."""
         page, base = page_base
         pid = _create_project(page, base, name='Rerun Validate')
         goto(page, base, f'/projects/{pid}/hw/validate')
@@ -978,6 +1050,7 @@ class TestE2EValidation:
         expect(page).to_have_url(re.compile(r'validate'))
 
     def test_navigation_links_on_validation_page(self, page_base):
+        """Verify navigation links on validation page."""
         page, base = page_base
         pid = _create_project(page, base, name='Nav Validate')
         goto(page, base, f'/projects/{pid}/hw/validate')
@@ -986,6 +1059,7 @@ class TestE2EValidation:
         expect(page.locator('a:has-text("Inventory")')).to_be_visible()
 
     def test_validate_link_from_project_detail(self, page_base):
+        """Verify the validate link from project detail page."""
         page, base = page_base
         pid = _create_project(page, base, name='Validate Link')
         goto(page, base, f'/projects/{pid}')
@@ -998,16 +1072,10 @@ class TestE2EValidation:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EFullWorkflow:
+    """E2E tests for the complete hardware provisioning workflow."""
+
     def test_complete_hw_provisioning_flow(self, page_base):
-        """
-        Happy-path end-to-end:
-        1. Create project
-        2. Save BoM (2 servers + 1 rack)
-        3. Generate all instances
-        4. Place both servers in the rack
-        5. Connect a cable between the servers
-        6. Run validation — expect no errors
-        """
+        """Verify the complete BoM to validation workflow."""
         page, base = page_base
         _seed_connectors(base)
         from db import new_id
@@ -1063,7 +1131,7 @@ class TestE2EFullWorkflow:
         expect(page.locator('body')).to_contain_text('No issues')
 
     def test_project_detail_hw_links(self, page_base):
-        """Verify all HW navigation links are present on the project detail page."""
+        """Verify hardware navigation links on project detail page."""
         page, base = page_base
         pid = _create_project(page, base, name='Detail Links E2E')
         goto(page, base, f'/projects/{pid}')

@@ -1,12 +1,12 @@
+"""
+API tests for ipam.py routes using Flask test client.
+Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
+"""
 import json
 import pytest
 
 pytestmark = pytest.mark.api
 
-"""
-API tests for ipam.py routes using Flask test client.
-Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
-"""
 from ipam import (
     save_network,
     add_global_label,
@@ -19,6 +19,7 @@ from ipam import (
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _create_project(client, name='Test Project', supernet='10.0.0.0/16'):
+    """Create a test project and return its ID."""
     resp = client.post('/projects/add', data={
         'name': name, 'supernet': supernet, 'description': '',
     }, follow_redirects=False)
@@ -27,6 +28,7 @@ def _create_project(client, name='Test Project', supernet='10.0.0.0/16'):
 
 
 def _create_subnet(client, pid, cidr='10.0.0.0/24', labels='', name=''):
+    """Create a test subnet."""
     return client.post(f'/projects/{pid}/subnet/add', data={
         'mode': 'manual', 'cidr': cidr, 'name': name or cidr,
         'description': '', 'vlan': '', 'labels': labels,
@@ -34,6 +36,7 @@ def _create_subnet(client, pid, cidr='10.0.0.0/24', labels='', name=''):
 
 
 def _get_first_subnet(pid):
+    """Helper to get the first subnet of a project."""
     from ipam import project_networks
     nets = project_networks(pid)
     return nets[0] if nets else None
@@ -44,34 +47,44 @@ def _get_first_subnet(pid):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestIndex:
+    """Test suite for index and dashboard routes."""
+
     def test_index_200(self, client):
+        """Verify index page loads."""
         resp = client.get('/')
         assert resp.status_code == 200
 
     def test_index_shows_project(self, client):
+        """Verify index page shows projects."""
         _create_project(client, 'MyProject')
         resp = client.get('/')
         assert b'MyProject' in resp.data
 
     def test_overview_200(self, client):
+        """Verify overview page loads."""
         assert client.get('/overview').status_code == 200
 
     def test_search_empty(self, client):
+        """Verify empty search page loads."""
         resp = client.get('/search')
         assert resp.status_code == 200
 
     def test_search_with_query(self, client):
+        """Verify search with query loads."""
         resp = client.get('/search?q=10.0.0.1')
         assert resp.status_code == 200
 
     def test_pool_ui_empty(self, client):
+        """Verify pool UI loads."""
         assert client.get('/pool').status_code == 200
 
     def test_pool_api_no_labels(self, client):
+        """Verify pool API rejects request without labels."""
         resp = client.get('/api/pool')
         assert resp.status_code == 400
 
     def test_pool_api_with_labels(self, client):
+        """Verify pool API returns results with labels."""
         resp = client.get('/api/pool?labels=PROD')
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -83,10 +96,14 @@ class TestIndex:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestProjects:
+    """Test suite for project management routes."""
+
     def test_add_project_form_200(self, client):
+        """Verify add project form loads."""
         assert client.get('/projects/add').status_code == 200
 
     def test_add_project_creates_and_redirects(self, client):
+        """Verify project creation redirects."""
         resp = client.post('/projects/add', data={
             'name': 'My Project', 'supernet': '192.168.0.0/16', 'description': 'test',
         }, follow_redirects=False)
@@ -94,27 +111,32 @@ class TestProjects:
         assert '/projects/' in resp.headers['Location']
 
     def test_project_detail_200(self, client):
+        """Verify project detail page loads."""
         pid  = _create_project(client)
         resp = client.get(f'/projects/{pid}')
         assert resp.status_code == 200
         assert b'Test Project' in resp.data
 
     def test_project_detail_404_unknown(self, client):
+        """Verify unknown project returns 404."""
         assert client.get('/projects/no-such-pid').status_code == 404
 
     def test_invalid_supernet_rejected(self, client):
+        """Verify invalid supernet is rejected."""
         resp = client.post('/projects/add', data={
             'name': 'Bad', 'supernet': 'not-a-cidr', 'description': '',
         }, follow_redirects=True)
         assert b'Invalid' in resp.data
 
     def test_delete_project(self, client):
+        """Verify project deletion."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/delete', follow_redirects=False)
         assert resp.status_code == 302
         assert client.get(f'/projects/{pid}').status_code == 404
 
     def test_delete_project_removes_subnets(self, client):
+        """Verify project deletion removes its subnets."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -128,15 +150,20 @@ class TestProjects:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestLabels:
+    """Test suite for label management routes."""
+
     def test_global_labels_page_200(self, client):
+        """Verify global labels page loads."""
         assert client.get('/labels').status_code == 200
 
     def test_add_global_label(self, client):
+        """Verify adding a global label."""
         client.post('/labels', data={'action': 'add', 'label': 'PROD'})
         resp = client.get('/labels')
         assert b'PROD' in resp.data
 
     def test_delete_global_label(self, client):
+        """Verify deleting a global label."""
         client.post('/labels', data={'action': 'add', 'label': 'TEMP'})
         client.post('/labels', data={'action': 'delete', 'label': 'TEMP'})
         client.get('/labels')
@@ -145,20 +172,24 @@ class TestLabels:
         assert 'TEMP' not in global_labels()
 
     def test_empty_label_rejected(self, client):
+        """Verify empty label is rejected."""
         resp = client.post('/labels', data={'action': 'add', 'label': ''}, follow_redirects=True)
         assert b'empty' in resp.data.lower()
 
     def test_project_labels_page_200(self, client):
+        """Verify project labels page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/labels').status_code == 200
 
     def test_add_project_label(self, client):
+        """Verify adding a project label."""
         pid = _create_project(client)
         client.post(f'/projects/{pid}/labels', data={'action': 'add', 'label': 'rack-A'})
         from ipam import project_labels
         assert 'rack-A' in project_labels(pid)
 
     def test_global_label_rejected_as_project_label(self, client):
+        """Verify global label cannot be added as project label."""
         pid = _create_project(client)
         add_global_label('GLOBAL-LBL')
         resp = client.post(f'/projects/{pid}/labels',
@@ -172,11 +203,15 @@ class TestLabels:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestSubnets:
+    """Test suite for subnet management routes."""
+
     def test_add_subnet_form_200(self, client):
+        """Verify add subnet form loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/subnet/add').status_code == 200
 
     def test_add_subnet_manual(self, client):
+        """Verify manual subnet addition."""
         pid  = _create_project(client)
         resp = _create_subnet(client, pid, cidr='10.0.0.0/24')
         assert resp.status_code == 302
@@ -185,6 +220,7 @@ class TestSubnets:
         assert net['cidr'] == '10.0.0.0/24'
 
     def test_add_subnet_auto(self, client):
+        """Verify automatic subnet allocation."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/subnet/add', data={
             'mode': 'auto', 'prefix_len': '24', 'name': '',
@@ -195,6 +231,7 @@ class TestSubnets:
         assert net['cidr'] == '10.0.0.0/24'
 
     def test_add_subnet_outside_supernet_rejected(self, client):
+        """Verify subnets outside supernet are rejected."""
         pid  = _create_project(client, supernet='10.0.0.0/24')
         resp = client.post(f'/projects/{pid}/subnet/add', data={
             'mode': 'manual', 'cidr': '192.168.1.0/24',
@@ -203,6 +240,7 @@ class TestSubnets:
         assert b'not within' in resp.data.lower()
 
     def test_add_overlapping_subnet_rejected(self, client):
+        """Verify overlapping subnets are rejected."""
         pid = _create_project(client)
         _create_subnet(client, pid, cidr='10.0.0.0/24')
         resp = client.post(f'/projects/{pid}/subnet/add', data={
@@ -212,6 +250,7 @@ class TestSubnets:
         assert b'overlap' in resp.data.lower()
 
     def test_add_subnet_with_labels(self, client):
+        """Verify adding a subnet with labels."""
         pid = _create_project(client)
         add_global_label('PROD')
         _create_subnet(client, pid, cidr='10.0.0.0/24', labels='PROD')
@@ -220,6 +259,7 @@ class TestSubnets:
         assert 'PROD' in get_network_labels(net['id'])
 
     def test_network_detail_200(self, client):
+        """Verify network detail page loads."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -227,9 +267,11 @@ class TestSubnets:
         assert resp.status_code == 200
 
     def test_network_detail_404(self, client):
+        """Verify unknown network returns 404."""
         assert client.get('/networks/no-such-id').status_code == 404
 
     def test_edit_network(self, client):
+        """Verify editing a network."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -242,6 +284,7 @@ class TestSubnets:
         assert updated['vlan'] == '100'
 
     def test_delete_network(self, client):
+        """Verify deleting a network."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -251,6 +294,7 @@ class TestSubnets:
         assert get_network(nid) is None
 
     def test_auto_prefix_too_large_rejected(self, client):
+        """Verify auto allocation fails if prefix is too large."""
         pid  = _create_project(client, supernet='10.0.0.0/24')
         resp = client.post(f'/projects/{pid}/subnet/add', data={
             'mode': 'auto', 'prefix_len': '24',
@@ -259,6 +303,7 @@ class TestSubnets:
         assert b'must be smaller' in resp.data.lower()
 
     def test_bulk_add_subnets(self, client):
+        """Verify bulk subnet addition."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/subnet/bulk',
                            json={'subnets': [
@@ -271,6 +316,7 @@ class TestSubnets:
         assert not data['errors']
 
     def test_bulk_add_non_json_rejected(self, client):
+        """Verify non-JSON bulk addition is rejected."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/subnet/bulk', data='not json',
                            content_type='text/plain')
@@ -282,7 +328,10 @@ class TestSubnets:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestIPs:
+    """Test suite for IP management routes."""
+
     def test_add_ip(self, client):
+        """Verify adding an IP address."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -293,6 +342,7 @@ class TestIPs:
         assert get_ip('10.0.0.5') is not None
 
     def test_add_ip_outside_subnet_rejected(self, client):
+        """Verify IP outside subnet is rejected."""
         pid = _create_project(client)
         _create_subnet(client, pid, cidr='10.0.0.0/24')
         net  = _get_first_subnet(pid)
@@ -302,6 +352,7 @@ class TestIPs:
         assert b'not within' in resp.data.lower()
 
     def test_add_duplicate_ip_rejected(self, client):
+        """Verify duplicate IP is rejected."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -314,6 +365,7 @@ class TestIPs:
         assert b'already allocated' in resp.data.lower()
 
     def test_edit_ip(self, client):
+        """Verify editing an IP address."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -330,6 +382,7 @@ class TestIPs:
         assert addr['description'] == 'changed'
 
     def test_delete_ip(self, client):
+        """Verify deleting an IP address."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -341,6 +394,7 @@ class TestIPs:
         assert get_ip('10.0.0.20') is None
 
     def test_next_available_api(self, client):
+        """Verify next available IP API."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -351,6 +405,7 @@ class TestIPs:
         assert data['next_available'] == '10.0.0.1'
 
     def test_next_available_skips_allocated(self, client):
+        """Verify next available IP skips allocated ones."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -362,6 +417,7 @@ class TestIPs:
         assert data['next_available'] == '10.0.0.2'
 
     def test_next_available_skips_pending(self, client):
+        """Verify next available IP skips pending slots."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -375,6 +431,7 @@ class TestIPs:
         assert data['next_available'] == '10.0.0.2'
 
     def test_add_ip_invalid_address(self, client):
+        """Verify adding an invalid IP address is rejected."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net  = _get_first_subnet(pid)
@@ -389,19 +446,25 @@ class TestIPs:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestSubnetTemplates:
+    """Test suite for subnet template management routes."""
+
     def _valid_rules_json(self):
+        """Helper for valid template rules JSON."""
         return json.dumps([
             {'type': 'from_start', 'offset': 1, 'role': 'gateway', 'status': 'reserved'},
             {'type': 'from_end',   'count': 2,  'role': 'reserved','status': 'reserved'},
         ])
 
     def test_list_templates_200(self, client):
+        """Verify templates list page loads."""
         assert client.get('/templates').status_code == 200
 
     def test_add_template_form_200(self, client):
+        """Verify add template form loads."""
         assert client.get('/templates/add').status_code == 200
 
     def test_add_global_template(self, client):
+        """Verify adding a global template."""
         resp = client.post('/templates/add', data={
             'name': 'Standard /24', 'description': '',
             'rules_json': self._valid_rules_json(),
@@ -411,6 +474,7 @@ class TestSubnetTemplates:
         assert any(t['name'] == 'Standard /24' for t in global_templates())
 
     def test_add_project_template(self, client):
+        """Verify adding a project template."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/templates/add', data={
             'name': 'Project Tmpl', 'description': '',
@@ -421,6 +485,7 @@ class TestSubnetTemplates:
         assert any(t['name'] == 'Project Tmpl' for t in project_templates(pid))
 
     def test_add_template_invalid_rules_rejected(self, client):
+        """Verify invalid template rules are rejected."""
         resp = client.post('/templates/add', data={
             'name': 'Bad', 'description': '',
             'rules_json': json.dumps([{'type': 'from_start', 'offset': 0, 'role': 'r', 'status': 'reserved'}]),
@@ -428,6 +493,7 @@ class TestSubnetTemplates:
         assert b'invalid' in resp.data.lower()
 
     def test_edit_template(self, client):
+        """Verify editing a template."""
         client.post('/templates/add', data={
             'name': 'Before', 'description': '',
             'rules_json': self._valid_rules_json(),
@@ -443,6 +509,7 @@ class TestSubnetTemplates:
         assert get_template(tid)['name'] == 'After'
 
     def test_delete_template(self, client):
+        """Verify deleting a template."""
         client.post('/templates/add', data={
             'name': 'DeleteMe', 'description': '',
             'rules_json': self._valid_rules_json(),
@@ -454,6 +521,7 @@ class TestSubnetTemplates:
         assert get_template(tid) is None
 
     def test_preview_template_api(self, client):
+        """Verify template preview API."""
         client.post('/templates/add', data={
             'name': 'T', 'description': '',
             'rules_json': self._valid_rules_json(),
@@ -467,6 +535,7 @@ class TestSubnetTemplates:
         assert len(data['resolved']) == 3   # 1 from_start + 2 from_end
 
     def test_preview_inline_api(self, client):
+        """Verify inline template preview API."""
         resp = client.post('/api/templates/preview_inline',
                            json={'cidr': '10.0.0.0/24', 'rules': [
                                {'type': 'from_start', 'offset': 1, 'role': 'gw', 'status': 'reserved'},
@@ -476,6 +545,7 @@ class TestSubnetTemplates:
         assert data['resolved'][0]['ip'] == '10.0.0.1'
 
     def test_apply_template_and_pending_slots(self, client):
+        """Verify applying a template creates pending slots."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -497,6 +567,7 @@ class TestSubnetTemplates:
         assert n['pending_slots'][0]['ip'] == '10.0.0.1'
 
     def test_confirm_slot(self, client):
+        """Verify confirming a pending slot."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -515,6 +586,7 @@ class TestSubnetTemplates:
         assert not get_network(net['id'])['pending_slots']
 
     def test_confirm_all_slots(self, client):
+        """Verify confirming all pending slots."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -534,6 +606,7 @@ class TestSubnetTemplates:
         assert get_ip('10.0.0.2') is not None
 
     def test_dismiss_slot(self, client):
+        """Verify dismissing a pending slot."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -551,6 +624,7 @@ class TestSubnetTemplates:
         assert not get_network(net['id'])['pending_slots']
 
     def test_dismiss_all_slots(self, client):
+        """Verify dismissing all pending slots."""
         pid = _create_project(client)
         _create_subnet(client, pid)
         net = _get_first_subnet(pid)
@@ -568,6 +642,7 @@ class TestSubnetTemplates:
         assert not get_network(net['id'])['pending_slots']
 
     def test_manage_project_templates_200(self, client):
+        """Verify project templates page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/templates').status_code == 200
 
@@ -577,7 +652,10 @@ class TestSubnetTemplates:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestPoolAPI:
+    """Test suite for pool API routes."""
+
     def test_pool_api_returns_matching_subnets(self, client):
+        """Verify pool API returns matching subnets."""
         pid = _create_project(client)
         add_global_label('PROD')
         _create_subnet(client, pid, cidr='10.0.0.0/24', labels='PROD')
@@ -587,6 +665,7 @@ class TestPoolAPI:
         assert any(s['cidr'] == '10.0.0.0/24' for s in data['subnets'])
 
     def test_pool_api_intersection(self, client):
+        """Verify pool API handles label intersection."""
         pid = _create_project(client)
         add_global_label('PROD')
         add_global_label('London')
@@ -597,11 +676,13 @@ class TestPoolAPI:
         assert data['subnet_count'] == 1
 
     def test_pool_api_no_match(self, client):
+        """Verify pool API handles no matches."""
         resp = client.get('/api/pool?labels=NONEXISTENT')
         data = json.loads(resp.data)
         assert data.get('subnet_count', 0) == 0 or data == {}
 
     def test_pool_ui_with_labels(self, client):
+        """Verify pool UI with labels."""
         pid = _create_project(client)
         add_global_label('PROD')
         _create_subnet(client, pid, labels='PROD')

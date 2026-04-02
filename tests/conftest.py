@@ -37,6 +37,7 @@ def fake_redis(monkeypatch):
 
 @pytest.fixture
 def app():
+    """Create a Flask application instance for testing."""
     flask_app.config.update({
         'TESTING':    True,
         'SECRET_KEY': 'test-secret',
@@ -46,6 +47,7 @@ def app():
 
 @pytest.fixture
 def client(app):
+    """Create a Flask test client."""
     with app.test_client() as c:
         with app.app_context():
             yield c
@@ -115,6 +117,7 @@ def seeded_hw_template(fake_redis):
 
 @pytest.fixture
 def seeded_rack_template(fake_redis):
+    """Create a minimal rack template directly."""
     from hw_logic import save_hw_template
     from db import new_id
     tmpl = {
@@ -129,6 +132,7 @@ def seeded_rack_template(fake_redis):
 
 @pytest.fixture
 def seeded_cable_template(fake_redis):
+    """Create a minimal cable template directly."""
     from hw_logic import save_hw_template
     from db import new_id
     tmpl = {
@@ -139,3 +143,4 @@ def seeded_cable_template(fake_redis):
     }
     save_hw_template(tmpl)
     return tmpl
+

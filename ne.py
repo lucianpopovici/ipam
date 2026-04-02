@@ -13,17 +13,44 @@ ne_bp = Blueprint('ne', __name__, url_prefix='')
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _schema_key(entity, pid=None):
+    """Return the Redis key for a schema."""
     return f'project:{pid}:schema:{entity}' if pid else f'schema:{entity}'
 
-def _ne_type_key(tid):    return f'ne_type:{tid}'
-def _site_key(sid):       return f'site:{sid}'
-def _site_pods_key(sid):  return f'site:{sid}:pods'
-def _pod_key(pid_):       return f'pod:{pid_}'
-def _pod_sites_key(pid_): return f'pod:{pid_}:sites'
-def _pod_slots_key(pid_): return f'pod:{pid_}:slots'   # JSON list of ne-slots
-def _proj_sites_key(pid): return f'project:{pid}:sites'
-def _proj_pods_key(pid):  return f'project:{pid}:pods'
-def _proj_netypes_key(pid): return f'project:{pid}:ne_types'
+def _ne_type_key(tid):
+    """Return the Redis key for an NE type."""
+    return f'ne_type:{tid}'
+
+def _site_key(sid):
+    """Return the Redis key for a site."""
+    return f'site:{sid}'
+
+def _site_pods_key(sid):
+    """Return the Redis key for site PODs."""
+    return f'site:{sid}:pods'
+
+def _pod_key(pid_):
+    """Return the Redis key for a POD."""
+    return f'pod:{pid_}'
+
+def _pod_sites_key(pid_):
+    """Return the Redis key for POD sites."""
+    return f'pod:{pid_}:sites'
+
+def _pod_slots_key(pid_):
+    """Return the Redis key for POD slots."""
+    return f'pod:{pid_}:slots'   # JSON list of ne-slots
+
+def _proj_sites_key(pid):
+    """Return the Redis key for project sites."""
+    return f'project:{pid}:sites'
+
+def _proj_pods_key(pid):
+    """Return the Redis key for project PODs."""
+    return f'project:{pid}:pods'
+
+def _proj_netypes_key(pid):
+    """Return the Redis key for project NE types."""
+    return f'project:{pid}:ne_types'
 
 NE_TYPES_INDEX = 'ne_types:index'
 ENTITY_TYPES   = ('site', 'pod', 'ne', 'interface')
@@ -47,9 +74,11 @@ def get_schema(entity: str, pid=None) -> list:
     return json.loads(raw) if raw else []
 
 def save_schema(entity: str, fields: list, pid=None):
+    """Save a schema to Redis."""
     r.set(_schema_key(entity, pid), json.dumps(fields))
 
 def new_field(name, label, field_type='text', required=False, options=None, default=''):
+    """Create a new field definition."""
     return {
         'id':         str(uuid.uuid4())[:8],
         'name':       name,
@@ -87,10 +116,12 @@ def validate_params(values: dict, schema: list) -> list:
 # }
 
 def get_ne_type(tid):
+    """Retrieve an NE type by ID."""
     raw = r.get(_ne_type_key(tid))
     return json.loads(raw) if raw else None
 
 def save_ne_type(ne):
+    """Save an NE type and update its index."""
     r.set(_ne_type_key(ne['id']), json.dumps(ne))
     if ne.get('scope') == 'project' and ne.get('project_id'):
         r.sadd(_proj_netypes_key(ne['project_id']), ne['id'])
@@ -98,6 +129,7 @@ def save_ne_type(ne):
         r.sadd(NE_TYPES_INDEX, ne['id'])
 
 def delete_ne_type(tid):
+    """Delete an NE type and remove from indices."""
     ne = get_ne_type(tid)
     if not ne: return
     if ne.get('scope') == 'project' and ne.get('project_id'):
@@ -107,14 +139,17 @@ def delete_ne_type(tid):
     r.delete(_ne_type_key(tid))
 
 def global_ne_types() -> list:
+    """Return all global NE types."""
     return sorted([t for t in (get_ne_type(tid) for tid in r.smembers(NE_TYPES_INDEX)) if t],
                   key=lambda t: t['name'])
 
 def project_ne_types(pid) -> list:
+    """Return all NE types for a specific project."""
     return sorted([t for t in (get_ne_type(tid) for tid in r.smembers(_proj_netypes_key(pid))) if t],
                   key=lambda t: t['name'])
 
 def available_ne_types(pid) -> dict:
+    """Return both global and project-specific NE types."""
     return {'global': global_ne_types(), 'project': project_ne_types(pid)}
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -122,14 +157,17 @@ def available_ne_types(pid) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_site(sid):
+    """Retrieve a site by ID."""
     raw = r.get(_site_key(sid))
     return json.loads(raw) if raw else None
 
 def save_site(site):
+    """Save a site and update the project index."""
     r.set(_site_key(site['id']), json.dumps(site))
     r.sadd(_proj_sites_key(site['project_id']), site['id'])
 
 def delete_site(sid):
+    """Delete a site and its associations."""
     site = get_site(sid)
     if not site: return
     r.srem(_proj_sites_key(site['project_id']), sid)
@@ -139,10 +177,12 @@ def delete_site(sid):
     r.delete(_site_key(sid))
 
 def project_sites(pid) -> list:
+    """Return all sites for a specific project."""
     return sorted([s for s in (get_site(sid) for sid in r.smembers(_proj_sites_key(pid))) if s],
                   key=lambda s: s['name'])
 
 def site_pods(sid) -> list:
+    """Return all PODs assigned to a specific site."""
     from ne import get_pod
     return [p for p in (get_pod(pid_) for pid_ in r.smembers(_site_pods_key(sid))) if p]
 
@@ -153,14 +193,17 @@ def site_pods(sid) -> list:
 # Slots stored separately as JSON list in pod:<id>:slots
 
 def get_pod(pod_id):
+    """Retrieve a POD by ID."""
     raw = r.get(_pod_key(pod_id))
     return json.loads(raw) if raw else None
 
 def save_pod(pod):
+    """Save a POD and update the project index."""
     r.set(_pod_key(pod['id']), json.dumps(pod))
     r.sadd(_proj_pods_key(pod['project_id']), pod['id'])
 
 def delete_pod(pod_id):
+    """Delete a POD and its associations."""
     pod = get_pod(pod_id)
     if not pod: return
     r.srem(_proj_pods_key(pod['project_id']), pod_id)
@@ -171,24 +214,30 @@ def delete_pod(pod_id):
     r.delete(_pod_key(pod_id))
 
 def project_pods(pid) -> list:
+    """Return all PODs for a specific project."""
     return sorted([p for p in (get_pod(pod_id) for pod_id in r.smembers(_proj_pods_key(pid))) if p],
                   key=lambda p: p['name'])
 
 def get_pod_slots(pod_id) -> list:
+    """Retrieve NE slots for a specific POD."""
     raw = r.get(_pod_slots_key(pod_id))
     return json.loads(raw) if raw else []
 
 def save_pod_slots(pod_id, slots: list):
+    """Save NE slots for a specific POD."""
     r.set(_pod_slots_key(pod_id), json.dumps(slots))
 
 def pod_sites(pod_id) -> list:
+    """Return all sites where this POD is assigned."""
     return [s for s in (get_site(sid) for sid in r.smembers(_pod_sites_key(pod_id))) if s]
 
 def assign_pod_to_site(pod_id, sid):
+    """Associate a POD with a site."""
     r.sadd(_site_pods_key(sid), pod_id)
     r.sadd(_pod_sites_key(pod_id), sid)
 
 def unassign_pod_from_site(pod_id, sid):
+    """Disassociate a POD from a site."""
     r.srem(_site_pods_key(sid), pod_id)
     r.srem(_pod_sites_key(pod_id), sid)
 
@@ -322,13 +371,16 @@ def _sharing_count(sharing: str, ne_count: int) -> int:
     return ne_count   # interface-level: one per instance
 
 def save_requirements(pid: str, reqs: list):
+    """Save subnet requirements for a project."""
     r.set(f'project:{pid}:requirements', json.dumps(reqs))
 
 def load_requirements(pid: str) -> list:
+    """Load subnet requirements for a project."""
     raw = r.get(f'project:{pid}:requirements')
     return json.loads(raw) if raw else []
 
 def mark_pushed(pid: str, req_key: str):
+    """Mark a specific requirement as pushed to IPAM."""
     reqs = load_requirements(pid)
     for req in reqs:
         if req['key'] == req_key:
@@ -340,9 +392,11 @@ def mark_pushed(pid: str, req_key: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def new_id():
+    """Generate a random 8-character ID."""
     return str(uuid.uuid4())[:8]
 
 def parse_labels(form_value: str) -> list:
+    """Parse comma-separated labels into a list of unique strings."""
     if not form_value:
         return []
     seen, result = set(), []
@@ -371,6 +425,7 @@ def collect_params(schema: list, form) -> dict:
 
 @ne_bp.route('/admin/schemas', methods=['GET', 'POST'])
 def admin_schemas():
+    """Manage global schemas for various entities."""
     if request.method == 'POST':
         entity     = request.form.get('entity')
         fields_raw = request.form.get('fields_json', '[]')
@@ -391,6 +446,7 @@ def admin_schemas():
 
 @ne_bp.route('/projects/<pid>/schemas', methods=['GET', 'POST'])
 def project_schemas(pid):
+    """Manage project-specific schemas."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -424,6 +480,7 @@ def project_schemas(pid):
 
 @ne_bp.route('/ne-types')
 def list_ne_types():
+    """List all global NE types."""
     return render_template('ne/ne_types_list.html',
                            global_types=global_ne_types(), project_types=[])
 
@@ -431,6 +488,7 @@ def list_ne_types():
 @ne_bp.route('/ne-types/add',                       methods=['GET','POST'])
 @ne_bp.route('/projects/<pid>/ne-types/add',        methods=['GET','POST'])
 def add_ne_type(pid=None):
+    """Add a new global or project-specific NE type."""
     from ipam import get_project
     proj = get_project(pid) if pid else None
     if request.method == 'POST':
@@ -470,6 +528,7 @@ def add_ne_type(pid=None):
 
 @ne_bp.route('/ne-types/<tid>/edit', methods=['GET','POST'])
 def edit_ne_type(tid):
+    """Edit an existing NE type."""
     from ipam import get_project
     ne = get_ne_type(tid)
     if not ne: abort(404)
@@ -503,6 +562,7 @@ def edit_ne_type(tid):
 
 @ne_bp.route('/ne-types/<tid>/delete', methods=['POST'])
 def delete_ne_type_route(tid):
+    """Delete an NE type."""
     ne = get_ne_type(tid)
     if not ne: abort(404)
     pid = ne.get('project_id') or None
@@ -514,6 +574,7 @@ def delete_ne_type_route(tid):
 
 @ne_bp.route('/projects/<pid>/ne-types')
 def list_project_ne_types(pid):
+    """List NE types available to a project (global + local)."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -529,6 +590,7 @@ def list_project_ne_types(pid):
 
 @ne_bp.route('/projects/<pid>/sites')
 def list_sites(pid):
+    """List all sites in a project."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -542,6 +604,7 @@ def list_sites(pid):
 
 @ne_bp.route('/projects/<pid>/sites/add', methods=['GET','POST'])
 def add_site(pid):
+    """Add a new site to a project."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -567,6 +630,7 @@ def add_site(pid):
 
 @ne_bp.route('/projects/<pid>/sites/bulk', methods=['GET','POST'])
 def bulk_add_sites(pid):
+    """Bulk create sites from a numeric pattern (e.g. 'site[01-05]')."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -599,6 +663,7 @@ def bulk_add_sites(pid):
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/edit', methods=['GET','POST'])
 def edit_site(pid, sid):
+    """Edit site metadata."""
     from ipam import get_project
     proj = get_project(pid)
     site = get_site(sid)
@@ -617,6 +682,7 @@ def edit_site(pid, sid):
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/delete', methods=['POST'])
 def delete_site_route(pid, sid):
+    """Delete a site."""
     site = get_site(sid)
     if not site: abort(404)
     delete_site(sid)
@@ -626,6 +692,7 @@ def delete_site_route(pid, sid):
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/assign-pod', methods=['POST'])
 def assign_pod_to_site_route(pid, sid):
+    """Assign a POD to a site."""
     pod_id = request.form.get('pod_id','').strip()
     if pod_id:
         assign_pod_to_site(pod_id, sid)
@@ -635,6 +702,7 @@ def assign_pod_to_site_route(pid, sid):
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/unassign-pod', methods=['POST'])
 def unassign_pod_from_site_route(pid, sid):
+    """Remove a POD assignment from a site."""
     pod_id = request.form.get('pod_id','').strip()
     if pod_id:
         unassign_pod_from_site(pod_id, sid)
@@ -644,6 +712,7 @@ def unassign_pod_from_site_route(pid, sid):
 
 @ne_bp.route('/projects/<pid>/sites/<sid>')
 def site_detail(pid, sid):
+    """View site details and pod assignments."""
     from ipam import get_project
     proj = get_project(pid)
     site = get_site(sid)
@@ -663,6 +732,7 @@ def site_detail(pid, sid):
 
 @ne_bp.route('/projects/<pid>/pods')
 def list_pods(pid):
+    """List all PODs in a project."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -677,6 +747,7 @@ def list_pods(pid):
 
 @ne_bp.route('/projects/<pid>/pods/add', methods=['GET','POST'])
 def add_pod(pid):
+    """Create a new POD in a project."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)
@@ -702,6 +773,7 @@ def add_pod(pid):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/edit', methods=['GET','POST'])
 def edit_pod(pid, pod_id):
+    """Edit POD metadata."""
     from ipam import get_project
     proj = get_project(pid)
     pod  = get_pod(pod_id)
@@ -720,6 +792,7 @@ def edit_pod(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/delete', methods=['POST'])
 def delete_pod_route(pid, pod_id):
+    """Delete a POD."""
     pod = get_pod(pod_id)
     if not pod: abort(404)
     delete_pod(pod_id)
@@ -729,6 +802,7 @@ def delete_pod_route(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>')
 def pod_detail(pid, pod_id):
+    """View POD details, site assignments, and NE slots."""
     from ipam import get_project
     proj = get_project(pid)
     pod  = get_pod(pod_id)
@@ -768,6 +842,7 @@ def update_pod_slots(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/assign-site', methods=['POST'])
 def assign_site_to_pod_route(pid, pod_id):
+    """Assign a site to a POD."""
     sid = request.form.get('site_id','').strip()
     if sid:
         assign_pod_to_site(pod_id, sid)
@@ -777,6 +852,7 @@ def assign_site_to_pod_route(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/unassign-site', methods=['POST'])
 def unassign_site_from_pod_route(pid, pod_id):
+    """Remove a site assignment from a POD."""
     sid = request.form.get('site_id','').strip()
     if sid:
         unassign_pod_from_site(pod_id, sid)
@@ -790,6 +866,7 @@ def unassign_site_from_pod_route(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/requirements')
 def requirements(pid):
+    """Calculate and display subnet requirements for all sites/pods in the project."""
     from ipam import get_project
     proj = get_project(pid)
     if not proj: abort(404)

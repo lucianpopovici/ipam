@@ -29,6 +29,7 @@ def _fake_redis_server():
 
 @pytest.fixture(scope='session')
 def _fake_redis_client(_fake_redis_server):
+    """Return a FakeRedis client connected to the shared server."""
     return fakeredis.FakeRedis(server=_fake_redis_server, decode_responses=True)
 
 
@@ -116,6 +117,7 @@ def _flush_redis_between_tests(_fake_redis_client):
 # ── Convenience goto helper available to all E2E tests ───────────────────────
 
 def goto(page, base: str, path: str):
+    """Navigate Playwright page to the specified path."""
     page.goto(f'{base}{path}')
 
 

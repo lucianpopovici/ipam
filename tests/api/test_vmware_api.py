@@ -1,12 +1,12 @@
+"""
+API tests for vmware.py routes using the Flask test client.
+Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
+"""
 import json
 import pytest
 
 pytestmark = pytest.mark.api
 
-"""
-API tests for vmware.py routes using the Flask test client.
-Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
-"""
 import ipam as _ipam
 from db import new_id
 from ipam import save_project, save_network, project_nets_key
@@ -18,12 +18,14 @@ from vmware import enable_network
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _make_project(supernet='10.0.0.0/16'):
+    """Create a test project and return its ID."""
     pid = new_id()
     save_project({'id': pid, 'name': 'Proj', 'supernet': supernet, 'description': ''})
     return pid
 
 
 def _make_network(pid, cidr='10.0.1.0/24'):
+    """Create a test network for a project."""
     nid = new_id()
     net = {'id': nid, 'name': cidr, 'cidr': cidr, 'description': '',
            'vlan': '', 'project_id': pid, 'pending_slots': []}
@@ -37,21 +39,27 @@ def _make_network(pid, cidr='10.0.1.0/24'):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestVMwareUI:
+    """Test suite for VMware integration UI routes."""
+
     def test_index_200(self, client):
+        """Verify VMware index page loads."""
         resp = client.get('/vmware')
         assert resp.status_code == 200
 
     def test_index_shows_no_subnets_message(self, client):
+        """Verify message when no subnets are enabled."""
         resp = client.get('/vmware')
         assert b'No subnets found' in resp.data
 
     def test_index_lists_subnet(self, client):
+        """Verify enabled subnets are listed."""
         pid = _make_project()
         _make_network(pid, '10.0.1.0/24')
         resp = client.get('/vmware')
         assert b'10.0.1.0/24' in resp.data
 
     def test_enable_network(self, client):
+        """Verify enabling a network for VMware."""
         pid = _make_project()
         nid = _make_network(pid)
         resp = client.post(f'/vmware/networks/{nid}/enable', follow_redirects=False)
@@ -60,6 +68,7 @@ class TestVMwareUI:
         assert is_enabled(nid)
 
     def test_disable_network(self, client):
+        """Verify disabling a network for VMware."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -69,14 +78,17 @@ class TestVMwareUI:
         assert not is_enabled(nid)
 
     def test_enable_nonexistent_returns_404(self, client):
+        """Verify enabling unknown network returns 404."""
         resp = client.post('/vmware/networks/ghost/enable', follow_redirects=False)
         assert resp.status_code == 404
 
     def test_disable_nonexistent_returns_404(self, client):
+        """Verify disabling unknown network returns 404."""
         resp = client.post('/vmware/networks/ghost/disable', follow_redirects=False)
         assert resp.status_code == 404
 
     def test_enabled_badge_shown(self, client):
+        """Verify enabled badge is shown in UI."""
         pid = _make_project()
         nid = _make_network(pid)
         enable_network(nid)
@@ -89,13 +101,17 @@ class TestVMwareUI:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAPIListNetworks:
+    """Test suite for VMware network listing API."""
+
     def test_empty_when_none_enabled(self, client):
+        """Verify API returns empty list when no networks enabled."""
         resp = client.get('/api/vmware/networks')
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert not data['networks']
 
     def test_lists_enabled_networks(self, client):
+        """Verify API lists enabled networks."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -105,6 +121,7 @@ class TestAPIListNetworks:
         assert data['networks'][0]['cidr'] == '10.0.1.0/24'
 
     def test_does_not_list_disabled_networks(self, client):
+        """Verify API does not list disabled networks."""
         pid = _make_project()
         _make_network(pid, '10.0.1.0/24')
         resp = client.get('/api/vmware/networks')
@@ -112,6 +129,7 @@ class TestAPIListNetworks:
         assert not data['networks']
 
     def test_response_includes_stats(self, client):
+        """Verify API response includes network stats."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -127,7 +145,10 @@ class TestAPIListNetworks:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAPIAllocate:
+    """Test suite for VMware IP allocation API."""
+
     def test_allocate_returns_201(self, client):
+        """Verify successful allocation returns 201."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -137,6 +158,7 @@ class TestAPIAllocate:
         assert resp.status_code == 201
 
     def test_allocate_returns_ip(self, client):
+        """Verify allocation returns the allocated IP."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -147,6 +169,7 @@ class TestAPIAllocate:
         assert data['ip'] == '10.0.1.1'
 
     def test_allocate_includes_vm_metadata(self, client):
+        """Verify allocation includes VM metadata."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -159,6 +182,7 @@ class TestAPIAllocate:
         assert data['cluster'] == 'Prod'
 
     def test_allocate_no_body_uses_defaults(self, client):
+        """Verify allocation without body uses default values."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -166,6 +190,7 @@ class TestAPIAllocate:
         assert resp.status_code == 201
 
     def test_allocate_increments_ip(self, client):
+        """Verify sequential allocations return different IPs."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -174,6 +199,7 @@ class TestAPIAllocate:
         assert r1['ip'] != r2['ip']
 
     def test_allocate_disabled_returns_400(self, client):
+        """Verify allocation on disabled network returns 400."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         resp = client.post(f'/api/vmware/networks/{nid}/allocate')
@@ -182,6 +208,7 @@ class TestAPIAllocate:
         assert 'error' in data
 
     def test_allocate_exhausted_returns_400(self, client):
+        """Verify allocation fails if network is exhausted."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/30')
         enable_network(nid)
@@ -191,6 +218,7 @@ class TestAPIAllocate:
         assert resp.status_code == 400
 
     def test_allocate_ip_appears_in_list(self, client):
+        """Verify allocated IP appears in allocated list API."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -205,7 +233,10 @@ class TestAPIAllocate:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAPIRelease:
+    """Test suite for VMware IP release API."""
+
     def test_release_returns_200(self, client):
+        """Verify successful IP release."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -216,10 +247,12 @@ class TestAPIRelease:
         assert data['released'] == alloc['ip']
 
     def test_release_nonexistent_returns_404(self, client):
+        """Verify releasing unknown IP returns 404."""
         resp = client.delete('/api/vmware/ip/1.2.3.4/release')
         assert resp.status_code == 404
 
     def test_released_ip_not_in_list(self, client):
+        """Verify released IP is removed from allocations list."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -229,6 +262,7 @@ class TestAPIRelease:
         assert alloc['ip'] not in [a['ip'] for a in ips_resp['allocations']]
 
     def test_released_ip_removed_from_ipam(self, client):
+        """Verify released IP is removed from global IPAM database."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -243,7 +277,10 @@ class TestAPIRelease:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestAPINetworkIPs:
+    """Test suite for VMware network IPs API."""
+
     def test_returns_empty_list_when_no_allocs(self, client):
+        """Verify API returns empty list when no IPs allocated."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -253,6 +290,7 @@ class TestAPINetworkIPs:
         assert not data['allocations']
 
     def test_returns_allocations(self, client):
+        """Verify API returns list of allocations."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)
@@ -264,16 +302,19 @@ class TestAPINetworkIPs:
         assert data['allocations'][0]['vm_name'] == 'vm-01'
 
     def test_returns_400_when_not_enabled(self, client):
+        """Verify API returns 400 for disabled network."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         resp = client.get(f'/api/vmware/networks/{nid}/ips')
         assert resp.status_code == 400
 
     def test_returns_404_for_missing_network(self, client):
+        """Verify API returns 404 for unknown network."""
         resp = client.get('/api/vmware/networks/ghost/ips')
         assert resp.status_code == 404
 
     def test_response_includes_cidr(self, client):
+        """Verify API response includes network CIDR."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
         enable_network(nid)

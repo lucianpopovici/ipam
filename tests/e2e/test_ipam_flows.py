@@ -29,6 +29,7 @@ from playwright.sync_api import Page, expect
 # ══════════════════════════════════════════════════════════════════════════════
 
 def goto(page: Page, base: str, path: str):
+    """Navigate to a path relative to base."""
     page.goto(f'{base}{path}')
 
 
@@ -37,12 +38,16 @@ def goto(page: Page, base: str, path: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EProjectLifecycle:
+    """End-to-end tests for project lifecycle."""
+
     def test_homepage_loads(self, page_base):
+        """Test homepage loads."""
         page, base = page_base
         expect(page).to_have_title(re.compile(r'IPAM|Project'))
         expect(page.locator('h4, h3, h2')).to_be_visible()
 
     def test_create_project(self, page_base):
+        """Test project creation."""
         page, base = page_base
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'E2E Project')
@@ -54,6 +59,7 @@ class TestE2EProjectLifecycle:
         expect(page.locator('body')).to_contain_text('E2E Project')
 
     def test_project_appears_on_homepage(self, page_base):
+        """Test project appears on homepage."""
         page, base = page_base
         # Create project
         goto(page, base, '/projects/add')
@@ -65,6 +71,7 @@ class TestE2EProjectLifecycle:
         expect(page.locator('body')).to_contain_text('Homepage Project')
 
     def test_delete_project(self, page_base):
+        """Test project deletion."""
         page, base = page_base
         # Create
         goto(page, base, '/projects/add')
@@ -81,6 +88,7 @@ class TestE2EProjectLifecycle:
         page.wait_for_url(lambda u: f'/projects/{pid}' not in u)
 
     def test_invalid_supernet_shows_error(self, page_base):
+        """Test invalid supernet shows error."""
         page, base = page_base
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'Bad Project')
@@ -94,7 +102,10 @@ class TestE2EProjectLifecycle:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ESubnets:
+    """End-to-end tests for subnet management."""
+
     def _create_project(self, page: Page, base: str, name='Subnet Test', supernet='10.0.0.0/16'):
+        """Helper to create a project."""
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', name)
         page.fill('input[name="supernet"]', supernet)
@@ -102,6 +113,7 @@ class TestE2ESubnets:
         return page.url.rstrip('/').split('/')[-1]
 
     def test_add_subnet_manual(self, page_base):
+        """Test manual subnet addition."""
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Manual')
         goto(page, base, f'/projects/{pid}/subnet/add')
@@ -112,6 +124,7 @@ class TestE2ESubnets:
         expect(page.locator('body')).to_contain_text('10.0.0.0/24')
 
     def test_add_subnet_auto(self, page_base):
+        """Test automatic subnet addition."""
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Auto')
         goto(page, base, f'/projects/{pid}/subnet/add')
@@ -121,6 +134,7 @@ class TestE2ESubnets:
         expect(page).to_have_url(re.compile(f'/projects/{pid}'))
 
     def test_subnet_detail_visible(self, page_base):
+        """Test subnet detail visibility."""
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Detail')
         goto(page, base, f'/projects/{pid}/subnet/add')
@@ -133,6 +147,7 @@ class TestE2ESubnets:
         expect(page.locator('body')).to_contain_text('10.0.1.0/24')
 
     def test_overlapping_subnet_rejected(self, page_base):
+        """Test overlapping subnet rejection."""
         page, base = page_base
         pid = self._create_project(page, base, name='Overlap Test')
         # Add first subnet
@@ -153,7 +168,10 @@ class TestE2ESubnets:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EIPAllocation:
+    """End-to-end tests for IP allocation."""
+
     def _setup_subnet(self, page: Page, base: str):
+        """Helper to setup a subnet for IP tests."""
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'IP Test')
         page.fill('input[name="supernet"]', '10.0.0.0/16')
@@ -169,6 +187,7 @@ class TestE2EIPAllocation:
         return pid, nid
 
     def test_allocate_ip(self, page_base):
+        """Test IP allocation."""
         page, base = page_base
         pid, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
@@ -180,6 +199,7 @@ class TestE2EIPAllocation:
         expect(page.locator('body')).to_contain_text('web-01')
 
     def test_next_available_button(self, page_base):
+        """Test next available button."""
         page, base = page_base
         pid, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
@@ -191,6 +211,7 @@ class TestE2EIPAllocation:
             expect(ip_field).to_have_value(lambda v: v.startswith('10.0.0.'))
 
     def test_duplicate_ip_shows_warning(self, page_base):
+        """Test duplicate IP warning."""
         page, base = page_base
         pid, nid = self._setup_subnet(page, base)
         for _ in range(2):
@@ -200,6 +221,7 @@ class TestE2EIPAllocation:
         expect(page.locator('.alert')).to_contain_text('already allocated')
 
     def test_edit_ip(self, page_base):
+        """Test IP edit."""
         page, base = page_base
         pid, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
@@ -213,6 +235,7 @@ class TestE2EIPAllocation:
         expect(page.locator('body')).to_contain_text('updated-host')
 
     def test_delete_ip(self, page_base):
+        """Test IP deletion."""
         page, base = page_base
         pid, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
@@ -228,7 +251,10 @@ class TestE2EIPAllocation:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ELabels:
+    """End-to-end tests for labels."""
+
     def test_add_global_label(self, page_base):
+        """Test global label addition."""
         page, base = page_base
         goto(page, base, '/labels')
         page.fill('input[name="label"]', 'E2E-GLOBAL')
@@ -236,6 +262,7 @@ class TestE2ELabels:
         expect(page.locator('body')).to_contain_text('E2E-GLOBAL')
 
     def test_label_appears_in_subnet_form(self, page_base):
+        """Test label in subnet form."""
         page, base = page_base
         # Add label
         goto(page, base, '/labels')
@@ -251,6 +278,7 @@ class TestE2ELabels:
         expect(page.locator('body')).to_contain_text('PROD-E2E')
 
     def test_empty_label_rejected(self, page_base):
+        """Test empty label rejection."""
         page, base = page_base
         goto(page, base, '/labels')
         # Try to submit empty label
@@ -264,7 +292,10 @@ class TestE2ELabels:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2ESubnetTemplates:
+    """End-to-end tests for subnet templates."""
+
     def _setup(self, page: Page, base: str):
+        """Helper setup for templates."""
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'Template E2E')
         page.fill('input[name="supernet"]', '10.40.0.0/16')
@@ -279,6 +310,7 @@ class TestE2ESubnetTemplates:
         return pid, nid
 
     def test_create_subnet_template(self, page_base):
+        """Test subnet template creation."""
         page, base = page_base
         goto(page, base, '/templates/add')
         page.fill('input[name="name"]', 'E2E Template')
@@ -294,6 +326,7 @@ class TestE2ESubnetTemplates:
         expect(page.locator('body')).to_contain_text('E2E Template')
 
     def test_apply_template_creates_pending_slots(self, page_base):
+        """Test template application."""
         page, base = page_base
         # Create template directly via API
         from db import new_id
@@ -316,6 +349,7 @@ class TestE2ESubnetTemplates:
         expect(page.locator('body')).to_contain_text('pending')
 
     def test_confirm_pending_slot(self, page_base):
+        """Test pending slot confirmation."""
         page, base = page_base
         from db import new_id
         from ipam import save_template, set_pending_slots, save_project
@@ -352,12 +386,16 @@ class TestE2ESubnetTemplates:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestE2EPoolQuery:
+    """End-to-end tests for pool query UI."""
+
     def test_pool_page_loads(self, page_base):
+        """Test pool page loads."""
         page, base = page_base
         goto(page, base, '/pool')
         expect(page).to_have_url(re.compile(r'/pool'))
 
     def test_pool_query_with_label(self, page_base):
+        """Test pool query with label."""
         page, base = page_base
         from ipam import (save_project, save_network, add_labels_to_network,
                           add_global_label, project_nets_key)
@@ -377,6 +415,7 @@ class TestE2EPoolQuery:
         expect(page.locator('body')).to_contain_text('10.60.0.0/24')
 
     def test_search_finds_ip(self, page_base):
+        """Test search finding IP."""
         page, base = page_base
         from ipam import (save_project, save_network, save_ip, project_nets_key)
         from db import new_id

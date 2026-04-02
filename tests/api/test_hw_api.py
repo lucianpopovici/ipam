@@ -1,11 +1,11 @@
+"""
+API tests for hw.py routes using Flask test client.
+"""
 import json
 import pytest
 
 pytestmark = pytest.mark.api
 
-"""
-API tests for hw.py routes using Flask test client.
-"""
 from db import new_id
 from hw import (
     save_hw_template, save_hw_instance, save_bom, save_cable,
@@ -21,6 +21,7 @@ from hw import (
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _create_project(client):
+    """Create a test project and return its ID."""
     resp = client.post('/projects/add', data={
         'name': 'HW Test Project', 'supernet': '10.0.0.0/8', 'description': '',
     }, follow_redirects=False)
@@ -28,6 +29,7 @@ def _create_project(client):
 
 
 def _server_tmpl():
+    """Return a standard server template dict."""
     return {
         'id': new_id(), 'name': 'Server-1U', 'vendor': 'Dell', 'model': 'R650',
         'category': 'server', 'form_factor': '19"', 'u_size': 1,
@@ -45,6 +47,7 @@ def _server_tmpl():
 
 
 def _rack_tmpl():
+    """Return a standard rack template dict."""
     return {
         'id': new_id(), 'name': 'Rack-42U', 'vendor': 'APC', 'model': 'AR3000',
         'category': 'rack', 'form_factor': '19"', 'u_size': 42,
@@ -54,6 +57,7 @@ def _rack_tmpl():
 
 
 def _cable_tmpl():
+    """Return a standard cable template dict."""
     return {
         'id': new_id(), 'name': 'DAC-25G', 'vendor': 'ACME', 'model': 'D25',
         'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
@@ -63,6 +67,7 @@ def _cable_tmpl():
 
 
 def _make_instance(pid, tmpl):
+    """Create and save a hardware instance."""
     inst = {
         'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
         'asset_tag': f'{tmpl["name"][:4]}-{new_id()}',
@@ -78,10 +83,14 @@ def _make_instance(pid, tmpl):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestConnectorRoutes:
+    """Test suite for connector management routes."""
+
     def test_connectors_page_200(self, client):
+        """Verify connectors page loads."""
         assert client.get('/admin/hw/connectors').status_code == 200
 
     def test_add_connector(self, client):
+        """Verify adding a connector."""
         resp = client.post('/admin/hw/connectors', data={
             'action': 'add', 'name': 'MY-CONN',
         }, follow_redirects=False)
@@ -91,6 +100,7 @@ class TestConnectorRoutes:
         assert 'MY-CONN' in all_connectors()
 
     def test_delete_connector(self, client):
+        """Verify deleting a connector."""
         seed_connectors()
         client.post('/admin/hw/connectors', data={'action': 'add', 'name': 'TEMP-X'})
         client.post('/admin/hw/connectors', data={'action': 'delete', 'name': 'TEMP-X'})
@@ -98,6 +108,7 @@ class TestConnectorRoutes:
         assert 'TEMP-X' not in all_connectors()
 
     def test_set_compat(self, client):
+        """Verify setting connector compatibility."""
         seed_connectors()
         client.post('/admin/hw/connectors', data={'action': 'add', 'name': 'CA'})
         client.post('/admin/hw/connectors', data={'action': 'add', 'name': 'CB'})
@@ -109,6 +120,7 @@ class TestConnectorRoutes:
         assert connectors_compatible('CA', 'CB')
 
     def test_unset_compat(self, client):
+        """Verify unsetting connector compatibility."""
         seed_connectors()
         client.post('/admin/hw/connectors', data={'action': 'add', 'name': 'CX'})
         client.post('/admin/hw/connectors', data={'action': 'add', 'name': 'CY'})
@@ -127,13 +139,18 @@ class TestConnectorRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestHWTemplateRoutes:
+    """Test suite for hardware template routes."""
+
     def test_hw_templates_list_200(self, client):
+        """Verify hardware templates list loads."""
         assert client.get('/hw/templates').status_code == 200
 
     def test_add_hw_template_form_200(self, client):
+        """Verify add hardware template form loads."""
         assert client.get('/hw/templates/add').status_code == 200
 
     def test_add_global_template(self, client):
+        """Verify adding a global hardware template."""
         seed_connectors()
         resp = client.post('/hw/templates/add', data={
             'name':        'My Server',
@@ -151,6 +168,7 @@ class TestHWTemplateRoutes:
         assert any(t['name'] == 'My Server' for t in global_hw_templates())
 
     def test_add_template_with_ports(self, client):
+        """Verify adding a template with ports."""
         seed_connectors()
         ports = json.dumps([{
             'id': 'p1', 'name': 'eth0', 'port_type': 'data',
@@ -168,6 +186,7 @@ class TestHWTemplateRoutes:
         assert len(tmpl['ports']) == 1
 
     def test_edit_hw_template(self, client):
+        """Verify editing a hardware template."""
         seed_connectors()
         t = _server_tmpl(); save_hw_template(t)
         resp = client.post(f'/hw/templates/{t["id"]}/edit', data={
@@ -180,16 +199,19 @@ class TestHWTemplateRoutes:
         assert get_hw_template(t['id'])['u_size'] == 2
 
     def test_delete_hw_template(self, client):
+        """Verify deleting a hardware template."""
         t = _server_tmpl(); save_hw_template(t)
         resp = client.post(f'/hw/templates/{t["id"]}/delete', follow_redirects=False)
         assert resp.status_code == 302
         assert get_hw_template(t['id']) is None
 
     def test_project_templates_page_200(self, client):
+        """Verify project hardware templates page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/templates').status_code == 200
 
     def test_add_project_template(self, client):
+        """Verify adding a project-specific hardware template."""
         seed_connectors()
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/hw/templates/add', data={
@@ -202,6 +224,7 @@ class TestHWTemplateRoutes:
         assert any(t['name'] == 'Custom Switch' for t in project_hw_templates(pid))
 
     def test_add_template_invalid_ports_rejected(self, client):
+        """Verify invalid ports JSON is rejected."""
         seed_connectors()
         resp = client.post('/hw/templates/add', data={
             'name': 'Bad', 'vendor': '', 'model': '', 'category': 'server',
@@ -211,6 +234,7 @@ class TestHWTemplateRoutes:
         assert b'invalid' in resp.data.lower()
 
     def test_add_template_missing_name_rejected(self, client):
+        """Verify template without name is rejected."""
         seed_connectors()
         resp = client.post('/hw/templates/add', data={
             'name': '', 'vendor': '', 'model': '', 'category': 'server',
@@ -225,11 +249,15 @@ class TestHWTemplateRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestBOMRoutes:
+    """Test suite for Bill of Materials routes."""
+
     def test_bom_page_200(self, client):
+        """Verify BOM page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/bom').status_code == 200
 
     def test_save_bom(self, client):
+        """Verify saving a BOM."""
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
         bom = json.dumps([{
@@ -246,18 +274,21 @@ class TestBOMRoutes:
         assert loaded[0]['qty'] == 3
 
     def test_save_empty_bom(self, client):
+        """Verify saving an empty BOM."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/bom', data={'bom_json': '[]'},
                            follow_redirects=False)
         assert resp.status_code == 302
 
     def test_save_bom_invalid_json(self, client):
+        """Verify invalid BOM JSON is rejected."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/bom', data={'bom_json': 'NOT JSON'},
                            follow_redirects=True)
         assert b'invalid' in resp.data.lower()
 
     def test_generate_from_bom_line(self, client):
+        """Verify generating instances from a BOM line."""
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
         item_id = new_id()
@@ -273,6 +304,7 @@ class TestBOMRoutes:
         assert len(instances) == 4
 
     def test_generate_all_from_bom(self, client):
+        """Verify generating all instances from BOM."""
         pid = _create_project(client)
         t1  = _server_tmpl(); t2 = _rack_tmpl()
         save_hw_template(t1); save_hw_template(t2)
@@ -288,6 +320,7 @@ class TestBOMRoutes:
         assert len(instances) == 5
 
     def test_generate_with_missing_item_id(self, client):
+        """Verify generation with missing item ID fails gracefully."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/bom/generate',
                            data={'item_id': 'no-such-id'}, follow_redirects=True)
@@ -299,11 +332,15 @@ class TestBOMRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestInventoryRoutes:
+    """Test suite for inventory management routes."""
+
     def test_inventory_page_200(self, client):
+        """Verify inventory page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/inventory').status_code == 200
 
     def test_inventory_category_filter(self, client):
+        """Verify inventory category filtering."""
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
         _make_instance(pid, t)
@@ -312,10 +349,12 @@ class TestInventoryRoutes:
         assert b'Server-1U' in resp.data
 
     def test_add_instance_form_200(self, client):
+        """Verify add instance form loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/instances/add').status_code == 200
 
     def test_add_instance_manually(self, client):
+        """Verify adding an instance manually."""
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
         resp = client.post(f'/projects/{pid}/hw/instances/add', data={
@@ -327,6 +366,7 @@ class TestInventoryRoutes:
         assert any(i['asset_tag'] == 'MANUAL-001' for i in instances)
 
     def test_edit_instance(self, client):
+        """Verify editing an instance."""
         pid  = _create_project(client)
         t    = _server_tmpl(); save_hw_template(t)
         inst = _make_instance(pid, t)
@@ -339,6 +379,7 @@ class TestInventoryRoutes:
         assert updated['status']    == 'deployed'
 
     def test_delete_instance(self, client):
+        """Verify deleting an instance."""
         pid  = _create_project(client)
         t    = _server_tmpl(); save_hw_template(t)
         inst = _make_instance(pid, t)
@@ -348,6 +389,7 @@ class TestInventoryRoutes:
         assert get_hw_instance(inst['id']) is None
 
     def test_add_instance_no_template_rejected(self, client):
+        """Verify instance without template is rejected."""
         pid  = _create_project(client)
         resp = client.post(f'/projects/{pid}/hw/instances/add', data={
             'template_id': '', 'asset_tag': 'X', 'serial': '', 'status': 'in-stock',
@@ -360,7 +402,10 @@ class TestInventoryRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestRackRoutes:
+    """Test suite for rack management routes."""
+
     def _setup_rack_and_device(self, client):
+        """Helper to set up a rack and a device instance."""
         pid   = _create_project(client)
         rt    = _rack_tmpl();   save_hw_template(rt)
         dt    = _server_tmpl(); save_hw_template(dt)
@@ -369,14 +414,17 @@ class TestRackRoutes:
         return pid, rack, dev
 
     def test_rack_list_200(self, client):
+        """Verify rack list loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/racks').status_code == 200
 
     def test_rack_detail_200(self, client):
+        """Verify rack detail page loads."""
         pid, rack, _ = self._setup_rack_and_device(client)
         assert client.get(f'/projects/{pid}/hw/racks/{rack["id"]}').status_code == 200
 
     def test_place_device_success(self, client):
+        """Verify placing a device in a rack."""
         pid, rack, dev = self._setup_rack_and_device(client)
         resp = client.post(f'/projects/{pid}/hw/racks/{rack["id"]}/place', data={
             'instance_id': dev['id'], 'u_pos': '10',
@@ -386,6 +434,7 @@ class TestRackRoutes:
         assert any(s['instance_id'] == dev['id'] and s['u_pos'] == 10 for s in slots)
 
     def test_place_device_u_overflow(self, client):
+        """Verify placing a device beyond rack height is rejected."""
         pid, rack, dev = self._setup_rack_and_device(client)
         resp = client.post(f'/projects/{pid}/hw/racks/{rack["id"]}/place', data={
             'instance_id': dev['id'], 'u_pos': '43',  # > 42U rack
@@ -393,6 +442,7 @@ class TestRackRoutes:
         assert b'overflow' in resp.data.lower() or b'exceeds' in resp.data.lower()
 
     def test_remove_device_from_rack(self, client):
+        """Verify removing a device from a rack."""
         pid, rack, dev = self._setup_rack_and_device(client)
         client.post(f'/projects/{pid}/hw/racks/{rack["id"]}/place',
                     data={'instance_id': dev['id'], 'u_pos': '5'})
@@ -403,6 +453,7 @@ class TestRackRoutes:
         assert get_hw_instance(dev['id'])['location'] == {}
 
     def test_api_place_device_json(self, client):
+        """Verify placing a device via JSON API."""
         pid, rack, dev = self._setup_rack_and_device(client)
         resp = client.post(f'/api/projects/{pid}/hw/racks/{rack["id"]}/place',
                            json={'instance_id': dev['id'], 'u_pos': 5})
@@ -411,6 +462,7 @@ class TestRackRoutes:
         assert data['ok'] is True
 
     def test_api_place_device_overlap_fails(self, client):
+        """Verify overlapping placement is rejected."""
         pid   = _create_project(client)
         rt    = _rack_tmpl();   save_hw_template(rt)
         dt    = _server_tmpl(); save_hw_template(dt)
@@ -426,10 +478,12 @@ class TestRackRoutes:
         assert any(i['code'] == 'U_OCCUPIED' for i in data['issues'])
 
     def test_rack_table_200(self, client):
+        """Verify rack table page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/rack-table').status_code == 200
 
     def test_rack_table_bulk_post(self, client):
+        """Verify bulk placement via rack table."""
         pid, rack, dev = self._setup_rack_and_device(client)
         resp = client.post(f'/projects/{pid}/hw/rack-table',
                            json=[{'rack_id': rack['id'], 'instance_id': dev['id'], 'u_pos': 3}])
@@ -438,6 +492,7 @@ class TestRackRoutes:
         assert results[0]['ok'] is True
 
     def test_rack_table_bulk_error_reported(self, client):
+        """Verify bulk placement errors are reported."""
         pid, rack, dev = self._setup_rack_and_device(client)
         resp = client.post(f'/projects/{pid}/hw/rack-table',
                            json=[{'rack_id': rack['id'], 'instance_id': dev['id'], 'u_pos': 99}])
@@ -450,15 +505,20 @@ class TestRackRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestCableRoutes:
+    """Test suite for cable management routes."""
+
     def test_cable_list_200(self, client):
+        """Verify cable list page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/cables').status_code == 200
 
     def test_add_cable_form_200(self, client):
+        """Verify add cable form loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/cables/add').status_code == 200
 
     def test_add_cable(self, client):
+        """Verify adding a cable."""
         pid  = _create_project(client)
         ct   = _cable_tmpl(); save_hw_template(ct)
         dt   = _server_tmpl(); save_hw_template(dt)
@@ -481,6 +541,7 @@ class TestCableRoutes:
         assert any(c['asset_tag'] == 'CAB-001' for c in cables)
 
     def test_edit_cable(self, client):
+        """Verify editing a cable."""
         pid  = _create_project(client)
         ct   = _cable_tmpl(); save_hw_template(ct)
         dt   = _server_tmpl(); save_hw_template(dt)
@@ -511,6 +572,7 @@ class TestCableRoutes:
         assert get_cable(c['id'])['length_m']   == '2.0'
 
     def test_delete_cable(self, client):
+        """Verify deleting a cable."""
         pid = _create_project(client)
         c = {
             'id': new_id(), 'template_id': None, 'project_id': pid,
@@ -524,6 +586,7 @@ class TestCableRoutes:
         assert get_cable(c['id']) is None
 
     def test_instance_ports_api(self, client):
+        """Verify instance ports API."""
         pid  = _create_project(client)
         dt   = _server_tmpl(); save_hw_template(dt)
         inst = _make_instance(pid, dt)
@@ -536,6 +599,7 @@ class TestCableRoutes:
         assert 'sfp0' in names
 
     def test_instance_ports_api_marks_used(self, client):
+        """Verify instance ports API marks ports in use."""
         pid  = _create_project(client)
         dt   = _server_tmpl(); save_hw_template(dt)
         dev1 = _make_instance(pid, dt)
@@ -554,6 +618,7 @@ class TestCableRoutes:
         assert sfp['in_use'] is True
 
     def test_instance_ports_api_unknown_instance(self, client):
+        """Verify instance ports API handles unknown instance."""
         pid  = _create_project(client)
         resp = client.get(f'/api/projects/{pid}/hw/instance-ports/no-such-id')
         assert resp.status_code == 200
@@ -565,16 +630,21 @@ class TestCableRoutes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestValidationRoutes:
+    """Test suite for validation routes."""
+
     def test_validate_page_200(self, client):
+        """Verify validation page loads."""
         pid = _create_project(client)
         assert client.get(f'/projects/{pid}/hw/validate').status_code == 200
 
     def test_validate_empty_project_no_issues(self, client):
+        """Verify empty project has no issues."""
         pid  = _create_project(client)
         resp = client.get(f'/projects/{pid}/hw/validate')
         assert b'No issues' in resp.data
 
     def test_api_validate_returns_json(self, client):
+        """Verify validation API returns JSON."""
         pid  = _create_project(client)
         resp = client.get(f'/api/projects/{pid}/hw/validate')
         assert resp.status_code == 200
@@ -584,6 +654,7 @@ class TestValidationRoutes:
         assert 'warnings' in data
 
     def test_validate_detects_connector_mismatch(self, client):
+        """Verify validation detects connector mismatch."""
         seed_connectors()
         pid = _create_project(client)
         # Server with RJ45 eth0, switch with SFP28 swp0
@@ -623,12 +694,14 @@ class TestValidationRoutes:
         assert 'CONNECTOR_MISMATCH' in codes
 
     def test_validate_caches_result(self, client):
+        """Verify validation results are cached."""
         pid = _create_project(client)
         client.get(f'/projects/{pid}/hw/validate')
         cached = load_validation(pid)
         assert isinstance(cached, list)
 
     def test_api_validate_structure(self, client):
+        """Verify validation API response structure."""
         pid  = _create_project(client)
         resp = client.get(f'/api/projects/{pid}/hw/validate')
         data = json.loads(resp.data)

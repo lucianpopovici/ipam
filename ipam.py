@@ -11,16 +11,45 @@ ipam_bp = Blueprint('ipam', __name__, url_prefix='')
 # Key helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
-def project_key(pid):            return f'project:{pid}'
-def project_nets_key(pid):       return f'project:{pid}:networks'
-def project_labels_key(pid):     return f'project:{pid}:labels'
-def project_templates_key(pid):  return f'project:{pid}:templates'
-def net_key(nid):                return f'network:{nid}'
-def net_ips_key(nid):            return f'network:{nid}:ips'
-def net_labels_key(nid):         return f'network:{nid}:labels'
-def label_nets_key(label):       return f'label:{label}:nets'
-def template_key(tid):           return f'template:{tid}'
-def ip_key(ip):                  return f'ip:{ip}'
+def project_key(pid):
+    """Return the Redis key for a project."""
+    return f'project:{pid}'
+
+def project_nets_key(pid):
+    """Return the Redis key for project networks."""
+    return f'project:{pid}:networks'
+
+def project_labels_key(pid):
+    """Return the Redis key for project labels."""
+    return f'project:{pid}:labels'
+
+def project_templates_key(pid):
+    """Return the Redis key for project templates."""
+    return f'project:{pid}:templates'
+
+def net_key(nid):
+    """Return the Redis key for a network."""
+    return f'network:{nid}'
+
+def net_ips_key(nid):
+    """Return the Redis key for network IPs."""
+    return f'network:{nid}:ips'
+
+def net_labels_key(nid):
+    """Return the Redis key for network labels."""
+    return f'network:{nid}:labels'
+
+def label_nets_key(label):
+    """Return the Redis key for label-to-networks mapping."""
+    return f'label:{label}:nets'
+
+def template_key(tid):
+    """Return the Redis key for a template."""
+    return f'template:{tid}'
+
+def ip_key(ip):
+    """Return the Redis key for an IP address."""
+    return f'ip:{ip}'
 
 PROJECTS_INDEX   = 'projects:index'
 NETWORKS_INDEX   = 'networks:index'
@@ -28,6 +57,7 @@ GLOBAL_LABELS    = 'labels:global'
 GLOBAL_TEMPLATES = 'templates:global'
 
 def new_id() -> str:
+    """Generate a random 8-character ID."""
     return str(uuid.uuid4())[:8]
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -35,6 +65,7 @@ def new_id() -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def parse_labels(form_value: str) -> list:
+    """Parse comma-separated labels into a list of unique strings."""
     if not form_value:
         return []
     seen, result = set(), []
@@ -45,33 +76,51 @@ def parse_labels(form_value: str) -> list:
     return result
 
 def global_labels() -> list:
+    """Return all global labels."""
     return sorted(r.smembers(GLOBAL_LABELS))
 
 def project_labels(pid: str) -> list:
+    """Return all labels for a specific project."""
     return sorted(r.smembers(project_labels_key(pid)))
 
 def available_labels_for_project(pid: str) -> dict:
+    """Return both global and project-specific labels."""
     return {'global': global_labels(), 'project': project_labels(pid)}
 
-def add_global_label(label):      r.sadd(GLOBAL_LABELS, label)
-def remove_global_label(label):   r.srem(GLOBAL_LABELS, label)
-def add_project_label(pid, l):    r.sadd(project_labels_key(pid), l)
-def remove_project_label(pid, l): r.srem(project_labels_key(pid), l)
+def add_global_label(label):
+    """Add a label to the global set."""
+    r.sadd(GLOBAL_LABELS, label)
+
+def remove_global_label(label):
+    """Remove a label from the global set."""
+    r.srem(GLOBAL_LABELS, label)
+
+def add_project_label(pid, l):
+    """Add a label to a project."""
+    r.sadd(project_labels_key(pid), l)
+
+def remove_project_label(pid, l):
+    """Remove a label from a project."""
+    r.srem(project_labels_key(pid), l)
 
 def add_labels_to_network(net_id, labels):
+    """Associate labels with a network."""
     for label in labels:
         r.sadd(net_labels_key(net_id), label)
         r.sadd(label_nets_key(label), net_id)
 
 def remove_labels_from_network(net_id, labels):
+    """Disassociate labels from a network."""
     for label in labels:
         r.srem(net_labels_key(net_id), label)
         r.srem(label_nets_key(label), net_id)
 
 def get_network_labels(net_id: str) -> list:
+    """Return labels associated with a network."""
     return sorted(r.smembers(net_labels_key(net_id)))
 
 def label_scope(label: str, pid: str) -> str:
+    """Determine if a label is global or project-specific."""
     if r.sismember(GLOBAL_LABELS, label):                      return 'global'
     if pid and r.sismember(project_labels_key(pid), label):    return 'project'
     return 'unknown'
@@ -81,10 +130,12 @@ def label_scope(label: str, pid: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_template(tid):
+    """Retrieve a template by ID."""
     raw = r.get(template_key(tid))
     return json.loads(raw) if raw else None
 
 def save_template(tmpl):
+    """Save a template to Redis."""
     r.set(template_key(tmpl['id']), json.dumps(tmpl))
     if tmpl.get('scope') == 'project' and tmpl.get('project_id'):
         r.sadd(project_templates_key(tmpl['project_id']), tmpl['id'])
@@ -92,6 +143,7 @@ def save_template(tmpl):
         r.sadd(GLOBAL_TEMPLATES, tmpl['id'])
 
 def delete_template(tid):
+    """Delete a template and its index references."""
     tmpl = get_template(tid)
     if not tmpl: return
     if tmpl.get('scope') == 'project' and tmpl.get('project_id'):
@@ -101,20 +153,24 @@ def delete_template(tid):
     r.delete(template_key(tid))
 
 def global_templates() -> list:
+    """Return all global subnet templates."""
     return sorted(
         [t for t in (get_template(tid) for tid in r.smembers(GLOBAL_TEMPLATES)) if t],
         key=lambda t: t['name'])
 
 def project_templates(pid: str) -> list:
+    """Return all templates for a specific project."""
     return sorted(
         [t for t in (get_template(tid) for tid in r.smembers(project_templates_key(pid))) if t],
         key=lambda t: t['name'])
 
 def available_templates_for_project(pid: str) -> dict:
+    """Return both global and project-specific templates."""
     return {'global': global_templates(),
             'project': project_templates(pid) if pid else []}
 
 def template_scope(tid: str, pid: str) -> str:
+    """Determine if a template is global or project-specific."""
     if r.sismember(GLOBAL_TEMPLATES, tid):                        return 'global'
     if pid and r.sismember(project_templates_key(pid), tid):      return 'project'
     return 'unknown'
@@ -124,6 +180,7 @@ def template_scope(tid: str, pid: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def resolve_template_rules(cidr: str, rules: list) -> list:
+    """Resolve subnet rules into a list of specific IP slots."""
     network_obj = ipaddress.ip_network(cidr, strict=False)
     hosts       = list(network_obj.hosts())
     if not hosts:
@@ -153,6 +210,7 @@ def resolve_template_rules(cidr: str, rules: list) -> list:
 
 
 def _validate_rules(rules: list):
+    """Validate template rules for correctness."""
     valid_types    = {'from_start', 'from_end', 'range'}
     valid_statuses = {'reserved', 'allocated', 'dhcp'}
     for i, rule in enumerate(rules):
@@ -177,6 +235,7 @@ def _validate_rules(rules: list):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def set_pending_slots(net_id: str, tid: str):
+    """Apply a template to a network, generating pending IP slots."""
     net  = get_network(net_id)
     tmpl = get_template(tid)
     if not net or not tmpl:
@@ -189,6 +248,7 @@ def set_pending_slots(net_id: str, tid: str):
     return pending
 
 def confirm_slot(net_id: str, ip_str: str) -> bool:
+    """Confirm a pending IP slot, creating a real IP record."""
     net = get_network(net_id)
     if not net: return False
     pending = net.get('pending_slots', [])
@@ -202,6 +262,7 @@ def confirm_slot(net_id: str, ip_str: str) -> bool:
     return True
 
 def confirm_all_slots(net_id: str) -> dict:
+    """Confirm all pending IP slots for a network."""
     net = get_network(net_id)
     if not net: return {'created': 0, 'skipped': 0}
     pending = net.get('pending_slots', [])
@@ -219,6 +280,7 @@ def confirm_all_slots(net_id: str) -> dict:
     return {'created': created, 'skipped': skipped}
 
 def dismiss_slot(net_id: str, ip_str: str) -> bool:
+    """Remove a single pending IP slot."""
     net = get_network(net_id)
     if not net: return False
     before = len(net.get('pending_slots', []))
@@ -228,6 +290,7 @@ def dismiss_slot(net_id: str, ip_str: str) -> bool:
     return False
 
 def dismiss_all_slots(net_id: str):
+    """Remove all pending IP slots for a network."""
     net = get_network(net_id)
     if not net: return
     net['pending_slots'] = []
@@ -238,43 +301,54 @@ def dismiss_all_slots(net_id: str):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def get_project(pid):
+    """Retrieve a project by ID."""
     raw = r.get(project_key(pid))
     return json.loads(raw) if raw else None
 
 def save_project(proj):
+    """Save a project and its index."""
     r.set(project_key(proj['id']), json.dumps(proj))
     r.sadd(PROJECTS_INDEX, proj['id'])
 
 def all_projects():
+    """Return all projects."""
     return [p for p in (get_project(pid) for pid in r.smembers(PROJECTS_INDEX)) if p]
 
 def get_network(nid):
+    """Retrieve a network by ID."""
     raw = r.get(net_key(nid))
     return json.loads(raw) if raw else None
 
 def save_network(net):
+    """Save a network and its index."""
     r.set(net_key(net['id']), json.dumps(net))
     r.sadd(NETWORKS_INDEX, net['id'])
 
 def get_ip(ip_str):
+    """Retrieve an IP record."""
     raw = r.get(ip_key(ip_str))
     return json.loads(raw) if raw else None
 
 def save_ip(addr):
+    """Save an IP record and update network-to-IP index."""
     r.set(ip_key(addr['ip']), json.dumps(addr))
     r.sadd(net_ips_key(addr['network_id']), addr['ip'])
 
 def all_networks():
+    """Return all networks."""
     return [n for n in (get_network(nid) for nid in r.smembers(NETWORKS_INDEX)) if n]
 
 def network_addresses(net_id):
+    """Return all IP records for a network, sorted by IP address."""
     addrs = [get_ip(ip) for ip in r.smembers(net_ips_key(net_id))]
     return sorted([a for a in addrs if a], key=lambda a: ipaddress.ip_address(a['ip']))
 
 def project_networks(pid):
+    """Return all networks for a project with stats."""
     return [net_stats(n) for n in (get_network(nid) for nid in r.smembers(project_nets_key(pid))) if n]
 
 def net_stats(net):
+    """Calculate and return network statistics and metadata."""
     network_obj = ipaddress.ip_network(net['cidr'], strict=False)
     total = max(network_obj.num_addresses - 2, 1)
     used  = r.scard(net_ips_key(net['id']))
@@ -296,6 +370,7 @@ def net_stats(net):
 # ── Subnet carving ─────────────────────────────────────────────────────────────
 
 def used_subnets_in_project(pid) -> list:
+    """Return a list of ip_network objects for subnets in a project."""
     result = []
     for nid in r.smembers(project_nets_key(pid)):
         net = get_network(nid)
@@ -304,6 +379,7 @@ def used_subnets_in_project(pid) -> list:
     return result
 
 def carve_next_subnet(parent_cidr: str, prefix_len: int, pid: str):
+    """Find the next available subnet of a certain size within a parent CIDR."""
     parent = ipaddress.ip_network(parent_cidr, strict=False)
     if prefix_len <= parent.prefixlen:
         raise ValueError(f'/{prefix_len} must be smaller than parent /{parent.prefixlen}')
@@ -316,6 +392,7 @@ def carve_next_subnet(parent_cidr: str, prefix_len: int, pid: str):
 # ── Pool calculations ───────────────────────────────────────────────────────────
 
 def pool_by_label_set(networks: list) -> list:
+    """Group networks by their label sets and calculate aggregate stats."""
     groups = {}
     for net in networks:
         labels  = frozenset(net.get('labels', []))
@@ -338,6 +415,7 @@ def pool_by_label_set(networks: list) -> list:
     return sorted(groups.values(), key=lambda g: g['total_ips'], reverse=True)
 
 def project_pool_summary(pid):
+    """Return a summary of IP usage and pools for a specific project."""
     proj = get_project(pid)
     if not proj: return {}
     nets    = project_networks(pid)
@@ -354,6 +432,7 @@ def project_pool_summary(pid):
     }
 
 def global_pool_summary() -> dict:
+    """Return a global summary of IP usage across all projects."""
     projects = all_projects()
     grand_total = grand_alloc = grand_pending = 0
     project_rows = []
@@ -389,10 +468,6 @@ def global_pool_summary() -> dict:
             label_groups[key]['pending']      += pend
             label_groups[key]['subnet_count'] += 1
 
-    for g in label_groups.values():
-        g['free_ips']    = g['total_ips'] - g['alloc_ips']
-        g['utilization'] = round((g['alloc_ips'] / g['total_ips']) * 100, 1) if g['total_ips'] else 0
-
     return {
         'total_ips': grand_total, 'alloc_ips': grand_alloc,
         'free_ips': grand_total - grand_alloc, 'pending': grand_pending,
@@ -403,6 +478,7 @@ def global_pool_summary() -> dict:
     }
 
 def _delete_network_data(nid):
+    """Delete all data associated with a network, including its IP records and label associations."""
     for ip_str in r.smembers(net_ips_key(nid)):
         r.delete(ip_key(ip_str))
     for label in r.smembers(net_labels_key(nid)):
@@ -418,6 +494,7 @@ def _delete_network_data(nid):
 
 @ipam_bp.route('/')
 def index():
+    """Render the IPAM dashboard with project summaries and global stats."""
     projects = sorted(all_projects(), key=lambda p: p['name'])
     for p in projects:
         nets = project_networks(p['id'])
@@ -435,11 +512,13 @@ def index():
 
 @ipam_bp.route('/overview')
 def overview():
+    """Render a detailed global overview of IP usage and pools."""
     return render_template('overview.html', summary=global_pool_summary())
 
 
 @ipam_bp.route('/labels', methods=['GET', 'POST'])
 def manage_global_labels():
+    """Manage global labels via web interface."""
     if request.method == 'POST':
         action = request.form.get('action')
         label  = request.form.get('label', '').strip()
@@ -457,6 +536,7 @@ def manage_global_labels():
 
 @ipam_bp.route('/projects/add', methods=['GET', 'POST'])
 def add_project():
+    """Add a new project with a defined supernet."""
     if request.method == 'POST':
         supernet = request.form['supernet'].strip()
         try:
@@ -474,6 +554,7 @@ def add_project():
 
 @ipam_bp.route('/projects/<pid>')
 def project_detail(pid):
+    """Render the detail page for a specific project."""
     proj = get_project(pid)
     if not proj: abort(404)
     nets      = sorted(project_networks(pid), key=lambda n: ipaddress.ip_network(n['cidr']))
@@ -486,6 +567,7 @@ def project_detail(pid):
 
 @ipam_bp.route('/projects/<pid>/delete', methods=['POST'])
 def delete_project(pid):
+    """Delete a project and all its associated networks and data."""
     proj = get_project(pid)
     if not proj: abort(404)
     for nid in list(r.smembers(project_nets_key(pid))):
@@ -503,6 +585,7 @@ def delete_project(pid):
 
 @ipam_bp.route('/projects/<pid>/labels', methods=['GET', 'POST'])
 def manage_project_labels(pid):
+    """Manage labels specific to a project."""
     proj = get_project(pid)
     if not proj: abort(404)
     if request.method == 'POST':
@@ -529,6 +612,7 @@ def manage_project_labels(pid):
 
 @ipam_bp.route('/templates')
 def list_templates():
+    """List all global subnet templates."""
     return render_template('templates_list.html',
                            global_tmpl=global_templates(), project_tmpl=[])
 
@@ -536,6 +620,7 @@ def list_templates():
 @ipam_bp.route('/templates/add',                    methods=['GET', 'POST'])
 @ipam_bp.route('/projects/<pid>/templates/add',     methods=['GET', 'POST'])
 def add_template(pid=None):
+    """Add a new subnet template, optionally scoped to a project."""
     proj = get_project(pid) if pid else None
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -565,6 +650,7 @@ def add_template(pid=None):
 
 @ipam_bp.route('/templates/<tid>/edit', methods=['GET', 'POST'])
 def edit_template(tid):
+    """Edit an existing subnet template."""
     tmpl = get_template(tid)
     if not tmpl: abort(404)
     pid  = tmpl.get('project_id') or None
@@ -589,6 +675,7 @@ def edit_template(tid):
 
 @ipam_bp.route('/templates/<tid>/delete', methods=['POST'])
 def delete_template_route(tid):
+    """Delete a subnet template."""
     tmpl = get_template(tid)
     if not tmpl: abort(404)
     pid = tmpl.get('project_id') or None
@@ -600,6 +687,7 @@ def delete_template_route(tid):
 
 @ipam_bp.route('/projects/<pid>/templates')
 def manage_project_templates(pid):
+    """Manage templates for a specific project."""
     proj = get_project(pid)
     if not proj: abort(404)
     return render_template('project_templates.html', proj=proj,
@@ -609,6 +697,7 @@ def manage_project_templates(pid):
 
 @ipam_bp.route('/api/templates/<tid>/preview')
 def preview_template(tid):
+    """Preview how a template would resolve for a given CIDR."""
     cidr = request.args.get('cidr', '').strip()
     if not cidr:
         return jsonify({'error': 'Provide ?cidr=...'}), 400
@@ -626,6 +715,7 @@ def preview_template(tid):
 
 @ipam_bp.route('/api/templates/preview_inline', methods=['POST'])
 def preview_template_inline():
+    """Preview a template's rules against a CIDR without saving the template."""
     data  = request.get_json(force=True)
     cidr  = data.get('cidr', '').strip()
     rules = data.get('rules', [])
@@ -647,6 +737,7 @@ def preview_template_inline():
 
 @ipam_bp.route('/networks/<net_id>/template', methods=['GET', 'POST'])
 def apply_template(net_id):
+    """Apply a subnet template to an existing network."""
     net = get_network(net_id)
     if not net: abort(404)
     proj      = get_project(net.get('project_id')) if net.get('project_id') else None
@@ -682,6 +773,7 @@ def apply_template(net_id):
 
 @ipam_bp.route('/networks/<net_id>/slots/confirm',     methods=['POST'])
 def confirm_slot_route(net_id):
+    """Confirm a pending IP slot and allocate it."""
     ip_str = request.form.get('ip', '').strip()
     if ip_str:
         confirm_slot(net_id, ip_str)
@@ -690,12 +782,14 @@ def confirm_slot_route(net_id):
 
 @ipam_bp.route('/networks/<net_id>/slots/confirm_all', methods=['POST'])
 def confirm_all_slots_route(net_id):
+    """Confirm all pending IP slots for a network."""
     result = confirm_all_slots(net_id)
     flash(f'{result["created"]} slot(s) confirmed, {result["skipped"]} skipped.', 'success')
     return redirect(url_for('ipam.network_detail', net_id=net_id))
 
 @ipam_bp.route('/networks/<net_id>/slots/dismiss',     methods=['POST'])
 def dismiss_slot_route(net_id):
+    """Dismiss a pending IP slot without allocating it."""
     ip_str = request.form.get('ip', '').strip()
     if ip_str:
         dismiss_slot(net_id, ip_str)
@@ -704,6 +798,7 @@ def dismiss_slot_route(net_id):
 
 @ipam_bp.route('/networks/<net_id>/slots/dismiss_all', methods=['POST'])
 def dismiss_all_slots_route(net_id):
+    """Dismiss all pending IP slots for a network."""
     dismiss_all_slots(net_id)
     flash('All pending slots dismissed.', 'info')
     return redirect(url_for('ipam.network_detail', net_id=net_id))
@@ -714,6 +809,7 @@ def dismiss_all_slots_route(net_id):
 
 @ipam_bp.route('/projects/<pid>/subnet/add', methods=['GET', 'POST'])
 def add_subnet(pid):
+    """Add a new subnet to a project (manual or auto-carve)."""
     proj = get_project(pid)
     if not proj: abort(404)
     if request.method == 'POST':
@@ -768,6 +864,7 @@ def add_subnet(pid):
 
 @ipam_bp.route('/projects/<pid>/subnet/bulk', methods=['GET', 'POST'])
 def bulk_add_subnets(pid):
+    """Bulk create multiple subnets in a project (auto-carve)."""
     proj = get_project(pid)
     if not proj: abort(404)
     if request.method == 'POST':
@@ -803,6 +900,7 @@ def bulk_add_subnets(pid):
 
 @ipam_bp.route('/networks/<net_id>/edit', methods=['GET', 'POST'])
 def edit_network(net_id):
+    """Edit subnet metadata."""
     net = get_network(net_id)
     if not net: abort(404)
     pid = net.get('project_id')
@@ -827,6 +925,7 @@ def edit_network(net_id):
 
 @ipam_bp.route('/networks/<net_id>/delete', methods=['POST'])
 def delete_network(net_id):
+    """Delete a subnet."""
     net = get_network(net_id)
     if not net: abort(404)
     pid = net.get('project_id')
@@ -842,6 +941,7 @@ def delete_network(net_id):
 
 @ipam_bp.route('/networks/<net_id>')
 def network_detail(net_id):
+    """View subnet details and allocated IPs."""
     net = get_network(net_id)
     if not net: abort(404)
     net  = net_stats(net)
@@ -867,6 +967,7 @@ def network_detail(net_id):
 
 @ipam_bp.route('/networks/<net_id>/ip/add', methods=['GET', 'POST'])
 def add_ip(net_id):
+    """Manually allocate an IP address in a subnet."""
     net = get_network(net_id)
     if not net: abort(404)
     if request.method == 'POST':
@@ -896,6 +997,7 @@ def add_ip(net_id):
 
 @ipam_bp.route('/ip/<path:ip_str>/edit', methods=['GET', 'POST'])
 def edit_ip(ip_str):
+    """Edit IP address metadata."""
     addr = get_ip(ip_str)
     if not addr: abort(404)
     net = get_network(addr['network_id'])
@@ -911,6 +1013,7 @@ def edit_ip(ip_str):
 
 @ipam_bp.route('/ip/<path:ip_str>/delete', methods=['POST'])
 def delete_ip(ip_str):
+    """Release an allocated IP address."""
     addr = get_ip(ip_str)
     if not addr: abort(404)
     net_id = addr['network_id']
@@ -922,6 +1025,7 @@ def delete_ip(ip_str):
 
 @ipam_bp.route('/api/networks/<net_id>/next')
 def next_available(net_id):
+    """API endpoint to find the next available IP in a network."""
     net = get_network(net_id)
     if not net: abort(404)
     used    = r.smembers(net_ips_key(net_id))
@@ -936,6 +1040,7 @@ def next_available(net_id):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _pool_query(query_labels: list) -> dict:
+    """Find all networks matching a set of labels and return summary stats."""
     if not query_labels: return {}
     label_keys   = [label_nets_key(l) for l in query_labels]
     matching_ids = r.smembers(label_keys[0]) if len(label_keys) == 1 else r.sinter(*label_keys)
@@ -953,6 +1058,7 @@ def _pool_query(query_labels: list) -> dict:
 
 @ipam_bp.route('/api/pool')
 def pool_api():
+    """API endpoint to query IP pools by labels."""
     labels_param = request.args.get('labels', '')
     if not labels_param:
         return jsonify({'error': 'Provide ?labels=LabelA,LabelB'}), 400
@@ -961,6 +1067,7 @@ def pool_api():
 
 @ipam_bp.route('/pool')
 def pool_ui():
+    """Render the pool query tool."""
     labels_param = request.args.get('labels', '')
     query_labels = [l.strip() for l in labels_param.split(',') if l.strip()]
     result = _pool_query(query_labels) if query_labels else None
@@ -970,6 +1077,7 @@ def pool_ui():
 
 @ipam_bp.route('/search')
 def search():
+    """Search for IP records by IP, hostname, or description."""
     q = request.args.get('q', '').strip().lower()
     results = []
     if q:
