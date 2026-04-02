@@ -1,0 +1,44 @@
+{# ── Label pill rendering ── #}
+{% macro label_pill(label, labels_global=[], labels_project=[]) %}
+  {% if label in labels_global %}
+    <span class="label-pill label-global">{{ label }}</span>
+  {% elif label in labels_project %}
+    <span class="label-pill label-project">{{ label }}</span>
+  {% else %}
+    <span class="label-pill label-unknown">{{ label }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro label_pills(labels, labels_global=[], labels_project=[]) %}
+  {% for l in labels %}
+    {{ label_pill(l, labels_global, labels_project) }}
+  {% endfor %}
+{% endmacro %}
+
+
+{# ── Utilization bar rendering ── #}
+{% macro utilization_bar(util, height='12px', show_text=true) %}
+<div class="d-flex align-items-center gap-2">
+  <div class="progress flex-fill" style="height:{{ height }}; border-radius:calc({{ height }}/2)">
+    <div class="progress-bar
+      {% if util > 90 %}bg-danger{% elif util > 70 %}bg-warning{% else %}bg-success{% endif %}"
+      style="width:{{ util }}%"></div>
+  </div>
+  {% if show_text %}
+  <span class="fw-semibold small
+    {% if util > 90 %}text-danger{% elif util > 70 %}text-warning{% else %}text-success{% endif %}"
+    style="min-width:3rem; text-align:right">{{ util }}%</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# ── Summary card rendering ── #}
+{% macro summary_card(value, label, color_class='', icon='') %}
+<div class="col-6 col-sm-3">
+  <div class="card shadow-sm text-center py-2 h-100">
+    <div class="fw-bold fs-5 {{ color_class }}">{% if icon %}{{ icon }} {% endif %}{{ value }}</div>
+    <div class="text-muted small">{{ label }}</div>
+  </div>
+</div>
+{% endmacro %}

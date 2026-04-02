@@ -1,10 +1,9 @@
 """IPAM helpers and data model functions."""
 
-from flask import Blueprint
-from db import r
 import json
-import uuid
 import ipaddress
+from flask import Blueprint
+from db import r, redis_get, redis_save, redis_delete, redis_all
 
 ipam_bp = Blueprint('ipam', __name__, url_prefix='')
 
@@ -27,9 +26,6 @@ def project_templates_key(pid):
 def _network_key(nid):
     return f'network:{nid}'
 
-def _network_ips_key(nid):
-    return f'network:{nid}:ips'
-
 def _network_labels_key(nid):
     return f'network:{nid}:labels'
 
@@ -43,63 +39,63 @@ def _template_key(tid):
     return f'template:{tid}'
 
 
-def new_id() -> str:
-    return str(uuid.uuid4())[:8]
+def project_nets_key(pid):
+    return f'project:{pid}:networks'
 
 
 # Project CRUD
 
 
 def save_project(proj: dict):
+    """Save project metadata to Redis and update project index."""
     pid = proj['id']
-    r.set(_project_key(pid), json.dumps(proj))
-    r.sadd(PROJECT_INDEX, pid)
-    return proj
+    return redis_save(_project_key(pid), proj, PROJECT_INDEX)
 
 
 def get_project(pid):
-    raw = r.get(_project_key(pid))
-    return json.loads(raw) if raw else None
+    """Retrieve project metadata by ID."""
+    return redis_get(_project_key(pid))
 
 
 def all_projects():
-    return [get_project(pid) for pid in sorted(r.smembers(PROJECT_INDEX)) if get_project(pid)]
+    """Return all projects sorted by ID."""
+    return redis_all(PROJECT_INDEX, get_project)
 
 
 # Network CRUD
 
 
 def save_network(net: dict):
+    """Save network metadata, update index, and link to project."""
     nid = net['id']
-    r.set(_network_key(nid), json.dumps(net))
-    r.sadd(NETWORK_INDEX, nid)
+    redis_save(_network_key(nid), net, NETWORK_INDEX)
     if 'project_id' in net and net['project_id']:
         r.sadd(project_nets_key(net['project_id']), nid)
     return net
 
 
 def get_network(nid):
-    raw = r.get(_network_key(nid))
-    return json.loads(raw) if raw else None
+    """Retrieve network metadata by ID."""
+    return redis_get(_network_key(nid))
 
 
 def project_networks(pid):
-    return [get_network(nid) for nid in sorted(r.smembers(project_nets_key(pid))) if get_network(nid)]
+    """Return all networks belonging to a project."""
+    return redis_all(project_nets_key(pid), get_network)
 
 
 # IP CRUD
 
 
 def save_ip(iprec: dict):
-    r.set(ip_key(iprec['ip']), json.dumps(iprec))
+    redis_save(ip_key(iprec['ip']), iprec)
     if 'network_id' in iprec and iprec['network_id']:
         r.sadd(net_ips_key(iprec['network_id']), iprec['ip'])
     return iprec
 
 
 def get_ip(ip_addr):
-    raw = r.get(ip_key(ip_addr))
-    return json.loads(raw) if raw else None
+    return redis_get(ip_key(ip_addr))
 
 
 def delete_ip(ip_addr):
@@ -108,22 +104,10 @@ def delete_ip(ip_addr):
         return
     if rec.get('network_id'):
         r.srem(net_ips_key(rec['network_id']), ip_addr)
-    r.delete(ip_key(ip_addr))
+    redis_delete(ip_key(ip_addr))
 
 
 # Label helpers
-
-
-def parse_labels(value):
-    if value is None:
-        return []
-    parts = [p.strip() for p in str(value).split(',')]
-    labels = [p for p in parts if p]
-    seen = []
-    for label in labels:
-        if label not in seen:
-            seen.append(label)
-    return seen
 
 
 def global_labels():
@@ -240,6 +224,8 @@ def _validate_rules(rules):
             raise ValueError('unknown type')
         if 'role' not in rule or 'status' not in rule:
             raise ValueError('missing role/status')
+        if rule['status'] not in ('reserved', 'allocated', 'dhcp'):
+            raise ValueError('invalid status')
         if t == 'from_start':
             offset = int(rule.get('offset', 0))
             if offset < 1:
@@ -268,41 +254,27 @@ def resolve_template_rules(cidr, rules):
         hosts = list(net.hosts())
 
     hosts = [str(h) for h in hosts]
-    results = []
-    used = set()
+    results = {}
 
     for rule in rules:
         if rule['type'] == 'from_start':
             offset = int(rule.get('offset', 0))
-            if offset < 1:
-                raise ValueError('offset')
             index = offset - 1
-            if index < len(hosts):
+            if 0 <= index < len(hosts):
                 ip = hosts[index]
-                if ip not in used:
-                    results.append({'ip': ip, 'role': rule['role'], 'status': rule['status']})
-                    used.add(ip)
+                results[ip] = {'ip': ip, 'role': rule['role'], 'status': rule['status']}
         elif rule['type'] == 'from_end':
             count = int(rule.get('count', 0))
-            if count < 1:
-                raise ValueError('count')
             for ip in hosts[-count:]:
-                if ip not in used:
-                    results.append({'ip': ip, 'role': rule['role'], 'status': rule['status']})
-                    used.add(ip)
+                results[ip] = {'ip': ip, 'role': rule['role'], 'status': rule['status']}
         elif rule['type'] == 'range':
             start = int(rule.get('from', 0))
-            end = int(rule.get('to', -1))
-            if start > end:
-                raise ValueError('range')
-            if start < 0:
-                raise ValueError('range')
-            for ip in hosts[start:end + 1]:
-                if ip not in used:
-                    results.append({'ip': ip, 'role': rule['role'], 'status': rule['status']})
-                    used.add(ip)
+            end = int(rule.get('to', 0))
+            # 1-based indexing for range
+            for ip in hosts[start-1:end]:
+                results[ip] = {'ip': ip, 'role': rule['role'], 'status': rule['status']}
 
-    return results
+    return list(results.values())
 
 
 def set_pending_slots(nid, tid):
@@ -370,9 +342,6 @@ def dismiss_all_slots(nid):
 
 # Pool and carving
 
-def project_nets_key(pid):
-    return f'project:{pid}:networks'
-
 
 def used_subnets_in_project(pid):
     return [get_network(nid) for nid in r.smembers(project_nets_key(pid)) if get_network(nid)]
@@ -391,10 +360,23 @@ def carve_next_subnet(supernet, prefix_len, pid):
 
 
 def pool_by_label_set(networks):
+    """
+    Groups subnets by their label sets and computes aggregate utilization for each pool.
+    Returns a list of pool summary dicts, sorted by total capacity descending.
+    """
     grouped = {}
     for n in networks:
         labels = tuple(sorted(n.get('labels', [])))
-        group = grouped.setdefault(labels, {'label_set': list(labels), 'subnet_count': 0, 'alloc_ips': 0, 'total_ips': 0, 'pending':0, 'utilization':0.0})
+        if labels not in grouped:
+            grouped[labels] = {
+                'label_set': list(labels),
+                'subnet_count': 0,
+                'alloc_ips': 0,
+                'total_ips': 0,
+                'pending': 0,
+                'utilization': 0.0
+            }
+        group = grouped[labels]
         group['subnet_count'] += 1
         used = n.get('used_count', 0)
         pending = len(n.get('pending_slots', []))
@@ -423,11 +405,10 @@ def project_pool_summary(pid):
     if not proj:
         return {}
     nets = project_networks(pid)
-    total_ips = 0
+    total_ips = int(ipaddress.ip_network(proj['supernet'], strict=False).num_addresses) if proj.get('supernet') else 0
     allocated = 0
     pending = 0
     for net in nets:
-        total_ips += int(ipaddress.ip_network(net['cidr'], strict=False).num_addresses) if net.get('cidr') else 0
         allocated += r.scard(net_ips_key(net['id']))
         pending += len(net.get('pending_slots', []))
     return {

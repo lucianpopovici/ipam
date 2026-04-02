@@ -7,12 +7,12 @@ Redis keys introduced:
   vmware:alloc:{ip}           — JSON blob with VMware-specific metadata per IP
   vmware:net:{net_id}:ips     — set of IPs allocated via this connector per subnet
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
-import ipaddress, json
+import ipaddress
 from datetime import datetime, timezone
-from db import r
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
+from db import r, redis_get, redis_save, redis_delete, redis_all
 from ipam import (
-    get_network, save_ip, get_ip,
+    get_network, save_ip,
     net_ips_key, ip_key,
     all_projects, project_networks,
 )
@@ -25,8 +25,13 @@ vmware_bp = Blueprint('vmware', __name__, url_prefix='')
 
 VMWARE_SUBNETS_KEY = 'vmware:subnets'
 
-def _alloc_key(ip):       return f'vmware:alloc:{ip}'
-def _net_ips_key(net_id): return f'vmware:net:{net_id}:ips'
+
+def _alloc_key(ip):
+    return f'vmware:alloc:{ip}'
+
+
+def _net_ips_key(net_id):
+    return f'vmware:net:{net_id}:ips'
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Helpers
@@ -43,10 +48,12 @@ def disable_network(net_id: str):
 
 
 def is_enabled(net_id: str) -> bool:
+    """Check if a subnet is enabled for VMware allocation."""
     return bool(r.sismember(VMWARE_SUBNETS_KEY, net_id))
 
 
 def enabled_network_ids() -> set:
+    """Return all network IDs enabled for VMware."""
     return r.smembers(VMWARE_SUBNETS_KEY)
 
 
@@ -61,33 +68,26 @@ def enabled_networks() -> list:
 
 
 def save_vmware_alloc(alloc: dict):
-    r.set(_alloc_key(alloc['ip']), json.dumps(alloc))
-    r.sadd(_net_ips_key(alloc['network_id']), alloc['ip'])
+    """Save VMware-specific allocation metadata and index it by network."""
+    return redis_save(_alloc_key(alloc['ip']), alloc, _net_ips_key(alloc['network_id']), item_id=alloc['ip'])
 
 
 def get_vmware_alloc(ip: str):
-    raw = r.get(_alloc_key(ip))
-    return json.loads(raw) if raw else None
+    """Retrieve VMware allocation metadata for an IP."""
+    return redis_get(_alloc_key(ip))
 
 
 def delete_vmware_alloc(ip: str, net_id: str):
-    r.delete(_alloc_key(ip))
-    r.srem(_net_ips_key(net_id), ip)
+    """Delete VMware allocation metadata and remove from network index."""
+    redis_delete(_alloc_key(ip), _net_ips_key(net_id), ip)
 
 
 def network_vmware_ips(net_id: str) -> list:
     """Return all VMware allocation records for a subnet, sorted by IP."""
-    allocs = []
-    for ip in r.smembers(_net_ips_key(net_id)):
-        alloc = get_vmware_alloc(ip)
-        if alloc:
-            allocs.append(alloc)
+    allocs = redis_all(_net_ips_key(net_id), get_vmware_alloc)
     return sorted(allocs, key=lambda a: ipaddress.ip_address(a['ip']))
 
 
-def _find_next_available(net_id: str):
-    """Finds the first available host IP address in a given network, skipping allocated and pending IPs."""
-    # This function is already defined above, but it's private and used internally.
 def _find_next_available(net_id: str):
     """Return the first host address that is not yet allocated or pending."""
     net = get_network(net_id)
@@ -177,6 +177,7 @@ def vmware_index():
 
 @vmware_bp.route('/vmware/networks/<net_id>/enable', methods=['POST'])
 def enable_network_route(net_id):
+    """Enable a network for VMware allocation via the UI."""
     net = get_network(net_id)
     if not net:
         abort(404)
@@ -187,6 +188,7 @@ def enable_network_route(net_id):
 
 @vmware_bp.route('/vmware/networks/<net_id>/disable', methods=['POST'])
 def disable_network_route(net_id):
+    """Disable a network for VMware allocation via the UI."""
     net = get_network(net_id)
     if not net:
         abort(404)

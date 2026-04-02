@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card %}
 {% block title %}{{ proj.name }}{% endblock %}
 {% block content %}
 
@@ -22,56 +23,27 @@
 {% if labels.project %}
 <div class="mb-2 mt-2">
   <small class="text-muted">Project: </small>
-  {% for l in labels.project %}<span class="label-pill label-project">{{ l }}</span>{% endfor %}
+  {{ label_pills(labels.project, labels.global, labels.project) }}
   <small class="text-muted ms-2">Global: </small>
-  {% for l in labels.global %}<span class="label-pill label-global">{{ l }}</span>{% endfor %}
+  {{ label_pills(labels.global, labels.global, labels.project) }}
 </div>
 {% endif %}
 
 {# ── Summary cards ── #}
 <div class="row g-3 mt-1 mb-2">
-  <div class="col-6 col-sm-3">
-    <div class="card shadow-sm text-center py-2 h-100">
-      <div class="fw-bold fs-5">{{ summary.total_ips | format_num }}</div>
-      <div class="text-muted small">Total IPs</div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-3">
-    <div class="card shadow-sm text-center py-2 h-100">
-      <div class="fw-bold fs-5 text-primary">{{ summary.allocated_ips | format_num }}</div>
-      <div class="text-muted small">Allocated</div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-3">
-    <div class="card shadow-sm text-center py-2 h-100">
-      <div class="fw-bold fs-5 text-success">{{ summary.free_ips | format_num }}</div>
-      <div class="text-muted small">Free</div>
-    </div>
-  </div>
-  <div class="col-6 col-sm-3">
-    <div class="card shadow-sm text-center py-2 h-100">
-      {% if summary.pending > 0 %}
-      <div class="fw-bold fs-5 text-warning">{{ summary.pending }}</div>
-      <div class="text-muted small">Pending slots</div>
-      {% else %}
-      <div class="fw-bold fs-5">{{ summary.subnet_count }}</div>
-      <div class="text-muted small">Subnets</div>
-      {% endif %}
-    </div>
-  </div>
+  {{ summary_card(summary.total_ips | format_num, 'Total IPs') }}
+  {{ summary_card(summary.allocated_ips | format_num, 'Allocated', 'text-primary') }}
+  {{ summary_card(summary.free_ips | format_num, 'Free', 'text-success') }}
+  {% if summary.pending > 0 %}
+    {{ summary_card(summary.pending, 'Pending slots', 'text-warning') }}
+  {% else %}
+    {{ summary_card(summary.subnet_count, 'Subnets') }}
+  {% endif %}
 </div>
 
 {# ── Master utilization bar ── #}
-{% set util = summary.utilization %}
-<div class="d-flex align-items-center gap-2 mb-1">
-  <div class="progress flex-fill" style="height:12px; border-radius:6px">
-    <div class="progress-bar
-      {% if util > 90 %}bg-danger{% elif util > 70 %}bg-warning{% else %}bg-success{% endif %}"
-      style="width:{{ util }}%"></div>
-  </div>
-  <span class="fw-semibold small
-    {% if util > 90 %}text-danger{% elif util > 70 %}text-warning{% else %}text-success{% endif %}"
-    style="min-width:3rem; text-align:right">{{ util }}%</span>
+<div class="mb-1">
+  {{ utilization_bar(summary.utilization) }}
 </div>
 <div class="text-muted small mb-4">
   {{ summary.allocated_ips | format_num }} of {{ summary.total_ips | format_num }} IPs used
@@ -102,15 +74,7 @@
       <tr>
         <td>
           {% if pool.label_set %}
-            {% for l in pool.label_set %}
-              {% if l in labels.global %}
-                <span class="label-pill label-global">{{ l }}</span>
-              {% elif l in labels.project %}
-                <span class="label-pill label-project">{{ l }}</span>
-              {% else %}
-                <span class="label-pill label-unknown">{{ l }}</span>
-              {% endif %}
-            {% endfor %}
+            {{ label_pills(pool.label_set, labels.global, labels.project) }}
           {% else %}
             <span class="text-muted fst-italic small">No labels</span>
           {% endif %}
@@ -123,14 +87,7 @@
         <td class="text-end small text-primary">{{ pool.alloc_ips | format_num }}</td>
         <td class="text-end small text-success">{{ pool.free_ips | format_num }}</td>
         <td>
-          <div class="d-flex align-items-center gap-2">
-            <div class="progress flex-fill" style="height:6px; border-radius:3px">
-              <div class="progress-bar
-                {% if pool.utilization > 90 %}bg-danger{% elif pool.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
-                style="width:{{ pool.utilization }}%"></div>
-            </div>
-            <small class="text-muted" style="min-width:2.8rem; text-align:right">{{ pool.utilization }}%</small>
-          </div>
+          {{ utilization_bar(pool.utilization, height='6px') }}
         </td>
       </tr>
       {% endfor %}
@@ -141,7 +98,57 @@
 {% endif %}
 
 {# ── Subnet list ── #}
-
+{% if nets %}
+<h6 class="mb-2">All Subnets</h6>
+<div class="table-responsive">
+<table class="table table-hover bg-white shadow-sm rounded align-middle">
+  <thead class="table-light">
+    <tr>
+      <th>CIDR</th>
+      <th>Name</th>
+      <th>Labels</th>
+      <th class="text-end">Total</th>
+      <th class="text-end">Free</th>
+      <th style="min-width:110px">Utilization</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for n in nets %}
+    <tr>
+      <td><code>{{ n.cidr }}</code></td>
+      <td>
+        {{ n.name }}
+        {% if n.pending_slots %}
+          <span class="badge bg-warning text-dark ms-1" title="{{ n.pending_slots|length }} pending slot(s)">
+            ⏳ {{ n.pending_slots|length }}
+          </span>
+        {% endif %}
+      </td>
+      <td>
+        {{ label_pills(n.labels, labels.global, labels.project) }}
+      </td>
+      <td class="text-end small text-muted">{{ n.total_hosts | format_num }}</td>
+      <td class="text-end small text-success">{{ (n.total_hosts - n.used_count) | format_num }}</td>
+      <td>
+        {{ utilization_bar(n.utilization, height='6px') }}
+      </td>
+      <td class="text-end text-nowrap">
+        <a href="{{ url_for('ipam.network_detail', net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">IPs</a>
+        <a href="{{ url_for('ipam.edit_network',   net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+        <form class="d-inline" action="{{ url_for('ipam.delete_network', net_id=n.id) }}" method="post"
+              onsubmit="return confirm('Delete subnet {{ n.cidr }}?')">
+          <button class="btn btn-sm btn-outline-danger">Del</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted text-center py-4">No subnets yet. Add one manually or use Bulk Add.</p>
+{% endif %}
 
 {# ── Hardware Management section ── #}
 <div class="card shadow-sm mt-2 mb-3">
@@ -171,72 +178,5 @@
     </div>
   </div>
 </div>
-
-{% if nets %}
-<h6 class="mb-2">All Subnets</h6>
-<div class="table-responsive">
-<table class="table table-hover bg-white shadow-sm rounded align-middle">
-  <thead class="table-light">
-    <tr>
-      <th>CIDR</th>
-      <th>Name</th>
-      <th>Labels</th>
-      <th class="text-end">Total</th>
-      <th class="text-end">Free</th>
-      <th style="min-width:110px">Utilization</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for n in nets %}
-    <tr>
-      <td><code>{{ n.cidr }}</code></td>
-      <td>
-        {{ n.name }}
-        {% if n.pending_slots %}
-          <span class="badge bg-warning text-dark ms-1" title="{{ n.pending_slots|length }} pending slot(s)">
-            ⏳ {{ n.pending_slots|length }}
-          </span>
-        {% endif %}
-      </td>
-      <td>
-        {% for l in n.labels %}
-          {% if l in labels.global %}
-            <span class="label-pill label-global">{{ l }}</span>
-          {% elif l in labels.project %}
-            <span class="label-pill label-project">{{ l }}</span>
-          {% else %}
-            <span class="label-pill label-unknown">{{ l }}</span>
-          {% endif %}
-        {% endfor %}
-      </td>
-      <td class="text-end small text-muted">{{ n.total_hosts | format_num }}</td>
-      <td class="text-end small text-success">{{ (n.total_hosts - n.used_count) | format_num }}</td>
-      <td>
-        <div class="d-flex align-items-center gap-2">
-          <div class="progress flex-fill util-bar">
-            <div class="progress-bar
-              {% if n.utilization > 90 %}bg-danger{% elif n.utilization > 70 %}bg-warning{% else %}bg-success{% endif %}"
-              style="width:{{ n.utilization }}%"></div>
-          </div>
-          <small class="text-muted" style="min-width:2.8rem; text-align:right">{{ n.utilization }}%</small>
-        </div>
-      </td>
-      <td class="text-end text-nowrap">
-        <a href="{{ url_for('ipam.network_detail', net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">IPs</a>
-        <a href="{{ url_for('ipam.edit_network',   net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-        <form class="d-inline" action="{{ url_for('ipam.delete_network', net_id=n.id) }}" method="post"
-              onsubmit="return confirm('Delete subnet {{ n.cidr }}?')">
-          <button class="btn btn-sm btn-outline-danger">Del</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
-{% else %}
-<p class="text-muted text-center py-4">No subnets yet. Add one manually or use Bulk Add.</p>
-{% endif %}
 
 {% endblock %}

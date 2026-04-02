@@ -5,7 +5,7 @@ pytestmark = pytest.mark.unit
 Unit tests for hw.py helper functions.
 """
 import pytest
-from hw import (
+from hw_logic import (
     seed_connectors, all_connectors, add_connector, remove_connector,
     get_compat, set_compat, connectors_compatible, full_compat_matrix,
     get_hw_template, save_hw_template, delete_hw_template,
@@ -19,9 +19,10 @@ from hw import (
     get_cable, save_cable, delete_cable, project_cables,
     _get_port, _used_ports,
     validate_project, _issue,
-    _new_id, DEFAULT_CONNECTORS, DEFAULT_COMPAT,
+    DEFAULT_CONNECTORS, DEFAULT_COMPAT,
 )
-from ipam import save_project, new_id as ipam_new_id
+from db import new_id
+from ipam import save_project
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -125,7 +126,7 @@ class TestDefaultCompatMatrix:
 class TestHWTemplateHelpers:
     def _tmpl(self, name='Server-1U', cat='server', scope='global', pid=''):
         return {
-            'id':          _new_id(),
+            'id':          new_id(),
             'name':        name,
             'vendor':      'ACME',
             'model':       'X1',
@@ -156,7 +157,7 @@ class TestHWTemplateHelpers:
         assert any(x['id'] == t['id'] for x in global_hw_templates())
 
     def test_project_template_in_project_list(self):
-        pid = _new_id()
+        pid = new_id()
         t   = self._tmpl(scope='project', pid=pid)
         save_hw_template(t)
         assert any(x['id'] == t['id'] for x in project_hw_templates(pid))
@@ -168,7 +169,7 @@ class TestHWTemplateHelpers:
         assert all(t['category'] == 'server' for t in servers)
 
     def test_available_templates_flat_list(self):
-        pid = _new_id()
+        pid = new_id()
         g   = self._tmpl(name='Global')
         p   = self._tmpl(name='Proj', scope='project', pid=pid)
         save_hw_template(g); save_hw_template(p)
@@ -204,10 +205,10 @@ class TestHWTemplateHelpers:
 
 class TestBomHelpers:
     def _setup(self):
-        pid  = _new_id()
+        pid  = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         tmpl = {
-            'id': _new_id(), 'name': 'Server-1U', 'vendor': 'ACME', 'model': 'X1',
+            'id': new_id(), 'name': 'Server-1U', 'vendor': 'ACME', 'model': 'X1',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
@@ -221,7 +222,7 @@ class TestBomHelpers:
 
     def test_save_and_get_bom(self):
         pid, tmpl = self._setup()
-        bom = [{'id': _new_id(), 'template_id': tmpl['id'], 'qty': 5,
+        bom = [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 5,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
         save_bom(pid, bom)
         loaded = get_bom(pid)
@@ -230,7 +231,7 @@ class TestBomHelpers:
 
     def test_bom_with_templates_enriches(self):
         pid, tmpl = self._setup()
-        bom = [{'id': _new_id(), 'template_id': tmpl['id'], 'qty': 2,
+        bom = [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
         save_bom(pid, bom)
         enriched = bom_with_templates(pid)
@@ -238,7 +239,7 @@ class TestBomHelpers:
 
     def test_bom_missing_template_still_returned(self):
         pid, _ = self._setup()
-        bom = [{'id': _new_id(), 'template_id': 'nonexistent', 'qty': 1,
+        bom = [{'id': new_id(), 'template_id': 'nonexistent', 'qty': 1,
                 'tag_prefix': 'x', 'tag_start': 1, 'tag_pad': 3, 'description': ''}]
         save_bom(pid, bom)
         enriched = bom_with_templates(pid)
@@ -246,7 +247,7 @@ class TestBomHelpers:
 
     def test_bom_overwritten(self):
         pid, tmpl = self._setup()
-        save_bom(pid, [{'id': _new_id(), 'template_id': tmpl['id'], 'qty': 1,
+        save_bom(pid, [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 1,
                         'tag_prefix': 'a', 'tag_start': 1, 'tag_pad': 3, 'description': ''}])
         save_bom(pid, [])
         assert get_bom(pid) == []
@@ -258,10 +259,10 @@ class TestBomHelpers:
 
 class TestInstanceGeneration:
     def _setup(self):
-        pid  = _new_id()
+        pid  = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         tmpl = {
-            'id': _new_id(), 'name': 'Server-1U', 'vendor': 'ACME', 'model': 'X1',
+            'id': new_id(), 'name': 'Server-1U', 'vendor': 'ACME', 'model': 'X1',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
@@ -271,14 +272,14 @@ class TestInstanceGeneration:
 
     def test_generates_correct_count(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 5,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 5,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         assert len(created) == 5
 
     def test_asset_tags_sequential(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 3,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 3,
                 'tag_prefix': 'srv', 'tag_start': 10, 'tag_pad': 3, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         tags = [i['asset_tag'] for i in created]
@@ -286,7 +287,7 @@ class TestInstanceGeneration:
 
     def test_zero_padding(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 2,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'rack', 'tag_start': 1, 'tag_pad': 4, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         assert created[0]['asset_tag'] == 'rack-0001'
@@ -294,7 +295,7 @@ class TestInstanceGeneration:
 
     def test_instances_saved_to_redis(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 2,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'sw', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         for inst in created:
@@ -302,7 +303,7 @@ class TestInstanceGeneration:
 
     def test_instances_appear_in_project_list(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 2,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
                 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         instances = project_instances(pid)
@@ -311,16 +312,16 @@ class TestInstanceGeneration:
             assert inst['id'] in ids
 
     def test_missing_template_raises(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
-        item = {'id': _new_id(), 'template_id': 'no-such-tmpl', 'qty': 1,
+        item = {'id': new_id(), 'template_id': 'no-such-tmpl', 'qty': 1,
                 'tag_prefix': 'x', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
         with pytest.raises(ValueError, match='not found'):
             generate_instances_from_bom_line(pid, item)
 
     def test_instance_status_defaults_to_in_stock(self):
         pid, tmpl = self._setup()
-        item = {'id': _new_id(), 'template_id': tmpl['id'], 'qty': 1,
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 1,
                 'tag_prefix': 'x', 'tag_start': 1, 'tag_pad': 2, 'description': ''}
         created = generate_instances_from_bom_line(pid, item)
         assert created[0]['status'] == 'in-stock'
@@ -333,13 +334,13 @@ class TestInstanceGeneration:
 class TestRackPlacement:
     def _make_rack_instance(self, pid, ff='19"', u_size=42):
         tmpl = {
-            'id': _new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'AR3000',
+            'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'AR3000',
             'category': 'rack', 'form_factor': ff, 'u_size': u_size,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(tmpl)
-        inst = {'id': _new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+        inst = {'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
                 'asset_tag': 'rack-001', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(inst)
@@ -347,20 +348,20 @@ class TestRackPlacement:
 
     def _make_device_instance(self, pid, ff='19"', u_size=1, cat='server'):
         tmpl = {
-            'id': _new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
+            'id': new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
             'category': cat, 'form_factor': ff, 'u_size': u_size,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(tmpl)
-        inst = {'id': _new_id(), 'template_id': tmpl['id'], 'project_id': pid,
-                'asset_tag': f'dev-{_new_id()}', 'serial': '', 'status': 'in-stock',
+        inst = {'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+                'asset_tag': f'dev-{new_id()}', 'serial': '', 'status': 'in-stock',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(inst)
         return inst, tmpl
 
     def test_place_success(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
         dev_inst,  _ = self._make_device_instance(pid)
@@ -371,7 +372,7 @@ class TestRackPlacement:
         assert any(s['instance_id'] == dev_inst['id'] for s in slots)
 
     def test_place_updates_instance_location(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
         dev_inst,  _ = self._make_device_instance(pid)
@@ -381,7 +382,7 @@ class TestRackPlacement:
         assert updated['location']['u_pos']   == 5
 
     def test_u_overflow_error(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, u_size=10)
         dev_inst,  _ = self._make_device_instance(pid, u_size=2)
@@ -389,7 +390,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'U_OVERFLOW' for i in issues)
 
     def test_u_overlap_error(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
         dev1, _      = self._make_device_instance(pid)
@@ -399,7 +400,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'U_OCCUPIED' for i in issues)
 
     def test_form_factor_mismatch_ocp_in_19inch(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='19"')
         dev_inst,  _ = self._make_device_instance(pid, ff='OCP')
@@ -407,7 +408,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'FORM_FACTOR_MISMATCH' for i in issues)
 
     def test_form_factor_mismatch_19inch_in_ocp(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='OCP')
         dev_inst,  _ = self._make_device_instance(pid, ff='19"')
@@ -415,7 +416,7 @@ class TestRackPlacement:
         assert any(i['code'] == 'FORM_FACTOR_MISMATCH' for i in issues)
 
     def test_21inch_rack_accepts_19inch(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, ff='21"')
         dev_inst,  _ = self._make_device_instance(pid, ff='19"')
@@ -424,7 +425,7 @@ class TestRackPlacement:
         assert ff_errs == []
 
     def test_replace_existing_placement(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
         dev_inst,  _ = self._make_device_instance(pid)
@@ -435,7 +436,7 @@ class TestRackPlacement:
         assert positions == [3]
 
     def test_rack_layout_view_structure(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid, u_size=5)
         dev_inst,  _ = self._make_device_instance(pid, u_size=2)
@@ -447,7 +448,7 @@ class TestRackPlacement:
         assert 'empty'  in types
 
     def test_remove_from_rack(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         rack_inst, _ = self._make_rack_instance(pid)
         dev_inst,  _ = self._make_device_instance(pid)
@@ -463,7 +464,7 @@ class TestRackPlacement:
 class TestCableHelpers:
     def _make_cable(self, pid):
         return {
-            'id':            _new_id(),
+            'id':            new_id(),
             'template_id':   None,
             'project_id':    pid,
             'asset_tag':     'CAB-001',
@@ -476,34 +477,34 @@ class TestCableHelpers:
         }
 
     def test_save_and_get(self):
-        pid = _new_id()
+        pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
         assert get_cable(c['id'])['asset_tag'] == 'CAB-001'
 
     def test_delete(self):
-        pid = _new_id()
+        pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
         delete_cable(c['id'])
         assert get_cable(c['id']) is None
 
     def test_project_cables_list(self):
-        pid = _new_id()
+        pid = new_id()
         c   = self._make_cable(pid)
         save_cable(c)
         cables = project_cables(pid)
         assert any(x['id'] == c['id'] for x in cables)
 
     def test_cables_isolated_between_projects(self):
-        p1 = _new_id(); p2 = _new_id()
+        p1 = new_id(); p2 = new_id()
         c1 = self._make_cable(p1); c2 = self._make_cable(p2)
         save_cable(c1); save_cable(c2)
         assert not any(x['id'] == c2['id'] for x in project_cables(p1))
 
     def test_used_ports_detected(self):
-        pid  = _new_id()
-        iid  = _new_id()
+        pid  = new_id()
+        iid  = new_id()
         cable = {**self._make_cable(pid),
                  'end_a': {'instance_id': iid, 'port_id': 'p1'},
                  'end_b': {'instance_id': iid, 'port_id': 'p2'}}
@@ -519,13 +520,13 @@ class TestCableHelpers:
 
 class TestValidationEngine:
     def _make_project(self):
-        pid = _new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
         return pid
 
     def _server_tmpl(self, sfp_connector='SFP28'):
         t = {
-            'id': _new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
+            'id': new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [
@@ -546,7 +547,7 @@ class TestValidationEngine:
 
     def _switch_tmpl(self):
         t = {
-            'id': _new_id(), 'name': 'Switch', 'vendor': 'Cisco', 'model': 'N9K',
+            'id': new_id(), 'name': 'Switch', 'vendor': 'Cisco', 'model': 'N9K',
             'category': 'switch', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [
@@ -564,8 +565,8 @@ class TestValidationEngine:
 
     def _instance(self, pid, tmpl):
         inst = {
-            'id': _new_id(), 'template_id': tmpl['id'], 'project_id': pid,
-            'asset_tag': f'{tmpl["name"][:3]}-{_new_id()}',
+            'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+            'asset_tag': f'{tmpl["name"][:3]}-{new_id()}',
             'serial': '', 'status': 'deployed',
             'location': {}, 'port_overrides': {},
         }
@@ -574,7 +575,7 @@ class TestValidationEngine:
 
     def _dac_cable_tmpl(self, pid=''):
         t = {
-            'id': _new_id(), 'name': 'DAC25G', 'vendor': 'ACME', 'model': 'D25',
+            'id': new_id(), 'name': 'DAC25G', 'vendor': 'ACME', 'model': 'D25',
             'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
             'cable_type': 'DAC', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': pid,
@@ -584,7 +585,7 @@ class TestValidationEngine:
 
     def _cable(self, pid, tmpl_id, inst_a_id, port_a, inst_b_id, port_b, tag='CAB-001'):
         c = {
-            'id':            _new_id(),
+            'id':            new_id(),
             'template_id':   tmpl_id,
             'project_id':    pid,
             'asset_tag':     tag,
@@ -633,7 +634,7 @@ class TestValidationEngine:
         sw    = self._instance(pid, sw_t)
         # Make a power cable template
         pwr_t = {
-            'id': _new_id(), 'name': 'Power', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'Power', 'vendor': '', 'model': '',
             'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
             'cable_type': 'power', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
@@ -679,7 +680,7 @@ class TestValidationEngine:
         seed_connectors()
         pid = self._make_project()
         c = {
-            'id': _new_id(), 'template_id': None, 'project_id': pid,
+            'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'LOOSE-CAB', 'label': '', 'length_m': '',
             'end_a': {'instance_id': '', 'port_id': ''},
             'end_b': {'instance_id': '', 'port_id': ''},
@@ -695,14 +696,14 @@ class TestValidationEngine:
         seed_connectors()
         pid      = self._make_project()
         rack_t   = {
-            'id': _new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'R42',
+            'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'R42',
             'category': 'rack', 'form_factor': '19"', 'u_size': 42,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(rack_t)
         rack_inst = {
-            'id': _new_id(), 'template_id': rack_t['id'], 'project_id': pid,
+            'id': new_id(), 'template_id': rack_t['id'], 'project_id': pid,
             'asset_tag': 'rack-001', 'serial': '', 'status': 'deployed',
             'location': {}, 'port_overrides': {},
         }
@@ -724,14 +725,14 @@ class TestValidationEngine:
         seed_connectors()
         pid    = self._make_project()
         rack_t = {
-            'id': _new_id(), 'name': 'OCP-Rack', 'vendor': 'Meta', 'model': 'OCP42',
+            'id': new_id(), 'name': 'OCP-Rack', 'vendor': 'Meta', 'model': 'OCP42',
             'category': 'rack', 'form_factor': 'OCP', 'u_size': 42,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(rack_t)
         rack_inst = {
-            'id': _new_id(), 'template_id': rack_t['id'], 'project_id': pid,
+            'id': new_id(), 'template_id': rack_t['id'], 'project_id': pid,
             'asset_tag': 'ocp-rack-001', 'serial': '', 'status': 'deployed',
             'location': {}, 'port_overrides': {},
         }

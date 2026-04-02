@@ -1,9 +1,8 @@
 """Network element (NE) domain helpers."""
 
-from flask import Blueprint
-from db import r
 import json
-import uuid
+from flask import Blueprint
+from db import r, redis_get, redis_save, redis_delete, redis_all
 
 ne_bp = Blueprint('ne', __name__, url_prefix='')
 
@@ -43,8 +42,12 @@ def _pod_sites_key(pid):
     return f'pod:{pid}:sites'
 
 
-def new_id():
-    return str(uuid.uuid4())[:8]
+def project_sites_key(pid):
+    return f'project:{pid}:sites'
+
+
+def project_pods_key(pid):
+    return f'project:{pid}:pods'
 
 
 def expand_site_pattern(pattern):
@@ -68,53 +71,42 @@ def expand_site_pattern(pattern):
 # Schema
 
 def save_schema(entity, fields, pid=None):
-    r.set(_schema_key(entity, pid), json.dumps(fields))
+    redis_save(_schema_key(entity, pid), fields)
 
 
 def get_schema(entity, pid=None):
     if pid:
-        raw = r.get(_schema_key(entity, pid))
+        raw = redis_get(_schema_key(entity, pid))
         if raw:
-            return json.loads(raw)
-    raw = r.get(_schema_key(entity, None))
-    return json.loads(raw) if raw else []
+            return raw
+    raw = redis_get(_schema_key(entity, None))
+    return raw if raw else []
 
 
 # NE Types
 
 def save_ne_type(ne_type):
-    tid = ne_type['id']
-    r.set(_ne_type_key(tid), json.dumps(ne_type))
-    r.sadd(NE_TYPE_INDEX, tid)
-    return ne_type
+    return redis_save(_ne_type_key(ne_type['id']), ne_type, NE_TYPE_INDEX)
 
 
 def get_ne_type(tid):
-    raw = r.get(_ne_type_key(tid))
-    return json.loads(raw) if raw else None
+    return redis_get(_ne_type_key(tid))
 
 
 def delete_ne_type(tid):
-    r.delete(_ne_type_key(tid))
-    r.srem(NE_TYPE_INDEX, tid)
+    redis_delete(_ne_type_key(tid), NE_TYPE_INDEX, tid)
+
+
+def all_ne_types():
+    return redis_all(NE_TYPE_INDEX, get_ne_type, sort_key=lambda t: t.get('name', ''))
 
 
 def global_ne_types():
-    types = []
-    for tid in sorted(r.smembers(NE_TYPE_INDEX)):
-        ne = get_ne_type(tid)
-        if ne and ne.get('scope') == 'global':
-            types.append(ne)
-    return types
+    return [t for t in all_ne_types() if t.get('scope') == 'global']
 
 
 def project_ne_types(pid):
-    types = []
-    for tid in sorted(r.smembers(NE_TYPE_INDEX)):
-        ne = get_ne_type(tid)
-        if ne and ne.get('scope') == 'project' and ne.get('project_id') == pid:
-            types.append(ne)
-    return types
+    return [t for t in all_ne_types() if t.get('scope') == 'project' and t.get('project_id') == pid]
 
 
 def available_ne_types(pid):
@@ -125,58 +117,62 @@ def available_ne_types(pid):
 
 def save_site(site):
     sid = site['id']
-    r.set(_site_key(sid), json.dumps(site))
-    r.sadd(SITE_INDEX, sid)
+    redis_save(_site_key(sid), site, SITE_INDEX)
     if site.get('project_id'):
-        r.sadd(f'project:{site["project_id"]}:sites', sid)
+        r.sadd(project_sites_key(site['project_id']), sid)
     return site
 
 
 def get_site(sid):
-    raw = r.get(_site_key(sid))
-    return json.loads(raw) if raw else None
+    return redis_get(_site_key(sid))
 
 
 def delete_site(sid):
-    r.delete(_site_key(sid))
-    r.srem(SITE_INDEX, sid)
+    site = get_site(sid)
+    if not site:
+        return
+    if site.get('project_id'):
+        r.srem(project_sites_key(site['project_id']), sid)
+    redis_delete(_site_key(sid), SITE_INDEX, sid)
 
 
 def project_sites(pid):
-    return [get_site(sid) for sid in sorted(r.smembers(f'project:{pid}:sites')) if get_site(sid)]
+    return redis_all(project_sites_key(pid), get_site, sort_key=lambda s: s.get('name', ''))
 
 
 def site_pods(sid):
-    return [get_pod(pid) for pid in sorted(r.smembers(_site_pods_key(sid))) if get_pod(pid)]
+    return redis_all(_site_pods_key(sid), get_pod)
 
 
 # Pod
 
 def save_pod(pod):
     pid = pod['id']
-    r.set(_pod_key(pid), json.dumps(pod))
-    r.sadd(POD_INDEX, pid)
+    redis_save(_pod_key(pid), pod, POD_INDEX)
     if pod.get('project_id'):
-        r.sadd(f'project:{pod["project_id"]}:pods', pid)
+        r.sadd(project_pods_key(pod['project_id']), pid)
     return pod
 
 
 def get_pod(pid):
-    raw = r.get(_pod_key(pid))
-    return json.loads(raw) if raw else None
+    return redis_get(_pod_key(pid))
 
 
 def delete_pod(pid):
-    r.delete(_pod_key(pid))
-    r.srem(POD_INDEX, pid)
+    pod = get_pod(pid)
+    if not pod:
+        return
+    if pod.get('project_id'):
+        r.srem(project_pods_key(pod['project_id']), pid)
+    redis_delete(_pod_key(pid), POD_INDEX, pid)
 
 
 def project_pods(pid):
-    return [get_pod(qid) for qid in sorted(r.smembers(f'project:{pid}:pods')) if get_pod(qid)]
+    return redis_all(project_pods_key(pid), get_pod)
 
 
 def pod_sites(pid):
-    return [get_site(sid) for sid in sorted(r.smembers(_pod_sites_key(pid))) if get_site(sid)]
+    return redis_all(_pod_sites_key(pid), get_site)
 
 
 def assign_pod_to_site(pod_id, site_id):
@@ -209,57 +205,67 @@ def _sharing_count(sharing, count):
 
 
 def compute_requirements(pid):
+    """
+    Compute aggregate resource requirements for all PODs and NEs in a project.
+    Groups identical requirements by (interface, version, labels).
+    """
     sites = project_sites(pid)
     if not sites:
         return []
-    req_by_key = {}
 
+    # Flatten to pods to reduce nesting
+    pods_with_site = []
     for site in sites:
         for pod in site_pods(site['id']):
-            for slot in get_pod_slots(pod['id']):
-                ne = get_ne_type(slot['ne_type_id'])
-                if not ne:
-                    continue
-                pool_labels = set(site.get('labels', []) + pod.get('labels', []) + ne.get('labels', []))
-                for iface in ne.get('interfaces', []):
-                    for ip_version in ('ipv4', 'ipv6'):
-                        iface_cfg = iface.get(ip_version)
-                        if not iface_cfg:
-                            continue
-                        count = _sharing_count(iface.get('sharing', ''), slot.get('count', 1))
-                        key = (pid, iface['id'], ip_version, iface.get('sharing', ''), tuple(sorted(pool_labels)))
-                        if key not in req_by_key:
-                            req_by_key[key] = {
-                                'project_id': pid,
-                                'iface_name': iface.get('name', ''),
-                                'ip_version': ip_version,
-                                'sharing': iface.get('sharing', ''),
-                                'count': count,
-                                'labels': sorted(pool_labels),
-                            }
-                        else:
-                            if iface.get('sharing', '') == 'interface':
-                                req_by_key[key]['count'] += count
+            pods_with_site.append((site, pod))
+
+    req_by_key = {}
+    for site, pod in pods_with_site:
+        for slot in get_pod_slots(pod['id']):
+            ne_type = get_ne_type(slot['ne_type_id'])
+            if not ne_type:
+                continue
+
+            for iface in ne_type.get('interfaces', []):
+                pool_labels = set(site.get('labels', []) + pod.get('labels', []) +
+                                  ne_type.get('labels', []) + iface.get('labels', []))
+                for ip_version in ('ipv4', 'ipv6'):
+                    iface_cfg = iface.get(ip_version)
+                    if not iface_cfg:
+                        continue
+
+                    count = _sharing_count(iface.get('sharing', ''), slot.get('count', 1))
+                    sharing = iface.get('sharing', '')
+                    labels_tuple = tuple(sorted(pool_labels))
+                    key = (pid, iface['id'], ip_version, sharing, labels_tuple)
+
+                    if key not in req_by_key:
+                        req_by_key[key] = {
+                            'project_id': pid,
+                            'iface_name': iface.get('name', ''),
+                            'ip_version': ip_version,
+                            'sharing': sharing,
+                            'count': count,
+                            'labels': sorted(pool_labels),
+                        }
+                    elif sharing == 'interface':
+                        req_by_key[key]['count'] += count
 
     return list(req_by_key.values())
 
 
 def save_requirements(pid, requirements):
+    """Persist computed requirements to Redis."""
     r.set(f'project:{pid}:requirements', json.dumps(requirements))
 
 
 def load_requirements(pid):
+    """Load previously saved requirements from Redis."""
     raw = r.get(f'project:{pid}:requirements')
     return json.loads(raw) if raw else []
 
 
 # Utility
-
-def parse_labels(value):
-    if value is None:
-        return []
-    return [p.strip() for p in str(value).split(',') if p.strip()]
-
 
 def collect_params(schema, form):
     data = {}

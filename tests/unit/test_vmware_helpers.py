@@ -7,7 +7,8 @@ All Redis I/O is intercepted by the fake_redis fixture in conftest.py.
 import pytest
 import ipaddress
 import ipam as _ipam
-from ipam import save_project, save_network, new_id, project_nets_key
+from db import new_id
+from ipam import save_project, save_network, project_nets_key
 from vmware import (
     enable_network, disable_network, is_enabled,
     enabled_network_ids, enabled_networks,

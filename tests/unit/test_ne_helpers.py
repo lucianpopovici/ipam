@@ -15,9 +15,10 @@ from ne import (
     get_pod_slots, save_pod_slots,
     assign_pod_to_site, unassign_pod_from_site,
     compute_requirements, save_requirements, load_requirements,
-    _sharing_count, new_id, parse_labels, collect_params,
+    _sharing_count, collect_params,
 )
-from ipam import save_project, new_id as ipam_new_id
+from db import new_id, parse_labels
+from ipam import save_project
 
 
 # ══════════════════════════════════════════════════════════════════════════════

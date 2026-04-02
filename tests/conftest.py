@@ -26,8 +26,8 @@ def fake_redis(monkeypatch):
     fake_r = fakeredis.FakeRedis(server=server, decode_responses=True)
 
     # Patch the module-level `r` in every blueprint module
-    import ipam, ne, hw, vmware
-    for mod in (db, ipam, ne, hw, vmware):
+    import ipam, ne, hw_logic, vmware
+    for mod in (db, ipam, ne, hw_logic, vmware):
         monkeypatch.setattr(mod, 'r', fake_r)
 
     yield fake_r
@@ -89,9 +89,10 @@ def seeded_subnet(client, seeded_project):
 @pytest.fixture
 def seeded_hw_template(fake_redis):
     """Create a minimal server hardware template directly."""
-    from hw import save_hw_template, _new_id
+    from hw_logic import save_hw_template
+    from db import new_id
     tmpl = {
-        'id':          _new_id(),
+        'id':          new_id(),
         'name':        'Test Server',
         'vendor':      'ACME',
         'model':       'TS-1U',
@@ -114,9 +115,10 @@ def seeded_hw_template(fake_redis):
 
 @pytest.fixture
 def seeded_rack_template(fake_redis):
-    from hw import save_hw_template, _new_id
+    from hw_logic import save_hw_template
+    from db import new_id
     tmpl = {
-        'id': _new_id(), 'name': 'Test Rack', 'vendor': 'ACME', 'model': 'R42',
+        'id': new_id(), 'name': 'Test Rack', 'vendor': 'ACME', 'model': 'R42',
         'category': 'rack', 'form_factor': '19"', 'u_size': 42,
         'cable_type': '', 'description': '', 'ports': [],
         'scope': 'global', 'project_id': '',
@@ -127,9 +129,10 @@ def seeded_rack_template(fake_redis):
 
 @pytest.fixture
 def seeded_cable_template(fake_redis):
-    from hw import save_hw_template, _new_id
+    from hw_logic import save_hw_template
+    from db import new_id
     tmpl = {
-        'id': _new_id(), 'name': 'DAC 25G', 'vendor': 'ACME', 'model': 'DAC25',
+        'id': new_id(), 'name': 'DAC 25G', 'vendor': 'ACME', 'model': 'DAC25',
         'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
         'cable_type': 'DAC', 'description': '',
         'ports': [], 'scope': 'global', 'project_id': '',
