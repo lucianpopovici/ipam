@@ -1,14 +1,16 @@
-"""
+import json
+import pytest
+
 pytestmark = pytest.mark.api
 
+"""
 API tests for vmware.py routes using the Flask test client.
 Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
 """
-import json
-import pytest
 import ipam as _ipam
-from ipam import save_project, save_network, new_id, project_nets_key
-from vmware import enable_network, allocate_ip
+from db import new_id
+from ipam import save_project, save_network, project_nets_key
+from vmware import enable_network
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -91,7 +93,7 @@ class TestAPIListNetworks:
         resp = client.get('/api/vmware/networks')
         assert resp.status_code == 200
         data = json.loads(resp.data)
-        assert data['networks'] == []
+        assert not data['networks']
 
     def test_lists_enabled_networks(self, client):
         pid = _make_project()
@@ -107,7 +109,7 @@ class TestAPIListNetworks:
         _make_network(pid, '10.0.1.0/24')
         resp = client.get('/api/vmware/networks')
         data = json.loads(resp.data)
-        assert data['networks'] == []
+        assert not data['networks']
 
     def test_response_includes_stats(self, client):
         pid = _make_project()
@@ -248,7 +250,7 @@ class TestAPINetworkIPs:
         resp = client.get(f'/api/vmware/networks/{nid}/ips')
         assert resp.status_code == 200
         data = json.loads(resp.data)
-        assert data['allocations'] == []
+        assert not data['allocations']
 
     def test_returns_allocations(self, client):
         pid = _make_project()

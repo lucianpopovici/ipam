@@ -1,17 +1,17 @@
-"""
+import json
+import pytest
 
 pytestmark = pytest.mark.api
 
+"""
 API tests for hw.py routes using Flask test client.
 """
-import json
-import pytest
-from ipam import save_project, new_id
+from db import new_id
 from hw import (
     save_hw_template, save_hw_instance, save_bom, save_cable,
     get_hw_template, get_hw_instance, get_cable,
     project_instances, project_cables, get_rack_slots,
-    save_rack_slots, seed_connectors, _new_id, validate_project,
+    seed_connectors,
     load_validation,
 )
 
@@ -29,7 +29,7 @@ def _create_project(client):
 
 def _server_tmpl():
     return {
-        'id': _new_id(), 'name': 'Server-1U', 'vendor': 'Dell', 'model': 'R650',
+        'id': new_id(), 'name': 'Server-1U', 'vendor': 'Dell', 'model': 'R650',
         'category': 'server', 'form_factor': '19"', 'u_size': 1,
         'cable_type': '', 'description': '',
         'ports': [
@@ -46,7 +46,7 @@ def _server_tmpl():
 
 def _rack_tmpl():
     return {
-        'id': _new_id(), 'name': 'Rack-42U', 'vendor': 'APC', 'model': 'AR3000',
+        'id': new_id(), 'name': 'Rack-42U', 'vendor': 'APC', 'model': 'AR3000',
         'category': 'rack', 'form_factor': '19"', 'u_size': 42,
         'cable_type': '', 'description': '', 'ports': [],
         'scope': 'global', 'project_id': '',
@@ -55,7 +55,7 @@ def _rack_tmpl():
 
 def _cable_tmpl():
     return {
-        'id': _new_id(), 'name': 'DAC-25G', 'vendor': 'ACME', 'model': 'D25',
+        'id': new_id(), 'name': 'DAC-25G', 'vendor': 'ACME', 'model': 'D25',
         'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
         'cable_type': 'DAC', 'description': '', 'ports': [],
         'scope': 'global', 'project_id': '',
@@ -64,8 +64,8 @@ def _cable_tmpl():
 
 def _make_instance(pid, tmpl):
     inst = {
-        'id': _new_id(), 'template_id': tmpl['id'], 'project_id': pid,
-        'asset_tag': f'{tmpl["name"][:4]}-{_new_id()}',
+        'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+        'asset_tag': f'{tmpl["name"][:4]}-{new_id()}',
         'serial': '', 'status': 'in-stock',
         'location': {}, 'port_overrides': {},
     }
@@ -105,7 +105,7 @@ class TestConnectorRoutes:
             'action': 'compat', 'conn_a': 'CA', 'conn_b': 'CB', 'compatible': '1',
         }, follow_redirects=False)
         assert resp.status_code == 302
-        from hw import connectors_compatible
+        from hw_logic import connectors_compatible
         assert connectors_compatible('CA', 'CB')
 
     def test_unset_compat(self, client):
@@ -118,7 +118,7 @@ class TestConnectorRoutes:
         client.post('/admin/hw/connectors', data={
             'action': 'compat', 'conn_a': 'CX', 'conn_b': 'CY', 'compatible': '0',
         })
-        from hw import connectors_compatible
+        from hw_logic import connectors_compatible
         assert not connectors_compatible('CX', 'CY')
 
 
@@ -233,7 +233,7 @@ class TestBOMRoutes:
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
         bom = json.dumps([{
-            'id': _new_id(), 'template_id': t['id'],
+            'id': new_id(), 'template_id': t['id'],
             'qty': 3, 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3,
             'description': '',
         }])
@@ -260,7 +260,7 @@ class TestBOMRoutes:
     def test_generate_from_bom_line(self, client):
         pid = _create_project(client)
         t   = _server_tmpl(); save_hw_template(t)
-        item_id = _new_id()
+        item_id = new_id()
         save_bom(pid, [{
             'id': item_id, 'template_id': t['id'],
             'qty': 4, 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3,
@@ -277,9 +277,9 @@ class TestBOMRoutes:
         t1  = _server_tmpl(); t2 = _rack_tmpl()
         save_hw_template(t1); save_hw_template(t2)
         save_bom(pid, [
-            {'id': _new_id(), 'template_id': t1['id'], 'qty': 3,
+            {'id': new_id(), 'template_id': t1['id'], 'qty': 3,
              'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
-            {'id': _new_id(), 'template_id': t2['id'], 'qty': 2,
+            {'id': new_id(), 'template_id': t2['id'], 'qty': 2,
              'tag_prefix': 'rack', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
         ])
         resp = client.post(f'/projects/{pid}/bom/generate-all', follow_redirects=False)
@@ -487,7 +487,7 @@ class TestCableRoutes:
         dev1 = _make_instance(pid, dt)
         dev2 = _make_instance(pid, dt)
         c = {
-            'id': _new_id(), 'template_id': ct['id'], 'project_id': pid,
+            'id': new_id(), 'template_id': ct['id'], 'project_id': pid,
             'asset_tag': 'CAB-EDIT', 'label': '', 'length_m': '',
             'end_a': {'instance_id': dev1['id'], 'port_id': 'sfp0'},
             'end_b': {'instance_id': dev2['id'], 'port_id': 'sfp0'},
@@ -513,7 +513,7 @@ class TestCableRoutes:
     def test_delete_cable(self, client):
         pid = _create_project(client)
         c = {
-            'id': _new_id(), 'template_id': None, 'project_id': pid,
+            'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'DEL-CAB', 'label': '', 'length_m': '',
             'end_a': {}, 'end_b': {}, 'breakout': False, 'breakout_fan_out': 1,
         }
@@ -541,7 +541,7 @@ class TestCableRoutes:
         dev1 = _make_instance(pid, dt)
         dev2 = _make_instance(pid, dt)
         c = {
-            'id': _new_id(), 'template_id': None, 'project_id': pid,
+            'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'C1', 'label': '', 'length_m': '',
             'end_a': {'instance_id': dev1['id'], 'port_id': 'sfp0'},
             'end_b': {'instance_id': dev2['id'], 'port_id': 'sfp0'},
@@ -588,7 +588,7 @@ class TestValidationRoutes:
         pid = _create_project(client)
         # Server with RJ45 eth0, switch with SFP28 swp0
         srv_t = {
-            'id': _new_id(), 'name': 'Srv', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'Srv', 'vendor': '', 'model': '',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'eth0', 'name': 'eth0', 'port_type': 'data',
@@ -597,7 +597,7 @@ class TestValidationRoutes:
             'scope': 'global', 'project_id': '',
         }
         sw_t = {
-            'id': _new_id(), 'name': 'Sw', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'Sw', 'vendor': '', 'model': '',
             'category': 'switch', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'swp0', 'name': 'swp0', 'port_type': 'data',
@@ -610,7 +610,7 @@ class TestValidationRoutes:
         sw   = _make_instance(pid, sw_t)
         ct   = _cable_tmpl(); save_hw_template(ct)
         c = {
-            'id': _new_id(), 'template_id': ct['id'], 'project_id': pid,
+            'id': new_id(), 'template_id': ct['id'], 'project_id': pid,
             'asset_tag': 'BAD-CAB', 'label': '', 'length_m': '',
             'end_a': {'instance_id': srv['id'], 'port_id': 'eth0'},
             'end_b': {'instance_id': sw['id'],  'port_id': 'swp0'},

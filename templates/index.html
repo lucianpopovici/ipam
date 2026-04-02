@@ -15,7 +15,6 @@
 <div class="card shadow-sm mb-4 border-0 bg-white">
   <div class="card-body py-2">
     <div class="row g-0 text-center">
-      {% set total  = projects | sum(attribute='_total',  default=0) %}
       <div class="col">
         <div class="fw-semibold">{{ global_summary.total_ips | format_num }}</div>
         <div class="text-muted small">Total IPs</div>

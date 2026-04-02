@@ -6,6 +6,7 @@ End-to-end tests for NE management flows using Playwright.
 """
 import pytest
 import time
+import re
 from playwright.sync_api import Page, expect
 
 
@@ -33,7 +34,7 @@ class TestE2ESchemas:
     def test_admin_schemas_page_loads(self, page_base):
         page, base = page_base
         goto(page, base, '/admin/schemas')
-        expect(page).to_have_url(lambda u: '/admin/schemas' in u)
+        expect(page).to_have_url(re.compile(r'/admin/schemas'))
         expect(page.locator('h4, h3')).to_be_visible()
 
     def test_add_field_to_schema(self, page_base):
@@ -67,7 +68,7 @@ class TestE2ESchemas:
         page, base = page_base
         pid = _create_project(page, base, name='Schema E2E')
         goto(page, base, f'/projects/{pid}/schemas')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/schemas' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/schemas'))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -108,7 +109,7 @@ class TestE2ENETypes:
         page, base = page_base
         pid = _create_project(page, base, name='NEType Project')
         goto(page, base, f'/projects/{pid}/ne-types')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/ne-types' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/ne-types'))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -120,7 +121,7 @@ class TestE2ESites:
         page, base = page_base
         pid = _create_project(page, base, name='Sites E2E')
         goto(page, base, f'/projects/{pid}/sites')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/sites' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/sites'))
 
     def test_create_single_site(self, page_base):
         page, base = page_base
@@ -195,8 +196,9 @@ class TestE2EPODs:
 
     def test_assign_pod_to_site(self, page_base):
         page, base = page_base
-        from ne import save_site, save_pod, new_id
-        from ipam import save_project, new_id as ipam_new_id
+        from db import new_id
+        from ne import save_site, save_pod
+        from ipam import save_project
 
         pid = _create_project(page, base, name='Assign Test')
 
@@ -218,7 +220,8 @@ class TestE2EPODs:
     def test_pod_slot_builder(self, page_base):
         """Verify the NE slot builder JS renders on the pod detail page."""
         page, base = page_base
-        from ne import save_pod, new_id
+        from db import new_id
+        from ne import save_pod
         from ipam import save_project
 
         pid = _create_project(page, base, name='Slot Builder')
@@ -227,7 +230,7 @@ class TestE2EPODs:
                   'description': '', 'labels': [], 'params': {}})
 
         goto(page, base, f'/projects/{pid}/pods/{pod_id}')
-        expect(page).to_have_url(lambda u: f'/pods/{pod_id}' in u)
+        expect(page).to_have_url(re.compile(rf'/pods/{pod_id}'))
         # Slot builder section should exist
         expect(page.locator('body')).to_be_visible()
 
@@ -242,11 +245,12 @@ class TestE2ERequirements:
         Build a full site → pod → NE type hierarchy via the helper functions
         (faster than driving the full UI for setup).
         """
+        from db import new_id
         from ne import (save_ne_type, save_site, save_pod,
-                        assign_pod_to_site, save_pod_slots, new_id)
-        from ipam import save_project, new_id as ipam_new_id
+                        assign_pod_to_site, save_pod_slots)
+        from ipam import save_project
 
-        pid = ipam_new_id()
+        pid = new_id()
         save_project({'id': pid, 'name': 'Req E2E', 'supernet': '10.0.0.0/8', 'description': ''})
 
         ne_id = new_id()
@@ -277,7 +281,7 @@ class TestE2ERequirements:
         page, base = page_base
         pid = self._build_hierarchy(base)
         goto(page, base, f'/projects/{pid}/requirements')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/requirements' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/requirements'))
         # Should show at least one requirement row
         expect(page.locator('table tbody tr, .requirement-row')).not_to_have_count(0)
 

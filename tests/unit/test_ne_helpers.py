@@ -47,11 +47,11 @@ class TestExpandSitePattern:
         assert names is None
 
     def test_end_less_than_start_error(self):
-        names, err = expand_site_pattern('ran{005..001}')
+        _, err = expand_site_pattern('ran{005..001}')
         assert err is not None
 
     def test_large_range_error(self):
-        names, err = expand_site_pattern('ran{00001..10001}')
+        _, err = expand_site_pattern('ran{00001..10001}')
         assert err is not None
 
     def test_prefix_and_suffix(self):
@@ -399,7 +399,7 @@ class TestComputeRequirements:
         return pid, ne, site, pod
 
     def test_requirement_count(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         # mgmt / ne sharing → 1 subnet (shared across 3 instances)
         # data / interface / ipv4 → 3 subnets (one per instance)
@@ -407,20 +407,20 @@ class TestComputeRequirements:
         assert len(reqs) == 3   # mgmt-ipv4 + data-ipv4 + data-ipv6
 
     def test_ne_sharing_count_is_1(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         mgmt = next(r for r in reqs if r['iface_name'] == 'mgmt')
         assert mgmt['count'] == 1
 
     def test_interface_sharing_count_equals_ne_count(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         data_reqs = [r for r in reqs if r['iface_name'] == 'data']
         for req in data_reqs:
             assert req['count'] == 3
 
     def test_label_union(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         mgmt = next(r for r in reqs if r['iface_name'] == 'mgmt')
         # Should contain labels from site + pod + ne + interface
@@ -430,7 +430,7 @@ class TestComputeRequirements:
         assert 'mgmt'     in mgmt['labels']
 
     def test_both_ip_versions(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         versions = {r['ip_version'] for r in reqs if r['iface_name'] == 'data'}
         assert 'ipv4' in versions
@@ -481,7 +481,7 @@ class TestComputeRequirements:
         assert compute_requirements(pid) == []
 
     def test_requirements_persisted(self):
-        pid, ne, site, pod = self._setup_full()
+        pid, _, _, _ = self._setup_full()
         reqs = compute_requirements(pid)
         save_requirements(pid, reqs)
         loaded = load_requirements(pid)
@@ -505,11 +505,7 @@ class TestCollectParams:
 
     def test_checkbox_true(self):
         schema = [{'id': 'cb', 'field_type': 'checkbox', 'label': 'Active'}]
-        from werkzeug.test import EnvironBuilder
-        from werkzeug.wrappers import Request
-        builder = EnvironBuilder(method='POST', data={'cb': 'on'})
-        result  = collect_params(schema, EnvironBuilder(method='POST', data={'cb': 'on'}).get_environ())
-        # Use a simpler approach via ImmutableMultiDict
+        # Use ImmutableMultiDict directly for simpler testing
         from werkzeug.datastructures import ImmutableMultiDict
         form = ImmutableMultiDict([('cb', 'on')])
         assert collect_params(schema, form)['cb'] is True

@@ -7,19 +7,18 @@ Unit tests for hw.py helper functions.
 import pytest
 from hw_logic import (
     seed_connectors, all_connectors, add_connector, remove_connector,
-    get_compat, set_compat, connectors_compatible, full_compat_matrix,
+    set_compat, connectors_compatible, full_compat_matrix,
     get_hw_template, save_hw_template, delete_hw_template,
-    global_hw_templates, project_hw_templates, available_hw_templates,
+    global_hw_templates, project_hw_templates,
     all_hw_templates_for_project,
     get_bom, save_bom, bom_with_templates,
-    get_hw_instance, save_hw_instance, delete_hw_instance,
+    get_hw_instance, save_hw_instance,
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, save_rack_slots, place_in_rack, rack_layout_view,
-    _check_form_factor, _remove_from_rack,
+    _remove_from_rack,
     get_cable, save_cable, delete_cable, project_cables,
-    _get_port, _used_ports,
-    validate_project, _issue,
-    DEFAULT_CONNECTORS, DEFAULT_COMPAT,
+    _used_ports,
+    validate_project,
 )
 from db import new_id
 from ipam import save_project

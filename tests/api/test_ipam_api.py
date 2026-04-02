@@ -1,18 +1,17 @@
-"""
+import json
+import pytest
 
 pytestmark = pytest.mark.api
 
+"""
 API tests for ipam.py routes using Flask test client.
 Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
 """
-import json
-import pytest
 from ipam import (
-    save_project, save_network, save_ip, add_labels_to_network,
-    add_global_label, save_template, new_id, project_nets_key,
+    save_network,
+    add_global_label,
     get_network, get_ip,
 )
-from db import r
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -140,7 +139,7 @@ class TestLabels:
     def test_delete_global_label(self, client):
         client.post('/labels', data={'action': 'add', 'label': 'TEMP'})
         client.post('/labels', data={'action': 'delete', 'label': 'TEMP'})
-        resp = client.get('/labels')
+        client.get('/labels')
         # Should not appear as a standalone label
         from ipam import global_labels
         assert 'TEMP' not in global_labels()
@@ -269,7 +268,7 @@ class TestSubnets:
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert len(data['allocated']) == 2
-        assert data['errors'] == []
+        assert not data['errors']
 
     def test_bulk_add_non_json_rejected(self, client):
         pid  = _create_project(client)
@@ -513,7 +512,7 @@ class TestSubnetTemplates:
         resp = client.post(f'/networks/{net["id"]}/slots/confirm', data={'ip': '10.0.0.1'})
         assert resp.status_code == 302
         assert get_ip('10.0.0.1') is not None
-        assert get_network(net['id'])['pending_slots'] == []
+        assert not get_network(net['id'])['pending_slots']
 
     def test_confirm_all_slots(self, client):
         pid = _create_project(client)
@@ -549,7 +548,7 @@ class TestSubnetTemplates:
         client.post(f'/networks/{net["id"]}/template', data={'template_id': tid})
         client.post(f'/networks/{net["id"]}/slots/dismiss', data={'ip': '10.0.0.1'})
         assert get_ip('10.0.0.1') is None
-        assert get_network(net['id'])['pending_slots'] == []
+        assert not get_network(net['id'])['pending_slots']
 
     def test_dismiss_all_slots(self, client):
         pid = _create_project(client)
@@ -566,7 +565,7 @@ class TestSubnetTemplates:
         tid = global_templates()[0]['id']
         client.post(f'/networks/{net["id"]}/template', data={'template_id': tid})
         client.post(f'/networks/{net["id"]}/slots/dismiss_all')
-        assert get_network(net['id'])['pending_slots'] == []
+        assert not get_network(net['id'])['pending_slots']
 
     def test_manage_project_templates_200(self, client):
         pid = _create_project(client)

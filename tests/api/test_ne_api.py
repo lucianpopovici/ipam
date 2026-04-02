@@ -6,7 +6,8 @@ API tests for ne.py routes using Flask test client.
 """
 import json
 import pytest
-from ipam import save_project, new_id
+from ipam import save_project
+from db import new_id
 from ne import (
     save_schema, save_ne_type, save_site, save_pod,
     assign_pod_to_site, save_pod_slots,

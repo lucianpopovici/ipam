@@ -398,7 +398,7 @@ def remove_from_rack_route(pid, rack_iid):
 
 
 @hw_bp.route('/api/projects/<pid>/hw/racks/<rack_iid>/place', methods=['POST'])
-def api_place_device(_pid, rack_iid):
+def api_place_device(pid, rack_iid):
     """JSON API for drag-and-drop placement."""
     data = request.get_json(force=True) or {}
     iid = data.get('instance_id', '')

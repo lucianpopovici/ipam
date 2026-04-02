@@ -159,7 +159,7 @@
       <a href="{{ url_for('hw.project_inventory',   pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">📦 Inventory</a>
       <a href="{{ url_for('hw.rack_list',           pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🗄 Racks</a>
       <a href="{{ url_for('hw.cable_list',          pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🔗 Cables</a>
-      <a href="{{ url_for('hw.project_hw_templates',pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🖥 Templates</a>
+      <a href="{{ url_for('hw.project_hw_templates_route', pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">🖥 Templates</a>
       <a href="{{ url_for('hw.hw_validate',         pid=proj.id) }}" class="btn btn-sm btn-outline-warning">⚠ Validate</a>
     </div>
   </div>

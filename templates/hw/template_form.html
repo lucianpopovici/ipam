@@ -2,7 +2,7 @@
 {% block title %}{% if tmpl %}Edit{% else %}New{% endif %} Hardware Template{% endblock %}
 {% block content %}
 <div class="mb-2">
-  {% if proj %}<a href="{{ url_for('hw.project_hw_templates', pid=proj.id) }}" class="text-muted small">← HW Templates</a>
+  {% if proj %}<a href="{{ url_for('hw.project_hw_templates_route', pid=proj.id) }}" class="text-muted small">← HW Templates</a>
   {% else %}<a href="{{ url_for('hw.hw_templates_list') }}" class="text-muted small">← HW Templates</a>{% endif %}
 </div>
 <h4 class="mb-3">{% if tmpl %}Edit: {{ tmpl.name }}{% else %}New Hardware Template{% endif %}</h4>
@@ -92,7 +92,7 @@
 <div class="mt-3 d-flex gap-2">
   <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">Save Template</button>
   {% if proj %}
-  <a href="{{ url_for('hw.project_hw_templates', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+  <a href="{{ url_for('hw.project_hw_templates_route', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
   {% else %}
   <a href="{{ url_for('hw.hw_templates_list') }}" class="btn btn-secondary">Cancel</a>
   {% endif %}

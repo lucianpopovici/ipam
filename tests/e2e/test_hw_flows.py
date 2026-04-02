@@ -1,6 +1,8 @@
-"""
+import pytest
 
 pytestmark = pytest.mark.e2e
+
+"""
 
 End-to-end tests for hardware management flows using Playwright.
 
@@ -14,9 +16,9 @@ Covers:
   - Cable plant (add cable, dynamic port dropdown, edit, delete)
   - Validation page (clean project, mismatch detection)
 """
-import pytest
 import time
 import json
+import re
 from playwright.sync_api import Page, expect
 
 
@@ -45,9 +47,10 @@ def _seed_connectors(base: str):
 
 def _make_server_template():
     """Create a server template directly and return it."""
-    from hw import save_hw_template, _new_id
+    from db import new_id
+    from hw import save_hw_template
     tmpl = {
-        'id':          _new_id(),
+        'id':          new_id(),
         'name':        'E2E-Server-1U',
         'vendor':      'Dell',
         'model':       'R650',
@@ -75,9 +78,10 @@ def _make_server_template():
 
 
 def _make_rack_template():
-    from hw import save_hw_template, _new_id
+    from db import new_id
+    from hw import save_hw_template
     tmpl = {
-        'id': _new_id(), 'name': 'E2E-Rack-42U', 'vendor': 'APC', 'model': 'AR3100',
+        'id': new_id(), 'name': 'E2E-Rack-42U', 'vendor': 'APC', 'model': 'AR3100',
         'category': 'rack', 'form_factor': '19"', 'u_size': 42,
         'cable_type': '', 'description': '', 'ports': [],
         'scope': 'global', 'project_id': '',
@@ -87,9 +91,10 @@ def _make_rack_template():
 
 
 def _make_cable_template():
-    from hw import save_hw_template, _new_id
+    from db import new_id
+    from hw import save_hw_template
     tmpl = {
-        'id': _new_id(), 'name': 'E2E-DAC-25G', 'vendor': 'Mellanox', 'model': 'MC2609130',
+        'id': new_id(), 'name': 'E2E-DAC-25G', 'vendor': 'Mellanox', 'model': 'MC2609130',
         'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
         'cable_type': 'DAC', 'description': '', 'ports': [],
         'scope': 'global', 'project_id': '',
@@ -99,12 +104,13 @@ def _make_cable_template():
 
 
 def _make_instance(pid: str, tmpl: dict) -> dict:
-    from hw import save_hw_instance, _new_id
+    from db import new_id
+    from hw import save_hw_instance
     inst = {
-        'id':           _new_id(),
+        'id':           new_id(),
         'template_id':  tmpl['id'],
         'project_id':   pid,
-        'asset_tag':    f'{tmpl["name"][:6]}-{_new_id()[:4]}',
+        'asset_tag':    f'{tmpl["name"][:6]}-{new_id()[:4]}',
         'serial':       '',
         'status':       'in-stock',
         'location':     {},
@@ -123,7 +129,7 @@ class TestE2EConnectors:
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
-        expect(page).to_have_url(lambda u: '/admin/hw/connectors' in u)
+        expect(page).to_have_url(re.compile(r'/admin/hw/connectors'))
         expect(page.locator('body')).to_contain_text('RJ45')
         expect(page.locator('body')).to_contain_text('SFP28')
 
@@ -173,7 +179,7 @@ class TestE2EConnectors:
         if first_cell.count() > 0:
             first_cell.click()
             # Page should reload (form submit) without error
-            expect(page).to_have_url(lambda u: '/admin/hw/connectors' in u)
+            expect(page).to_have_url(re.compile(r'/admin/hw/connectors'))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -184,7 +190,7 @@ class TestE2EHWTemplates:
     def test_hw_templates_list_loads(self, page_base):
         page, base = page_base
         goto(page, base, '/hw/templates')
-        expect(page).to_have_url(lambda u: '/hw/templates' in u)
+        expect(page).to_have_url(re.compile(r'/hw/templates'))
 
     def test_templates_list_shows_seeded_templates(self, page_base):
         page, base = page_base
@@ -196,7 +202,7 @@ class TestE2EHWTemplates:
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/hw/templates/add')
-        expect(page).to_have_url(lambda u: '/hw/templates/add' in u)
+        expect(page).to_have_url(re.compile(r'/hw/templates/add'))
         expect(page.locator('input[name="name"]')).to_be_visible()
 
     def test_create_minimal_template(self, page_base):
@@ -271,9 +277,10 @@ class TestE2EHWTemplates:
 
     def test_delete_template(self, page_base):
         page, base = page_base
-        from hw import save_hw_template, _new_id
+        from db import new_id
+        from hw import save_hw_template
         tmpl = {
-            'id': _new_id(), 'name': 'DELETE-ME-TMPL', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'DELETE-ME-TMPL', 'vendor': '', 'model': '',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
@@ -290,7 +297,7 @@ class TestE2EHWTemplates:
         page, base = page_base
         pid = _create_project(page, base, name='ProjTmpl E2E')
         goto(page, base, f'/projects/{pid}/hw/templates')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/hw/templates' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/hw/templates'))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -302,7 +309,7 @@ class TestE2EBOM:
         page, base = page_base
         pid = _create_project(page, base, name='BoM E2E')
         goto(page, base, f'/projects/{pid}/bom')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/bom' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/bom'))
 
     def test_empty_bom_shows_no_lines(self, page_base):
         page, base = page_base
@@ -342,16 +349,17 @@ class TestE2EBOM:
         """)
         page.click('button:has-text("Save BoM")')
         # Page should reload showing the saved line
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/bom' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/bom'))
         # Saved lines should appear in the generate table
         expect(page.locator('body')).to_contain_text('E2E-Server-1U')
 
     def test_generate_instances_from_line(self, page_base):
         page, base = page_base
-        from hw import save_bom, _new_id
+        from db import new_id
+        from hw import save_bom
         pid  = _create_project(page, base, name='BoM Generate')
         tmpl = _make_server_template()
-        item_id = _new_id()
+        item_id = new_id()
         save_bom(pid, [{
             'id': item_id, 'template_id': tmpl['id'], 'qty': 3,
             'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': '',
@@ -359,26 +367,27 @@ class TestE2EBOM:
         goto(page, base, f'/projects/{pid}/bom')
         page.click('button:has-text("Generate 3")')
         # Should redirect to inventory
-        expect(page).to_have_url(lambda u: f'/projects/{pid}/hw/inventory' in u)
+        expect(page).to_have_url(re.compile(rf'/projects/{pid}/hw/inventory'))
         expect(page.locator('body')).to_contain_text('srv-001')
         expect(page.locator('body')).to_contain_text('srv-003')
 
     def test_generate_all_instances(self, page_base):
         page, base = page_base
-        from hw import save_bom, _new_id
+        from db import new_id
+        from hw import save_bom
         pid   = _create_project(page, base, name='BoM Gen All')
         srv_t = _make_server_template()
         rck_t = _make_rack_template()
         save_bom(pid, [
-            {'id': _new_id(), 'template_id': srv_t['id'], 'qty': 2,
+            {'id': new_id(), 'template_id': srv_t['id'], 'qty': 2,
              'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
-            {'id': _new_id(), 'template_id': rck_t['id'], 'qty': 1,
+            {'id': new_id(), 'template_id': rck_t['id'], 'qty': 1,
              'tag_prefix': 'rack', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
         ])
         goto(page, base, f'/projects/{pid}/bom')
         page.on('dialog', lambda d: d.accept())
         page.click('button:has-text("Generate All")')
-        expect(page).to_have_url(lambda u: 'inventory' in u)
+        expect(page).to_have_url(re.compile(r'inventory'))
         # 3 total instances
         rows = page.locator('table tbody tr')
         assert rows.count() >= 3
@@ -404,7 +413,7 @@ class TestE2EInventory:
         page, base = page_base
         pid = _create_project(page, base, name='Inventory E2E')
         goto(page, base, f'/projects/{pid}/hw/inventory')
-        expect(page).to_have_url(lambda u: 'inventory' in u)
+        expect(page).to_have_url(re.compile(r'inventory'))
 
     def test_inventory_shows_instances(self, page_base):
         page, base = page_base
@@ -434,7 +443,7 @@ class TestE2EInventory:
         page.fill('input[name="asset_tag"]', 'MANUAL-E2E-001')
         page.fill('input[name="serial"]', 'SN-E2E-001')
         page.click('button[type="submit"]')
-        expect(page).to_have_url(lambda u: 'inventory' in u)
+        expect(page).to_have_url(re.compile(r'inventory'))
         expect(page.locator('body')).to_contain_text('MANUAL-E2E-001')
 
     def test_edit_instance(self, page_base):
@@ -464,10 +473,11 @@ class TestE2EInventory:
         page, base = page_base
         pid  = _create_project(page, base, name='Inv Status')
         tmpl = _make_server_template()
-        from hw import save_hw_instance, _new_id
+        from db import new_id
+        from hw import save_hw_instance
         for status in ('in-stock', 'deployed', 'spare'):
             save_hw_instance({
-                'id': _new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+                'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
                 'asset_tag': f'{status}-e2e', 'serial': '',
                 'status': status, 'location': {}, 'port_overrides': {},
             })
@@ -494,13 +504,13 @@ class TestE2ERackVisual:
         page, base = page_base
         pid = _create_project(page, base, name='Rack List E2E')
         goto(page, base, f'/projects/{pid}/hw/racks')
-        expect(page).to_have_url(lambda u: 'racks' in u)
+        expect(page).to_have_url(re.compile(r'racks'))
 
     def test_rack_detail_loads(self, page_base):
         page, base = page_base
         pid, rack, dev = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
-        expect(page).to_have_url(lambda u: rack['id'] in u)
+        expect(page).to_have_url(re.compile(rack['id']))
         expect(page.locator('body')).to_contain_text(rack['asset_tag'])
 
     def test_rack_shows_u_slots(self, page_base):
@@ -519,7 +529,7 @@ class TestE2ERackVisual:
         page.select_option('select[name="instance_id"]', dev['id'])
         page.fill('input[name="u_pos"]', '10')
         page.click('button:has-text("Place")')
-        expect(page).to_have_url(lambda u: rack['id'] in u)
+        expect(page).to_have_url(re.compile(rack['id']))
         expect(page.locator('body')).to_contain_text(dev['asset_tag'])
 
     def test_placed_device_shows_in_placed_table(self, page_base):
@@ -541,7 +551,7 @@ class TestE2ERackVisual:
         remove_btn = page.locator('form[action*="/remove"] button')
         if remove_btn.count() > 0:
             remove_btn.first.click()
-            expect(page).to_have_url(lambda u: rack['id'] in u)
+            expect(page).to_have_url(re.compile(rack['id']))
             # Device should no longer be in the placed table
             placed_table = page.locator('table').last
             expect(placed_table).not_to_contain_text(dev['asset_tag'])
@@ -612,7 +622,7 @@ class TestE2ERackTable:
         page, base = page_base
         pid = _create_project(page, base, name='Rack Table E2E')
         goto(page, base, f'/projects/{pid}/hw/rack-table')
-        expect(page).to_have_url(lambda u: 'rack-table' in u)
+        expect(page).to_have_url(re.compile(r'rack-table'))
 
     def test_add_placement_row(self, page_base):
         page, base = page_base
@@ -703,7 +713,7 @@ class TestE2ECablePlant:
         page, base = page_base
         pid = _create_project(page, base, name='Cable List E2E')
         goto(page, base, f'/projects/{pid}/hw/cables')
-        expect(page).to_have_url(lambda u: 'cables' in u)
+        expect(page).to_have_url(re.compile(r'cables'))
 
     def test_cable_list_empty_state(self, page_base):
         page, base = page_base
@@ -715,7 +725,7 @@ class TestE2ECablePlant:
         page, base = page_base
         pid = _create_project(page, base, name='Cable Form')
         goto(page, base, f'/projects/{pid}/hw/cables/add')
-        expect(page).to_have_url(lambda u: 'cables/add' in u)
+        expect(page).to_have_url(re.compile(r'cables/add'))
         expect(page.locator('select[name="template_id"]')).to_be_visible()
 
     def test_add_cable(self, page_base):
@@ -735,7 +745,7 @@ class TestE2ECablePlant:
         time.sleep(0.4)
         page.select_option('select[name="end_b_port"]', 'sfp0')
         page.click('button[type="submit"]')
-        expect(page).to_have_url(lambda u: 'cables' in u)
+        expect(page).to_have_url(re.compile(r'cables'))
         expect(page.locator('body')).to_contain_text('E2E-CAB-001')
 
     def test_dynamic_port_dropdown_loads(self, page_base):
@@ -758,9 +768,10 @@ class TestE2ECablePlant:
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable InUse')
         # Create a cable that uses dev1 sfp0
-        from hw import save_cable, _new_id
+        from db import new_id
+        from hw import save_cable
         save_cable({
-            'id': _new_id(), 'template_id': cab_t['id'], 'project_id': pid,
+            'id': new_id(), 'template_id': cab_t['id'], 'project_id': pid,
             'asset_tag': 'EXISTING-CAB', 'label': '', 'length_m': '',
             'end_a': {'instance_id': dev1['id'], 'port_id': 'sfp0'},
             'end_b': {'instance_id': dev2['id'], 'port_id': 'sfp0'},
@@ -776,8 +787,9 @@ class TestE2ECablePlant:
     def test_edit_cable(self, page_base):
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Edit E2E')
-        from hw import save_cable, _new_id
-        cable_id = _new_id()
+        from db import new_id
+        from hw import save_cable
+        cable_id = new_id()
         save_cable({
             'id': cable_id, 'template_id': cab_t['id'], 'project_id': pid,
             'asset_tag': 'EDIT-BEFORE', 'label': '', 'length_m': '1',
@@ -796,8 +808,9 @@ class TestE2ECablePlant:
     def test_delete_cable(self, page_base):
         page, base = page_base
         pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Delete E2E')
-        from hw import save_cable, _new_id
-        cable_id = _new_id()
+        from db import new_id
+        from hw import save_cable
+        cable_id = new_id()
         save_cable({
             'id': cable_id, 'template_id': None, 'project_id': pid,
             'asset_tag': 'DELETE-CAB', 'label': '', 'length_m': '',
@@ -815,9 +828,10 @@ class TestE2ECablePlant:
         _seed_connectors(base)
         pid = _create_project(page, base, name='Cable Badge E2E')
         # Server has RJ45 eth0, switch has SFP28 swp0 — incompatible
-        from hw import save_hw_template, save_hw_instance, save_cable, _new_id
+        from db import new_id
+        from hw import save_hw_template, save_hw_instance, save_cable
         srv_t = {
-            'id': _new_id(), 'name': 'SrvBadge', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'SrvBadge', 'vendor': '', 'model': '',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'eth0', 'name': 'eth0', 'port_type': 'data',
@@ -826,7 +840,7 @@ class TestE2ECablePlant:
             'scope': 'global', 'project_id': '',
         }
         sw_t = {
-            'id': _new_id(), 'name': 'SwBadge', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'SwBadge', 'vendor': '', 'model': '',
             'category': 'switch', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'swp0', 'name': 'swp0', 'port_type': 'data',
@@ -835,15 +849,15 @@ class TestE2ECablePlant:
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(srv_t); save_hw_template(sw_t)
-        srv  = {'id': _new_id(), 'template_id': srv_t['id'], 'project_id': pid,
+        srv  = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                 'asset_tag': 'SRV-BADGE', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
-        sw   = {'id': _new_id(), 'template_id': sw_t['id'],  'project_id': pid,
+        sw   = {'id': new_id(), 'template_id': sw_t['id'],  'project_id': pid,
                 'asset_tag': 'SW-BADGE',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(srv); save_hw_instance(sw)
         save_cable({
-            'id': _new_id(), 'template_id': None, 'project_id': pid,
+            'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'MISMATCH-CAB', 'label': '', 'length_m': '',
             'end_a': {'instance_id': srv['id'], 'port_id': 'eth0'},
             'end_b': {'instance_id': sw['id'],  'port_id': 'swp0'},
@@ -867,7 +881,7 @@ class TestE2EValidation:
         page, base = page_base
         pid = _create_project(page, base, name='Validation E2E')
         goto(page, base, f'/projects/{pid}/hw/validate')
-        expect(page).to_have_url(lambda u: 'validate' in u)
+        expect(page).to_have_url(re.compile(r'validate'))
 
     def test_clean_project_shows_no_issues(self, page_base):
         page, base = page_base
@@ -887,9 +901,10 @@ class TestE2EValidation:
         page, base = page_base
         _seed_connectors(base)
         pid = _create_project(page, base, name='Mismatch Validate')
-        from hw import save_hw_template, save_hw_instance, save_cable, _new_id
+        from db import new_id
+        from hw import save_hw_template, save_hw_instance, save_cable
         srv_t = {
-            'id': _new_id(), 'name': 'SrvV', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'SrvV', 'vendor': '', 'model': '',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'eth0', 'name': 'eth0', 'port_type': 'data',
@@ -898,7 +913,7 @@ class TestE2EValidation:
             'scope': 'global', 'project_id': '',
         }
         sw_t = {
-            'id': _new_id(), 'name': 'SwV', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'SwV', 'vendor': '', 'model': '',
             'category': 'switch', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '',
             'ports': [{'id': 'swp0', 'name': 'swp0', 'port_type': 'data',
@@ -907,15 +922,15 @@ class TestE2EValidation:
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(srv_t); save_hw_template(sw_t)
-        srv = {'id': _new_id(), 'template_id': srv_t['id'], 'project_id': pid,
+        srv = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                'asset_tag': 'SRV-V', 'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
-        sw  = {'id': _new_id(), 'template_id': sw_t['id'],  'project_id': pid,
+        sw  = {'id': new_id(), 'template_id': sw_t['id'],  'project_id': pid,
                'asset_tag': 'SW-V',  'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
         save_hw_instance(srv); save_hw_instance(sw)
         save_cable({
-            'id': _new_id(), 'template_id': None, 'project_id': pid,
+            'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'BAD-CAB-V', 'label': '', 'length_m': '',
             'end_a': {'instance_id': srv['id'], 'port_id': 'eth0'},
             'end_b': {'instance_id': sw['id'],  'port_id': 'swp0'},
@@ -928,24 +943,26 @@ class TestE2EValidation:
     def test_form_factor_mismatch_shown(self, page_base):
         page, base = page_base
         pid = _create_project(page, base, name='FF Mismatch Validate')
-        from hw import save_hw_template, save_hw_instance, save_rack_slots, _new_id
+        from db import new_id
+        from hw import save_hw_template, save_hw_instance
+        from hw_logic import save_rack_slots
         ocp_rack_t = {
-            'id': _new_id(), 'name': 'OCP-Rack-V', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'OCP-Rack-V', 'vendor': '', 'model': '',
             'category': 'rack', 'form_factor': 'OCP', 'u_size': 42,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         srv_19_t = {
-            'id': _new_id(), 'name': 'Std-Srv-V', 'vendor': '', 'model': '',
+            'id': new_id(), 'name': 'Std-Srv-V', 'vendor': '', 'model': '',
             'category': 'server', 'form_factor': '19"', 'u_size': 1,
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(ocp_rack_t); save_hw_template(srv_19_t)
-        rack = {'id': _new_id(), 'template_id': ocp_rack_t['id'], 'project_id': pid,
+        rack = {'id': new_id(), 'template_id': ocp_rack_t['id'], 'project_id': pid,
                 'asset_tag': 'OCP-RACK-V', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
-        srv  = {'id': _new_id(), 'template_id': srv_19_t['id'],   'project_id': pid,
+        srv  = {'id': new_id(), 'template_id': srv_19_t['id'],   'project_id': pid,
                 'asset_tag': 'STD-SRV-V',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(rack); save_hw_instance(srv)
@@ -958,7 +975,7 @@ class TestE2EValidation:
         pid = _create_project(page, base, name='Rerun Validate')
         goto(page, base, f'/projects/{pid}/hw/validate')
         page.click('a:has-text("Re-run"), button:has-text("Re-run")')
-        expect(page).to_have_url(lambda u: 'validate' in u)
+        expect(page).to_have_url(re.compile(r'validate'))
 
     def test_navigation_links_on_validation_page(self, page_base):
         page, base = page_base
@@ -973,7 +990,7 @@ class TestE2EValidation:
         pid = _create_project(page, base, name='Validate Link')
         goto(page, base, f'/projects/{pid}')
         page.click('a:has-text("Validate")')
-        expect(page).to_have_url(lambda u: 'validate' in u)
+        expect(page).to_have_url(re.compile(r'validate'))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -993,7 +1010,8 @@ class TestE2EFullWorkflow:
         """
         page, base = page_base
         _seed_connectors(base)
-        from hw import save_bom, _new_id, save_cable, place_in_rack
+        from db import new_id
+        from hw import save_bom, save_cable, place_in_rack
 
         pid   = _create_project(page, base, name='Full Workflow E2E')
         srv_t = _make_server_template()
@@ -1002,9 +1020,9 @@ class TestE2EFullWorkflow:
 
         # Save BoM
         save_bom(pid, [
-            {'id': _new_id(), 'template_id': srv_t['id'], 'qty': 2,
+            {'id': new_id(), 'template_id': srv_t['id'], 'qty': 2,
              'tag_prefix': 'wf-srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
-            {'id': _new_id(), 'template_id': rck_t['id'], 'qty': 1,
+            {'id': new_id(), 'template_id': rck_t['id'], 'qty': 1,
              'tag_prefix': 'wf-rack', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
         ])
 
@@ -1012,7 +1030,7 @@ class TestE2EFullWorkflow:
         goto(page, base, f'/projects/{pid}/bom')
         page.on('dialog', lambda d: d.accept())
         page.click('button:has-text("Generate All")')
-        expect(page).to_have_url(lambda u: 'inventory' in u)
+        expect(page).to_have_url(re.compile(r'inventory'))
 
         # Retrieve instances
         from hw import project_instances
@@ -1028,7 +1046,7 @@ class TestE2EFullWorkflow:
 
         # Connect SFP28 cable between the two servers
         save_cable({
-            'id':           _new_id(),
+            'id':           new_id(),
             'template_id':  cab_t['id'],
             'project_id':   pid,
             'asset_tag':    'WF-CAB-001',

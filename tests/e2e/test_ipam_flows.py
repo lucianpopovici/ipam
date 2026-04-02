@@ -16,6 +16,7 @@ Prerequisites:
     pip install pytest-playwright
     playwright install chromium
 """
+import re
 import pytest
 import threading
 import time
@@ -38,7 +39,7 @@ def goto(page: Page, base: str, path: str):
 class TestE2EProjectLifecycle:
     def test_homepage_loads(self, page_base):
         page, base = page_base
-        expect(page).to_have_title(lambda t: 'IPAM' in t or 'Project' in t)
+        expect(page).to_have_title(re.compile(r'IPAM|Project'))
         expect(page.locator('h4, h3, h2')).to_be_visible()
 
     def test_create_project(self, page_base):
@@ -49,7 +50,7 @@ class TestE2EProjectLifecycle:
         page.fill('textarea[name="description"]', 'Created by E2E test')
         page.click('button[type="submit"]')
         # Should redirect to project detail
-        expect(page).to_have_url(lambda u: '/projects/' in u)
+        expect(page).to_have_url(re.compile(r'/projects/'))
         expect(page.locator('body')).to_contain_text('E2E Project')
 
     def test_project_appears_on_homepage(self, page_base):
@@ -76,7 +77,8 @@ class TestE2EProjectLifecycle:
         # Delete
         page.on('dialog', lambda dialog: dialog.accept())
         page.click('form[action*="/delete"] button')
-        expect(page).to_have_url(lambda u: '/projects/' not in u or pid not in u)
+        # Wait for navigation and ensure we are not on the project page anymore
+        page.wait_for_url(lambda u: f'/projects/{pid}' not in u)
 
     def test_invalid_supernet_shows_error(self, page_base):
         page, base = page_base
@@ -106,7 +108,7 @@ class TestE2ESubnets:
         page.select_option('select[name="mode"]', 'manual')
         page.fill('input[name="cidr"]', '10.0.0.0/24')
         page.click('button[type="submit"]')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}' in u)
+        expect(page).to_have_url(re.compile(f'/projects/{pid}'))
         expect(page.locator('body')).to_contain_text('10.0.0.0/24')
 
     def test_add_subnet_auto(self, page_base):
@@ -116,7 +118,7 @@ class TestE2ESubnets:
         page.select_option('select[name="mode"]', 'auto')
         page.fill('input[name="prefix_len"]', '24')
         page.click('button[type="submit"]')
-        expect(page).to_have_url(lambda u: f'/projects/{pid}' in u)
+        expect(page).to_have_url(re.compile(f'/projects/{pid}'))
 
     def test_subnet_detail_visible(self, page_base):
         page, base = page_base
@@ -127,7 +129,7 @@ class TestE2ESubnets:
         page.click('button[type="submit"]')
         # Click into the subnet
         page.click('a:has-text("10.0.1.0/24")')
-        expect(page).to_have_url(lambda u: '/networks/' in u)
+        expect(page).to_have_url(re.compile(r'/networks/'))
         expect(page.locator('body')).to_contain_text('10.0.1.0/24')
 
     def test_overlapping_subnet_rejected(self, page_base):
@@ -173,7 +175,7 @@ class TestE2EIPAllocation:
         page.fill('input[name="ip"]', '10.0.0.5')
         page.fill('input[name="hostname"]', 'web-01')
         page.click('button[type="submit"]')
-        expect(page).to_have_url(lambda u: f'/networks/{nid}' in u)
+        expect(page).to_have_url(re.compile(f'/networks/{nid}'))
         expect(page.locator('body')).to_contain_text('10.0.0.5')
         expect(page.locator('body')).to_contain_text('web-01')
 
@@ -294,7 +296,8 @@ class TestE2ESubnetTemplates:
     def test_apply_template_creates_pending_slots(self, page_base):
         page, base = page_base
         # Create template directly via API
-        from ipam import save_template, new_id
+        from db import new_id
+        from ipam import save_template
         tmpl = {
             'id': new_id(), 'name': 'E2E-Slots', 'description': '',
             'rules': [
@@ -309,14 +312,15 @@ class TestE2ESubnetTemplates:
         page.select_option('select[name="template_id"]', tmpl['id'])
         page.click('button[type="submit"]')
         # Should redirect to network detail showing pending slot
-        expect(page).to_have_url(lambda u: f'/networks/{nid}' in u)
+        expect(page).to_have_url(re.compile(f'/networks/{nid}'))
         expect(page.locator('body')).to_contain_text('pending')
 
     def test_confirm_pending_slot(self, page_base):
         page, base = page_base
-        from ipam import save_template, new_id, set_pending_slots, save_project
-        from ipam import save_network, new_id as _nid, project_nets_key
-        from db import r
+        from db import new_id
+        from ipam import save_template, set_pending_slots, save_project
+        from db import new_id as _nid, r
+        from ipam import save_network, project_nets_key
 
         # Create project + subnet directly
         pid = new_id()
@@ -351,13 +355,13 @@ class TestE2EPoolQuery:
     def test_pool_page_loads(self, page_base):
         page, base = page_base
         goto(page, base, '/pool')
-        expect(page).to_have_url(lambda u: '/pool' in u)
+        expect(page).to_have_url(re.compile(r'/pool'))
 
     def test_pool_query_with_label(self, page_base):
         page, base = page_base
         from ipam import (save_project, save_network, add_labels_to_network,
-                          add_global_label, new_id, project_nets_key)
-        from db import r
+                          add_global_label, project_nets_key)
+        from db import r, new_id
 
         pid = new_id()
         save_project({'id': pid, 'name': 'Pool Query', 'supernet': '10.60.0.0/16', 'description': ''})
@@ -374,7 +378,8 @@ class TestE2EPoolQuery:
 
     def test_search_finds_ip(self, page_base):
         page, base = page_base
-        from ipam import (save_project, save_network, save_ip, new_id, project_nets_key)
+        from ipam import (save_project, save_network, save_ip, project_nets_key)
+        from db import new_id
         from db import r
 
         pid = new_id()
