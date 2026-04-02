@@ -1,5 +1,7 @@
 """Shared Redis connection — imported by both app.py and ne.py."""
-import redis, os
+import os
+import redis
+
 
 r = redis.Redis(
     host=os.getenv('REDIS_HOST', 'localhost'),
