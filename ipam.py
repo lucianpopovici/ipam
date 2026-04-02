@@ -18,9 +18,6 @@ TEMPLATES_GLOBAL_KEY = 'templates:global'
 def _project_key(pid):
     return f'project:{pid}'
 
-def project_nets_key(pid):
-    return f'project:{pid}:networks'
-
 def project_labels_key(pid):
     return f'project:{pid}:labels'
 

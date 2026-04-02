@@ -1,5 +1,5 @@
 """
-Application factory — registers blueprints and shared filters.
+IPAM application factory — registers blueprints and shared filters.
 """
 from flask import Flask
 from ipam import ipam_bp
@@ -14,7 +14,7 @@ app.config['SECRET_KEY'] = 'change-me-in-production'
 @app.template_filter('format_num')
 def format_num(value):
     """
-    Format value as an integer with thousands separator.
+    Formats a numeric value as an integer with thousands separators.
     """
     try:
         return f'{int(value):,}'

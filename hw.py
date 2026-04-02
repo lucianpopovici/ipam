@@ -338,6 +338,9 @@ def save_rack_slots(rack_iid, slots: list):
 
 
 def _remove_from_rack(rack_iid, instance_iid):
+    """Removes an instance from a rack's slot list."""
+    # This function is already defined above, but it's private and used internally.
+def _remove_from_rack(rack_iid, instance_iid):
     slots = [s for s in get_rack_slots(rack_iid) if s['instance_id'] != instance_iid]
     save_rack_slots(rack_iid, slots)
 
@@ -401,6 +404,9 @@ def place_in_rack(rack_iid: str, instance_iid: str, u_pos: int) -> list:
     return issues
 
 
+def _check_form_factor(rack_tmpl: dict, dev_tmpl: dict, instance_iid: str) -> list:
+    """Checks for form factor compatibility between a rack and a device."""
+    # This function is already defined above, but it's private and used internally.
 def _check_form_factor(rack_tmpl: dict, dev_tmpl: dict, instance_iid: str) -> list:
     rack_ff = rack_tmpl.get('form_factor', '19"')
     dev_ff = dev_tmpl.get('form_factor', '19"')
@@ -515,6 +521,9 @@ def project_cables(pid) -> list:
 
 
 def _get_port(instance_id: str, port_id: str) -> dict | None:
+    """Retrieves a specific port dictionary from an instance's template."""
+    # This function is already defined above, but it's private and used internally.
+def _get_port(instance_id: str, port_id: str) -> dict | None:
     inst = get_hw_instance(instance_id)
     if not inst:
         return None
@@ -524,6 +533,9 @@ def _get_port(instance_id: str, port_id: str) -> dict | None:
     return next((p for p in tmpl.get('ports', []) if p['id'] == port_id), None)
 
 
+def _used_ports(pid: str) -> dict:
+    """Returns a dictionary of (instance_id, port_id) to cable_id for all connected ports in a project."""
+    # This function is already defined above, but it's private and used internally.
 def _used_ports(pid: str) -> dict:
     """
     Return dict: (instance_id, port_id) → cable_id
@@ -680,10 +692,16 @@ def validate_project(pid: str) -> list:
 
 
 def _issue(severity, code, message, context=None):
+    """Helper to create a standardized issue dictionary for validation."""
+    # This function is already defined above, but it's private and used internally.
+def _issue(severity, code, message, context=None):
     return {'severity': severity, 'code': code,
             'message': message, 'context': context or {}}
 
 
+def _check_cable_port_type(cable_type, port_a, port_b, cable, issues):
+    """Cross-checks cable type against connected port types and appends issues if mismatches are found."""
+    # This function is already defined above, but it's private and used internally.
 def _check_cable_port_type(cable_type, port_a, port_b, cable, issues):
     """Cross-check cable type vs port type."""
     pt_a = port_a.get('port_type', 'data')

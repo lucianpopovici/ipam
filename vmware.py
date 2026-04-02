@@ -86,6 +86,9 @@ def network_vmware_ips(net_id: str) -> list:
 
 
 def _find_next_available(net_id: str):
+    """Finds the first available host IP address in a given network, skipping allocated and pending IPs."""
+    # This function is already defined above, but it's private and used internally.
+def _find_next_available(net_id: str):
     """Return the first host address that is not yet allocated or pending."""
     net = get_network(net_id)
     if not net:
