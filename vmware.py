@@ -13,7 +13,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from db import r, redis_get, redis_save, redis_delete, redis_all
 from ipam import (
     get_network, claim_ip_atomic, find_next_free_ip,
-    net_ips_key, ip_key,
+    net_ips_key, ip_key, net_bitmap_key, get_ip_offset,
     all_projects, project_networks,
 )
 
@@ -154,6 +154,9 @@ def release_ip(ip_str: str) -> bool:
     if not alloc:
         return False
     net_id = alloc['network_id']
+    net = get_network(net_id)
+    if net:
+        r.setbit(net_bitmap_key(net_id), get_ip_offset(net['cidr'], ip_str), 0)
     r.delete(ip_key(ip_str))
     r.srem(net_ips_key(net_id), ip_str)
     delete_vmware_alloc(ip_str, net_id)
