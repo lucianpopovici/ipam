@@ -64,6 +64,12 @@ class TestIndex:
         """Verify overview page loads."""
         assert client.get('/overview').status_code == 200
 
+    def test_dashboard_200(self, client):
+        """Verify dashboard page loads."""
+        resp = client.get('/dashboard')
+        assert resp.status_code == 200
+        assert b'Visual Dashboard' in resp.data
+
     def test_search_empty(self, client):
         """Verify empty search page loads."""
         resp = client.get('/search')

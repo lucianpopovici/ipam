@@ -4,8 +4,8 @@ pytestmark = pytest.mark.unit
 Unit tests for vmware.py helper functions.
 All Redis I/O is intercepted by the fake_redis fixture in conftest.py.
 """
-import pytest
 import ipaddress
+import pytest
 import ipam as _ipam
 from db import new_id
 from ipam import save_project, save_network, project_nets_key

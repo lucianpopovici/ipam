@@ -143,7 +143,7 @@ class TestE2ESites:
         pid = _create_project(page, base, name='Single Site')
         goto(page, base, f'/projects/{pid}/sites/add')
         page.fill('input[name="name"]', 'LON-DC1')
-        page.fill('textarea[name="description"]', 'London datacenter')
+        page.fill('input[name="description"]', 'London datacenter')
         page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
         page.click('button[type="submit"]')
         goto(page, base, f'/projects/{pid}/sites')
@@ -185,15 +185,12 @@ class TestE2ESites:
         page.fill('input[name="name"]', 'TO-DELETE')
         page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
         page.click('button[type="submit"]')
-        # Navigate to site detail and delete
+        # Navigate to sites list and delete
         goto(page, base, f'/projects/{pid}/sites')
-        page.click('a:has-text("TO-DELETE")')
         page.on('dialog', lambda d: d.accept())
-        delete_btn = page.locator('form[action*="/delete"] button')
-        if delete_btn.count() > 0:
-            delete_btn.first.click()
-        goto(page, base, f'/projects/{pid}/sites')
-        expect(page.locator('body')).not_to_contain_text('TO-DELETE')
+        page.click('tr:has-text("TO-DELETE") button:has-text("Del")')
+        # Wait for removal
+        expect(page.locator('td, h6, h4, code')).not_to_contain_text('TO-DELETE')
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -3,6 +3,7 @@ Network Element (NE) blueprint
 Covers: schemas, NE types, sites, PODs, and subnet requirement generation.
 """
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
+from auth import editor_required
 import ipaddress, json, re, uuid, os
 from db import r   # shared Redis connection
 
@@ -424,6 +425,7 @@ def collect_params(schema: list, form) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @ne_bp.route('/admin/schemas', methods=['GET', 'POST'])
+@editor_required
 def admin_schemas():
     """Manage global schemas for various entities."""
     if request.method == 'POST':
@@ -445,6 +447,7 @@ def admin_schemas():
 
 
 @ne_bp.route('/projects/<pid>/schemas', methods=['GET', 'POST'])
+@editor_required
 def project_schemas(pid):
     """Manage project-specific schemas."""
     from ipam import get_project
@@ -487,6 +490,7 @@ def list_ne_types():
 
 @ne_bp.route('/ne-types/add',                       methods=['GET','POST'])
 @ne_bp.route('/projects/<pid>/ne-types/add',        methods=['GET','POST'])
+@editor_required
 def add_ne_type(pid=None):
     """Add a new global or project-specific NE type."""
     from ipam import get_project
@@ -527,6 +531,7 @@ def add_ne_type(pid=None):
 
 
 @ne_bp.route('/ne-types/<tid>/edit', methods=['GET','POST'])
+@editor_required
 def edit_ne_type(tid):
     """Edit an existing NE type."""
     from ipam import get_project
@@ -561,6 +566,7 @@ def edit_ne_type(tid):
 
 
 @ne_bp.route('/ne-types/<tid>/delete', methods=['POST'])
+@editor_required
 def delete_ne_type_route(tid):
     """Delete an NE type."""
     ne = get_ne_type(tid)
@@ -603,6 +609,7 @@ def list_sites(pid):
 
 
 @ne_bp.route('/projects/<pid>/sites/add', methods=['GET','POST'])
+@editor_required
 def add_site(pid):
     """Add a new site to a project."""
     from ipam import get_project
@@ -629,6 +636,7 @@ def add_site(pid):
 
 
 @ne_bp.route('/projects/<pid>/sites/bulk', methods=['GET','POST'])
+@editor_required
 def bulk_add_sites(pid):
     """Bulk create sites from a numeric pattern (e.g. 'site[01-05]')."""
     from ipam import get_project
@@ -662,6 +670,7 @@ def bulk_add_sites(pid):
 
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/edit', methods=['GET','POST'])
+@editor_required
 def edit_site(pid, sid):
     """Edit site metadata."""
     from ipam import get_project
@@ -681,6 +690,7 @@ def edit_site(pid, sid):
 
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/delete', methods=['POST'])
+@editor_required
 def delete_site_route(pid, sid):
     """Delete a site."""
     site = get_site(sid)
@@ -691,6 +701,7 @@ def delete_site_route(pid, sid):
 
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/assign-pod', methods=['POST'])
+@editor_required
 def assign_pod_to_site_route(pid, sid):
     """Assign a POD to a site."""
     pod_id = request.form.get('pod_id','').strip()
@@ -701,6 +712,7 @@ def assign_pod_to_site_route(pid, sid):
 
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/unassign-pod', methods=['POST'])
+@editor_required
 def unassign_pod_from_site_route(pid, sid):
     """Remove a POD assignment from a site."""
     pod_id = request.form.get('pod_id','').strip()
@@ -746,6 +758,7 @@ def list_pods(pid):
 
 
 @ne_bp.route('/projects/<pid>/pods/add', methods=['GET','POST'])
+@editor_required
 def add_pod(pid):
     """Create a new POD in a project."""
     from ipam import get_project
@@ -772,6 +785,7 @@ def add_pod(pid):
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/edit', methods=['GET','POST'])
+@editor_required
 def edit_pod(pid, pod_id):
     """Edit POD metadata."""
     from ipam import get_project
@@ -791,6 +805,7 @@ def edit_pod(pid, pod_id):
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/delete', methods=['POST'])
+@editor_required
 def delete_pod_route(pid, pod_id):
     """Delete a POD."""
     pod = get_pod(pod_id)
@@ -826,6 +841,7 @@ def pod_detail(pid, pod_id):
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/slots', methods=['POST'])
+@editor_required
 def update_pod_slots(pid, pod_id):
     """Replace the NE slot list for a POD (posted as JSON)."""
     pod = get_pod(pod_id)
@@ -841,6 +857,7 @@ def update_pod_slots(pid, pod_id):
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/assign-site', methods=['POST'])
+@editor_required
 def assign_site_to_pod_route(pid, pod_id):
     """Assign a site to a POD."""
     sid = request.form.get('site_id','').strip()
@@ -851,6 +868,7 @@ def assign_site_to_pod_route(pid, pod_id):
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/unassign-site', methods=['POST'])
+@editor_required
 def unassign_site_from_pod_route(pid, pod_id):
     """Remove a site assignment from a POD."""
     sid = request.form.get('site_id','').strip()
@@ -858,6 +876,104 @@ def unassign_site_from_pod_route(pid, pod_id):
         unassign_pod_from_site(pod_id, sid)
         flash('Site unassigned.', 'info')
     return redirect(url_for('ne.pod_detail', pid=pid, pod_id=pod_id))
+
+
+@ne_bp.route('/projects/<pid>/topology')
+def topology_page(pid):
+    """Render the topology visualization page."""
+    from ipam import get_project
+    proj = get_project(pid)
+    if not proj: abort(404)
+    return render_template('topology.html', proj=proj)
+
+
+@ne_bp.route('/api/projects/<pid>/topology')
+def topology_data(pid):
+    """Return topology nodes and edges as JSON for Cytoscape.js."""
+    from ipam import get_project
+    from hw_logic import project_instances, project_cables
+    proj = get_project(pid)
+    if not proj: return jsonify({'error': 'Project not found'}), 404
+
+    nodes = []
+    edges = []
+
+    # 1. Logical: Sites -> PODs
+    sites = project_sites(pid)
+    for s in sites:
+        nodes.append({
+            'data': {'id': f"site_{s['id']}", 'label': s['name'], 'type': 'site'}
+        })
+        pods = site_pods(s['id'])
+        for p in pods:
+            # Edges Site -> POD
+            edges.append({
+                'data': {'id': f"e_s_p_{s['id']}_{p['id']}", 'source': f"site_{s['id']}", 'target': f"pod_{p['id']}"}
+            })
+
+    all_pods = project_pods(pid)
+    for p in all_pods:
+        nodes.append({
+            'data': {'id': f"pod_{p['id']}", 'label': p['name'], 'type': 'pod'}
+        })
+        # NE Slots in POD
+        slots = get_pod_slots(p['id'])
+        for idx, slot in enumerate(slots):
+            tid = slot.get('ne_type_id')
+            netype = get_ne_type(tid)
+            if netype:
+                nodes.append({
+                    'data': {
+                        'id': f"pod_{p['id']}_slot_{idx}", 
+                        'label': f"{netype['name']} Slot", 
+                        'type': 'ne_slot',
+                        'parent': f"pod_{p['id']}"
+                    }
+                })
+
+    # 2. Physical: Racks -> Instances
+    instances = project_instances(pid)
+    for inst in instances:
+        tmpl = inst.get('template', {})
+        cat = tmpl.get('category')
+        nodes.append({
+            'data': {
+                'id': f"inst_{inst['id']}", 
+                'label': inst.get('asset_tag', inst['id']), 
+                'type': 'device',
+                'category': cat
+            }
+        })
+        
+        # If it's in a rack, make the rack a parent or just link them
+        loc = inst.get('location', {})
+        if loc.get('rack_id'):
+            edges.append({
+                'data': {
+                    'id': f"e_r_i_{loc['rack_id']}_{inst['id']}", 
+                    'source': f"inst_{loc['rack_id']}", 
+                    'target': f"inst_{inst['id']}",
+                    'type': 'rack_containment'
+                }
+            })
+
+    # 3. Connectivity: Cables
+    cables = project_cables(pid)
+    for c in cables:
+        end_a = c.get('end_a', {})
+        end_b = c.get('end_b', {})
+        if end_a.get('instance_id') and end_b.get('instance_id'):
+            edges.append({
+                'data': {
+                    'id': f"cable_{c['id']}", 
+                    'source': f"inst_{end_a['instance_id']}", 
+                    'target': f"inst_{end_b['instance_id']}",
+                    'label': c.get('asset_tag', ''),
+                    'type': 'cable'
+                }
+            })
+
+    return jsonify({'elements': nodes + edges})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -882,6 +998,7 @@ def requirements(pid):
 
 @ne_bp.route('/projects/<pid>/requirements/push', methods=['POST'])
 @ne_bp.route('/projects/<pid>/requirements/push-all', methods=['POST'])
+@editor_required
 def push_requirements(pid):
     """
     Push selected (or all) requirements to IPAM as subnets.

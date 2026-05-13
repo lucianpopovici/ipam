@@ -5,8 +5,11 @@
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <h4 class="mb-0">📦 Inventory <small class="text-muted fs-6">{{ proj.name }}</small></h4>
   <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.export_hw_inventory', pid=proj.id) }}" class="btn btn-sm btn-outline-primary">📥 Export CSV</a>
     <a href="{{ url_for('hw.project_bom', pid=proj.id) }}"        class="btn btn-sm btn-outline-secondary">📋 BoM</a>
+    {% if current_user.role == 'editor' %}
     <a href="{{ url_for('hw.add_hw_instance', pid=proj.id) }}"    class="btn btn-sm btn-primary">+ Add Device</a>
+    {% endif %}
   </div>
 </div>
 
@@ -59,11 +62,13 @@
           {% else %}—{% endif %}
         </td>
         <td class="text-end text-nowrap">
+          {% if current_user.role == 'editor' %}
           <a href="{{ url_for('hw.edit_hw_instance', pid=proj.id, iid=inst.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
           <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_instance_route', pid=proj.id, iid=inst.id) }}"
                 onsubmit="return confirm('Delete instance {{ inst.asset_tag }}?')">
             <button class="btn btn-sm btn-outline-danger">Del</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -75,7 +80,9 @@
 <div class="text-center py-5 text-muted">
   No instances yet.
   <a href="{{ url_for('hw.project_bom', pid=proj.id) }}">Build a BoM and generate them</a>
+  {% if current_user.role == 'editor' %}
   or <a href="{{ url_for('hw.add_hw_instance', pid=proj.id) }}">add manually</a>.
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

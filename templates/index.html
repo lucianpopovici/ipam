@@ -6,7 +6,9 @@
   <h4 class="mb-0">Projects</h4>
   <div class="d-flex gap-2">
     <a href="{{ url_for('ipam.overview') }}"    class="btn btn-sm btn-outline-secondary">📊 Pool Overview</a>
+    {% if current_user.role == 'editor' %}
     <a href="{{ url_for('ipam.add_project') }}" class="btn btn-sm btn-primary">+ New Project</a>
+    {% endif %}
   </div>
 </div>
 
@@ -68,10 +70,12 @@
       </div>
       <div class="card-footer d-flex gap-2">
         <a href="{{ url_for('ipam.project_detail', pid=p.id) }}" class="btn btn-sm btn-outline-primary flex-fill">View</a>
+        {% if current_user.role == 'editor' %}
         <form action="{{ url_for('ipam.delete_project', pid=p.id) }}" method="post"
               onsubmit="return confirm('Delete project and all subnets?')">
           <button class="btn btn-sm btn-outline-danger">Delete</button>
         </form>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -79,7 +83,7 @@
 </div>
 {% else %}
 <div class="text-center py-5 text-muted">
-  No projects yet. <a href="{{ url_for('ipam.add_project') }}">Create your first project.</a>
+  No projects yet. {% if current_user.role == 'editor' %}<a href="{{ url_for('ipam.add_project') }}">Create your first project.</a>{% endif %}
 </div>
 {% endif %}
 {% endblock %}

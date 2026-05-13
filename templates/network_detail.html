@@ -18,8 +18,10 @@
     {% endif %}
   </div>
   <div class="d-flex gap-2">
+    {% if current_user.role == 'editor' %}
     <a href="{{ url_for('ipam.apply_template', net_id=net.id) }}" class="btn btn-sm btn-outline-secondary">📐 Template</a>
     <a href="{{ url_for('ipam.add_ip', net_id=net.id) }}"         class="btn btn-sm btn-primary">+ Allocate IP</a>
+    {% endif %}
   </div>
 </div>
 
@@ -49,6 +51,7 @@
     from template <em>{{ net.template.name }}</em> — confirm to create IP records, or dismiss to discard.
   </span>
   <div class="d-flex gap-2">
+    {% if current_user.role == 'editor' %}
     <form method="post" action="{{ url_for('ipam.confirm_all_slots_route', net_id=net.id) }}">
       <button class="btn btn-sm btn-success">✓ Confirm All</button>
     </form>
@@ -56,6 +59,7 @@
           onsubmit="return confirm('Dismiss all pending slots?')">
       <button class="btn btn-sm btn-outline-secondary">✕ Dismiss All</button>
     </form>
+    {% endif %}
   </div>
 </div>
 {% endif %}
@@ -86,23 +90,25 @@
         {% endif %}
       </td>
       <td class="text-end text-nowrap">
-        {% if a.phantom %}
-          {# Confirm: promotes to real IP record #}
-          <form class="d-inline" method="post" action="{{ url_for('ipam.confirm_slot_route', net_id=net.id) }}">
-            <input type="hidden" name="ip" value="{{ a.ip }}">
-            <button class="btn btn-sm btn-success" title="Confirm — create IP record">✓ Confirm</button>
-          </form>
-          {# Dismiss: removes the pending slot without creating a record #}
-          <form class="d-inline" method="post" action="{{ url_for('ipam.dismiss_slot_route', net_id=net.id) }}">
-            <input type="hidden" name="ip" value="{{ a.ip }}">
-            <button class="btn btn-sm btn-outline-secondary" title="Dismiss — discard this slot">✕</button>
-          </form>
-        {% else %}
-          <a href="{{ url_for('ipam.edit_ip', ip_str=a.ip) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" action="{{ url_for('ipam.delete_ip', ip_str=a.ip) }}" method="post"
-                onsubmit="return confirm('Release {{ a.ip }}?')">
-            <button class="btn btn-sm btn-outline-danger">Release</button>
-          </form>
+        {% if current_user.role == 'editor' %}
+          {% if a.phantom %}
+            {# Confirm: promotes to real IP record #}
+            <form class="d-inline" method="post" action="{{ url_for('ipam.confirm_slot_route', net_id=net.id) }}">
+              <input type="hidden" name="ip" value="{{ a.ip }}">
+              <button class="btn btn-sm btn-success" title="Confirm — create IP record">✓ Confirm</button>
+            </form>
+            {# Dismiss: removes the pending slot without creating a record #}
+            <form class="d-inline" method="post" action="{{ url_for('ipam.dismiss_slot_route', net_id=net.id) }}">
+              <input type="hidden" name="ip" value="{{ a.ip }}">
+              <button class="btn btn-sm btn-outline-secondary" title="Dismiss — discard this slot">✕</button>
+            </form>
+          {% else %}
+            <a href="{{ url_for('ipam.edit_ip', ip_str=a.ip) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+            <form class="d-inline" action="{{ url_for('ipam.delete_ip', ip_str=a.ip) }}" method="post"
+                  onsubmit="return confirm('Release {{ a.ip }}?')">
+              <button class="btn btn-sm btn-outline-danger">Release</button>
+            </form>
+          {% endif %}
         {% endif %}
       </td>
     </tr>

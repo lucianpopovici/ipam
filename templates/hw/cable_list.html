@@ -49,6 +49,7 @@
         <td class="small text-muted">{{ cable.length_m or '—' }}{% if cable.length_m %}m{% endif %}</td>
         <td class="small text-muted">{{ cable.label or '—' }}</td>
         <td class="text-end text-nowrap">
+          <a href="{{ url_for('hw.cable_trace', pid=proj.id, cid=cable.id) }}" class="btn btn-sm btn-outline-info">Trace</a>
           <a href="{{ url_for('hw.edit_cable', pid=proj.id, cid=cable.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
           <form class="d-inline" method="post" action="{{ url_for('hw.delete_cable_route', pid=proj.id, cid=cable.id) }}"
                 onsubmit="return confirm('Delete cable {{ cable.asset_tag }}?')">

@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Visual Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Visual Dashboard & Analytics</h1>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Active Projects</h5>
+                <p class="card-text display-4">{{ active_projects }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Total Subnets</h5>
+                <p class="card-text display-4">{{ total_subnets }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info mb-3">
+            <div class="card-body">
+                <h5 class="card-title">HW Instances</h5>
+                <p class="card-text display-4">{{ total_hw_instances }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Global IP Usage</h5>
+                <p class="card-text display-4">
+                    {% if ip_stats.total_capacity > 0 %}
+                        {{ ((ip_stats.allocated / ip_stats.total_capacity) * 100) | round(1) }}%
+                    {% else %}
+                        0%
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <!-- IP Utilization Chart -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">Global IP Utilization</div>
+            <div class="card-body">
+                <canvas id="ipUtilizationChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <!-- Rack Utilization Chart -->
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-header">Rack U-Space Occupancy</div>
+            <div class="card-body">
+                <canvas id="rackUtilizationChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Health Alerts -->
+<div class="row mb-4 mt-4">
+    <div class="col-12">
+        <div class="card border-danger shadow-sm">
+            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">🚨 System Health Alerts</h5>
+                <span class="badge bg-white text-danger">{{ health_issues | length }} issue(s) detected</span>
+            </div>
+            <div class="card-body p-0">
+                {% if health_issues %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Severity</th>
+                                <th>Type</th>
+                                <th>Project</th>
+                                <th>Issue</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for issue in health_issues %}
+                            <tr class="{% if issue.severity == 'error' %}table-danger{% endif %}">
+                                <td>
+                                    <span class="badge {% if issue.severity == 'error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                        {{ issue.severity | upper }}
+                                    </span>
+                                </td>
+                                <td><small class="text-muted">{{ issue.type | capitalize }}</small></td>
+                                <td>{{ issue.project_name }}</td>
+                                <td>{{ issue.message }}</td>
+                                <td>
+                                    {% if issue.type == 'utilization' %}
+                                    <a href="{{ url_for('ipam.network_detail', net_id=issue.context.net_id) }}" class="btn btn-sm btn-outline-secondary">Fix</a>
+                                    {% elif issue.type == 'requirement' %}
+                                    <a href="{{ url_for('ne.requirements', pid=issue.project_id) }}" class="btn btn-sm btn-outline-secondary">Fix</a>
+                                    {% elif issue.type == 'cable' %}
+                                    <a href="{{ url_for('hw.cable_list', pid=issue.project_id) }}" class="btn btn-sm btn-outline-secondary">Fix</a>
+                                    {% else %}
+                                    <a href="{{ url_for('ipam.project_detail', pid=issue.project_id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4 text-success">
+                    <i class="bi bi-check-circle-fill fs-1 d-block mb-2"></i>
+                    No health issues detected. Systems are nominal!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Top Projects -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header">Top 5 Projects (by Subnets)</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th class="text-end">Subnets</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in top_projects %}
+                        <tr>
+                            <td><a href="{{ url_for('ipam.project_detail', pid=p.id) }}">{{ p.name }}</a></td>
+                            <td class="text-end">{{ p.subnet_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Power Hungry Racks -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header">Top 5 Power-Hungry Racks</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Rack</th>
+                            <th class="text-end">Watts</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in top_power_racks %}
+                        <tr>
+                            <td>{{ r.asset_tag }} <small class="text-muted">({{ r.project_name }})</small></td>
+                            <td class="text-end">{{ r.power_w | round(0) }}W</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Heaviest Racks -->
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header">Top 5 Heaviest Racks</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Rack</th>
+                            <th class="text-end">Weight</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in top_heavy_racks %}
+                        <tr>
+                            <td>{{ r.asset_tag }} <small class="text-muted">({{ r.project_name }})</small></td>
+                            <td class="text-end">{{ r.weight_kg | round(1) }}kg</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // IP Utilization Chart
+    const ipCtx = document.getElementById('ipUtilizationChart').getContext('2d');
+    new Chart(ipCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Allocated', 'Pending', 'Free'],
+            datasets: [{
+                data: [{{ ip_stats.allocated }}, {{ ip_stats.pending }}, {{ ip_stats.free }}],
+                backgroundColor: ['#28a745', '#ffc107', '#6c757d'],
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+
+    // Rack Utilization Chart
+    const rackCtx = document.getElementById('rackUtilizationChart').getContext('2d');
+    new Chart(rackCtx, {
+        type: 'bar',
+        data: {
+            labels: ['U-Space (%)', 'Power (%)'],
+            datasets: [{
+                label: 'Global Utilization',
+                data: [
+                    {{ (rack_stats.used_u / rack_stats.total_u * 100) if rack_stats.total_u > 0 else 0 }},
+                    {{ (rack_stats.used_power / rack_stats.total_power_cap * 100) if rack_stats.total_power_cap > 0 else 0 }}
+                ],
+                backgroundColor: ['#007bff', '#dc3545'],
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Percentage (%)'
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

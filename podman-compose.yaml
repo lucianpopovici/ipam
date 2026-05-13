@@ -1,0 +1,18 @@
+services:
+  ipam-tests:
+    build: .
+    container_name: ipam-tester
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: ipam-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

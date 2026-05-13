@@ -845,3 +845,90 @@ class TestValidationEngine:
         pid    = self._make_project()
         issues = validate_project(pid)
         assert issues == []
+
+    def test_power_overflow_detected(self):
+        """Verify detection of rack power overflow."""
+        seed_connectors()
+        pid    = self._make_project()
+        rack_t = {
+            'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'R42',
+            'category': 'rack', 'form_factor': '19"', 'u_size': 42,
+            'max_power_w': 1000, 'max_weight_kg': 0,
+            'ports': [], 'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(rack_t)
+        rack_inst = self._instance(pid, rack_t)
+
+        srv_t = self._server_tmpl()
+        srv_t['power_w'] = 600
+        save_hw_template(srv_t)
+
+        d1 = self._instance(pid, srv_t)
+        d2 = self._instance(pid, srv_t)
+
+        save_rack_slots(rack_inst['id'], [
+            {'u_pos': 1, 'instance_id': d1['id']},
+            {'u_pos': 2, 'instance_id': d2['id']},
+        ])
+        issues = validate_project(pid)
+        assert any(i['code'] == 'POWER_OVERFLOW' for i in issues)
+
+    def test_weight_overflow_detected(self):
+        """Verify detection of rack weight overflow."""
+        seed_connectors()
+        pid    = self._make_project()
+        rack_t = {
+            'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'R42',
+            'category': 'rack', 'form_factor': '19"', 'u_size': 42,
+            'max_power_w': 0, 'max_weight_kg': 50,
+            'ports': [], 'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(rack_t)
+        rack_inst = self._instance(pid, rack_t)
+
+        srv_t = self._server_tmpl()
+        srv_t['weight_kg'] = 30
+        save_hw_template(srv_t)
+
+        d1 = self._instance(pid, srv_t)
+        d2 = self._instance(pid, srv_t)
+
+        save_rack_slots(rack_inst['id'], [
+            {'u_pos': 1, 'instance_id': d1['id']},
+            {'u_pos': 2, 'instance_id': d2['id']},
+        ])
+        issues = validate_project(pid)
+        assert any(i['code'] == 'WEIGHT_OVERFLOW' for i in issues)
+
+    def test_rack_layout_view_totals(self):
+        """Verify that rack_layout_view correctly calculates total power and weight."""
+        pid = new_id()
+        rack_t = {
+            'id': new_id(), 'name': 'Rack', 'vendor': 'APC', 'model': 'R42',
+            'category': 'rack', 'form_factor': '19"', 'u_size': 42,
+            'ports': [], 'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(rack_t)
+        rack_inst = {'id': new_id(), 'template_id': rack_t['id'], 'project_id': pid,
+                    'asset_tag': 'rack-001', 'serial': '', 'status': 'deployed',
+                    'location': {}, 'port_overrides': {}}
+        save_hw_instance(rack_inst)
+
+        srv_t = {
+            'id': new_id(), 'name': 'Srv', 'category': 'server', 'u_size': 1,
+            'power_w': 100, 'weight_kg': 10, 'ports': [], 'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(srv_t)
+        d1 = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid, 'asset_tag': 'd1', 'location': {}}
+        d2 = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid, 'asset_tag': 'd2', 'location': {}}
+        save_hw_instance(d1)
+        save_hw_instance(d2)
+
+        save_rack_slots(rack_inst['id'], [
+            {'u_pos': 1, 'instance_id': d1['id']},
+            {'u_pos': 2, 'instance_id': d2['id']},
+        ])
+
+        view = rack_layout_view(rack_inst['id'])
+        assert view['total_power'] == 200
+        assert view['total_weight'] == 20

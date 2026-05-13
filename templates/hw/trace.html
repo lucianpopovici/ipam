@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Cable Trace - {{ proj.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Cable Trace</h1>
+    <a href="{{ url_for('hw.cable_list', pid=proj.id) }}" class="btn btn-outline-secondary">Back to Cables</a>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body">
+        <h5 class="card-title mb-4">Logical Path for Cable: <code>{{ cid }}</code></h5>
+        
+        <div class="trace-container d-flex flex-column align-items-center">
+            {% for item in path %}
+                {% if item.type == 'device' %}
+                    <div class="trace-item device border rounded p-3 text-center bg-light" style="min-width: 250px;">
+                        <i class="bi bi-cpu fs-4 mb-2 d-block"></i>
+                        <h6 class="mb-1">{{ item.asset_tag }}</h6>
+                        <small class="text-muted">Port: {{ item.port_name }}</small>
+                        <div class="mt-2">
+                            <a href="{{ url_for('hw.edit_hw_instance', pid=proj.id, iid=item.id) }}" class="btn btn-sm btn-link py-0">View Device</a>
+                        </div>
+                    </div>
+                {% elif item.type == 'cable' %}
+                    <div class="trace-separator my-2 text-center d-flex flex-column align-items-center">
+                        <div class="line border-start border-primary border-2" style="height: 30px;"></div>
+                        <div class="trace-item cable border border-primary rounded-pill px-3 py-1 bg-primary text-white small">
+                            <i class="bi bi-connector-fill me-1"></i>
+                            {{ item.asset_tag }} ({{ item.template_name }})
+                        </div>
+                        <div class="line border-start border-primary border-2" style="height: 30px;"></div>
+                    </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<style>
+    .trace-container {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+    .device {
+        border-width: 2px !important;
+    }
+</style>
+{% endblock %}

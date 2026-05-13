@@ -9,9 +9,11 @@ import json
 
 from flask import (Blueprint, render_template, request, jsonify,
                    redirect, url_for, flash, abort)
+from flask_login import login_required
 
 from db import new_id
 from ipam import get_project
+from auth import editor_required
 from hw_logic import (
     CATEGORIES, FORM_FACTORS, PORT_TYPES, CABLE_TYPES,
     seed_connectors, all_connectors, add_connector, remove_connector,
@@ -24,7 +26,7 @@ from hw_logic import (
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, place_in_rack, _remove_from_rack, rack_layout_view,
     get_cable, save_cable, delete_cable, project_cables, _used_ports,
-    validate_project, load_validation
+    validate_project, load_validation, trace_cable_path
 )
 
 hw_bp = Blueprint('hw', __name__, url_prefix='')
@@ -35,6 +37,7 @@ hw_bp = Blueprint('hw', __name__, url_prefix='')
 # ══════════════════════════════════════════════════════════════════════════════
 
 @hw_bp.route('/admin/hw/connectors', methods=['GET', 'POST'])
+@editor_required
 def hw_connectors():
     """Admin route to manage physical connector types and their compatibility."""
     seed_connectors()
@@ -75,6 +78,7 @@ def hw_templates_list():
 
 @hw_bp.route('/hw/templates/add', methods=['GET', 'POST'])
 @hw_bp.route('/projects/<pid>/hw/templates/add', methods=['GET', 'POST'])
+@editor_required
 def add_hw_template(pid=None):
     """Add a new hardware template (either global or project-specific)."""
     proj = get_project(pid) if pid else None
@@ -97,6 +101,10 @@ def add_hw_template(pid=None):
             'category': request.form.get('category', 'server'),
             'form_factor': request.form.get('form_factor', '19"'),
             'u_size': int(request.form.get('u_size', 1) or 1),
+            'power_w': float(request.form.get('power_w', 0) or 0),
+            'weight_kg': float(request.form.get('weight_kg', 0) or 0),
+            'max_power_w': float(request.form.get('max_power_w', 0) or 0),
+            'max_weight_kg': float(request.form.get('max_weight_kg', 0) or 0),
             'cable_type': request.form.get('cable_type', ''),
             'description': request.form.get('description', ''),
             'ports': ports,
@@ -115,6 +123,7 @@ def add_hw_template(pid=None):
 
 
 @hw_bp.route('/hw/templates/<tid>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_hw_template(tid):
     """Edit an existing hardware template."""
     tmpl = get_hw_template(tid)
@@ -135,6 +144,10 @@ def edit_hw_template(tid):
         tmpl['category'] = request.form.get('category', tmpl['category'])
         tmpl['form_factor'] = request.form.get('form_factor', tmpl['form_factor'])
         tmpl['u_size'] = int(request.form.get('u_size', 1) or 1)
+        tmpl['power_w'] = float(request.form.get('power_w', 0) or 0)
+        tmpl['weight_kg'] = float(request.form.get('weight_kg', 0) or 0)
+        tmpl['max_power_w'] = float(request.form.get('max_power_w', 0) or 0)
+        tmpl['max_weight_kg'] = float(request.form.get('max_weight_kg', 0) or 0)
         tmpl['cable_type'] = request.form.get('cable_type', '')
         tmpl['description'] = request.form.get('description', '')
         tmpl['ports'] = ports
@@ -150,6 +163,7 @@ def edit_hw_template(tid):
 
 
 @hw_bp.route('/hw/templates/<tid>/delete', methods=['POST'])
+@editor_required
 def delete_hw_template_route(tid):
     """Delete a hardware template."""
     tmpl = get_hw_template(tid)
@@ -180,6 +194,7 @@ def project_hw_templates_route(pid):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @hw_bp.route('/projects/<pid>/bom', methods=['GET', 'POST'])
+@editor_required
 def project_bom(pid):
     """Manage the Bill of Materials (BoM) for a project."""
     proj = get_project(pid)
@@ -206,6 +221,7 @@ def project_bom(pid):
 
 
 @hw_bp.route('/projects/<pid>/bom/generate', methods=['POST'])
+@editor_required
 def generate_from_bom(pid):
     """Generate hardware instances from a single BoM line."""
     proj = get_project(pid)
@@ -226,6 +242,7 @@ def generate_from_bom(pid):
 
 
 @hw_bp.route('/projects/<pid>/bom/generate-all', methods=['POST'])
+@editor_required
 def generate_all_from_bom(pid):
     """Generate instances for all BoM lines."""
     proj = get_project(pid)
@@ -247,6 +264,47 @@ def generate_all_from_bom(pid):
 # Routes — Inventory (instances)
 # ══════════════════════════════════════════════════════════════════════════════
 
+@hw_bp.route('/projects/<pid>/hw/inventory/export')
+def export_hw_inventory(pid):
+    """Export project hardware inventory to a CSV file."""
+    import csv
+    import io
+    from flask import make_response
+
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Asset Tag', 'Serial', 'Template Name', 'Category', 'Status', 'Rack/Location'])
+
+    instances = project_instances(pid)
+    all_racks = project_instances(pid, category='rack')
+    rack_map = {r['id']: r['asset_tag'] for r in all_racks}
+
+    for inst in instances:
+        tmpl = inst.get('template')
+        location = ''
+        if inst.get('location', {}).get('rack_id'):
+            rack_tag = rack_map.get(inst['location']['rack_id'], '?')
+            location = f"Rack {rack_tag} U{inst['location']['u_pos']}"
+
+        writer.writerow([
+            inst.get('asset_tag') or inst['id'],
+            inst.get('serial', ''),
+            tmpl['name'] if tmpl else '?',
+            tmpl['category'] if tmpl else '?',
+            inst.get('status', ''),
+            location
+        ])
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Disposition'] = f'attachment; filename=hw_inventory_{pid}.csv'
+    response.headers['Content-type'] = 'text/csv'
+    return response
+
+
 @hw_bp.route('/projects/<pid>/hw/inventory')
 def project_inventory(pid):
     """List physical hardware instances in project inventory."""
@@ -262,6 +320,7 @@ def project_inventory(pid):
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/add', methods=['GET', 'POST'])
+@editor_required
 def add_hw_instance(pid):
     """Add a new physical hardware instance manually."""
     proj = get_project(pid)
@@ -291,6 +350,7 @@ def add_hw_instance(pid):
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_hw_instance(pid, iid):
     """Edit an existing hardware instance."""
     proj = get_project(pid)
@@ -310,6 +370,7 @@ def edit_hw_instance(pid, iid):
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>/delete', methods=['POST'])
+@editor_required
 def delete_hw_instance_route(pid, iid):
     """Delete a hardware instance."""
     delete_hw_instance(iid)
@@ -367,6 +428,7 @@ def rack_detail(pid, rack_iid):
 
 
 @hw_bp.route('/projects/<pid>/hw/racks/<rack_iid>/place', methods=['POST'])
+@editor_required
 def place_device(pid, rack_iid):
     """Place a device in a rack at a specific U position."""
     iid = request.form.get('instance_id', '').strip()
@@ -385,6 +447,7 @@ def place_device(pid, rack_iid):
 
 
 @hw_bp.route('/projects/<pid>/hw/racks/<rack_iid>/remove', methods=['POST'])
+@editor_required
 def remove_from_rack_route(pid, rack_iid):
     """Remove a device from its rack position."""
     iid = request.form.get('instance_id', '').strip()
@@ -398,6 +461,7 @@ def remove_from_rack_route(pid, rack_iid):
 
 
 @hw_bp.route('/api/projects/<pid>/hw/racks/<rack_iid>/place', methods=['POST'])
+@editor_required
 def api_place_device(pid, rack_iid):
     """JSON API for drag-and-drop placement."""
     data = request.get_json(force=True) or {}
@@ -409,6 +473,7 @@ def api_place_device(pid, rack_iid):
 
 
 @hw_bp.route('/projects/<pid>/hw/rack-table', methods=['GET', 'POST'])
+@editor_required
 def rack_table(pid):
     """Table-based bulk placement — useful for 60+ rack deployments."""
     proj = get_project(pid)
@@ -447,7 +512,20 @@ def cable_list(pid):
                            cables=cables, cable_issue_ids=cable_issue_ids)
 
 
+@hw_bp.route('/projects/<pid>/hw/cables/<cid>/trace')
+def cable_trace(pid, cid):
+    """Trace the end-to-end path of a cable."""
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    path = trace_cable_path(cid)
+    if not path:
+        abort(404)
+    return render_template('hw/trace.html', proj=proj, path=path, cid=cid)
+
+
 @hw_bp.route('/projects/<pid>/hw/cables/add', methods=['GET', 'POST'])
+@editor_required
 def add_cable(pid):
     """Add a new physical cable between two ports."""
     proj = get_project(pid)
@@ -487,6 +565,7 @@ def add_cable(pid):
 
 
 @hw_bp.route('/projects/<pid>/hw/cables/<cid>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_cable(pid, cid):
     """Edit an existing cable or its connectivity."""
     proj = get_project(pid)
@@ -520,6 +599,7 @@ def edit_cable(pid, cid):
 
 
 @hw_bp.route('/projects/<pid>/hw/cables/<cid>/delete', methods=['POST'])
+@editor_required
 def delete_cable_route(pid, cid):
     """Delete a cable."""
     delete_cable(cid)

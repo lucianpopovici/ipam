@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
 from db import r, redis_get, redis_save, redis_delete, redis_all
 from ipam import (
-    get_network, save_ip,
+    get_network, claim_ip_atomic, find_next_free_ip,
     net_ips_key, ip_key,
     all_projects, project_networks,
 )
@@ -90,16 +90,7 @@ def network_vmware_ips(net_id: str) -> list:
 
 def _find_next_available(net_id: str):
     """Return the first host address that is not yet allocated or pending."""
-    net = get_network(net_id)
-    if not net:
-        return None
-    used    = r.smembers(net_ips_key(net_id))
-    pending = {s['ip'] for s in net.get('pending_slots', [])}
-    for host in ipaddress.ip_network(net['cidr'], strict=False).hosts():
-        ip_str = str(host)
-        if ip_str not in used and ip_str not in pending:
-            return ip_str
-    return None
+    return find_next_free_ip(net_id)
 
 
 def allocate_ip(net_id: str, vm_name: str = '', datacenter: str = '', cluster: str = '') -> dict:
@@ -117,18 +108,30 @@ def allocate_ip(net_id: str, vm_name: str = '', datacenter: str = '', cluster: s
     net = get_network(net_id)
     if not net:
         raise ValueError(f'Network {net_id} not found')
-    ip_str = _find_next_available(net_id)
-    if not ip_str:
-        raise ValueError(f'No available addresses in {net["cidr"]}')
-    save_ip({
-        'ip':          ip_str,
-        'hostname':    vm_name,
-        'description': f'VMware: {vm_name}' if vm_name else 'VMware allocation',
-        'status':      'allocated',
-        'network_id':  net_id,
-    })
+
+    # Try to claim an IP atomically, retrying if someone else snatches it first
+    claimed_ip = None
+    for _ in range(10):  # Limit retries to prevent infinite loops
+        ip_str = _find_next_available(net_id)
+        if not ip_str:
+            raise ValueError(f'No available addresses in {net["cidr"]}')
+
+        success = claim_ip_atomic({
+            'ip':          ip_str,
+            'hostname':    vm_name,
+            'description': f'VMware: {vm_name}' if vm_name else 'VMware allocation',
+            'status':      'allocated',
+            'network_id':  net_id,
+        }, net['cidr'])
+        if success:
+            claimed_ip = ip_str
+            break
+
+    if not claimed_ip:
+        raise ValueError(f'Failed to allocate an IP in {net["cidr"]} after multiple attempts (high contention?)')
+
     alloc = {
-        'ip':           ip_str,
+        'ip':           claimed_ip,
         'network_id':   net_id,
         'cidr':         net['cidr'],
         'vm_name':      vm_name,

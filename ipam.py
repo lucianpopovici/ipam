@@ -1,11 +1,75 @@
 """
 IPAM blueprint — projects, subnets, IPs, labels, subnet templates, pool, search, overview.
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
-import ipaddress, json, uuid
+import ipaddress
+import json
+import uuid
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, make_response
+from flask_login import login_required
+from auth import editor_required
 from db import r
+from hw_logic import (
+    HW_INST_INDEX, get_hw_instance, get_hw_template, project_instances, get_rack_slots
+)
 
 ipam_bp = Blueprint('ipam', __name__, url_prefix='')
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Validation helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def validate_cidr(cidr: str) -> bool:
+    """Validate a CIDR string using ip_network."""
+    try:
+        ipaddress.ip_network(cidr, strict=False)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+def validate_ip(ip: str) -> bool:
+    """Validate an IP address string using ip_address."""
+    try:
+        ipaddress.ip_address(ip)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+def validate_ip_interface(val: str) -> bool:
+    """Strict validation using ip_interface (IP/Prefix or just IP)."""
+    try:
+        ipaddress.ip_interface(val)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+# ── Bitmap Helpers ─────────────────────────────────────────────────────────────
+
+def get_ip_offset(net_cidr, ip_str):
+    """Calculate the bit offset of an IP address within its network."""
+    net_obj = ipaddress.ip_network(net_cidr, strict=False)
+    ip_obj = ipaddress.ip_address(ip_str)
+    return int(ip_obj) - int(net_obj.network_address)
+
+def get_ip_at_offset(net_cidr, offset):
+    """Return the IP address string for a given bit offset in a network."""
+    net_obj = ipaddress.ip_network(net_cidr, strict=False)
+    return str(net_obj.network_address + offset)
+
+def sync_net_bitmap(net_id):
+    """Rebuild the bitmap for a network based on currently allocated IPs."""
+    net = get_network(net_id)
+    if not net:
+        return
+    bkey = net_bitmap_key(net_id)
+    r.delete(bkey)
+    for ip_str in r.smembers(net_ips_key(net_id)):
+        offset = get_ip_offset(net['cidr'], ip_str)
+        r.setbit(bkey, offset, 1)
+    # Also mark network and broadcast as "used" in the bitmap if they shouldn't be assigned
+    net_obj = ipaddress.ip_network(net['cidr'], strict=False)
+    if net_obj.version == 4 and net_obj.prefixlen <= 30:
+        r.setbit(bkey, 0, 1) # Network
+        r.setbit(bkey, net_obj.num_addresses - 1, 1) # Broadcast
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Key helpers
@@ -39,6 +103,15 @@ def net_labels_key(nid):
     """Return the Redis key for network labels."""
     return f'network:{nid}:labels'
 
+def net_bitmap_key(nid):
+    """Return the Redis key for the network's availability bitmap."""
+    return f'network:{nid}:bitmap'
+
+def publish_ip_update(action: str, addr: dict):
+    """Publish an IP update message via Redis Pub/Sub."""
+    msg = json.dumps({'action': action, 'data': addr})
+    r.publish('ipam:updates', msg)
+
 def label_nets_key(label):
     """Return the Redis key for label-to-networks mapping."""
     return f'label:{label}:nets'
@@ -69,10 +142,11 @@ def parse_labels(form_value: str) -> list:
     if not form_value:
         return []
     seen, result = set(), []
-    for l in form_value.split(','):
-        l = l.strip()
-        if l and l not in seen:
-            seen.add(l); result.append(l)
+    for label in form_value.split(','):
+        label = label.strip()
+        if label and label not in seen:
+            seen.add(label)
+            result.append(label)
     return result
 
 def global_labels() -> list:
@@ -95,13 +169,13 @@ def remove_global_label(label):
     """Remove a label from the global set."""
     r.srem(GLOBAL_LABELS, label)
 
-def add_project_label(pid, l):
+def add_project_label(pid, label):
     """Add a label to a project."""
-    r.sadd(project_labels_key(pid), l)
+    r.sadd(project_labels_key(pid), label)
 
-def remove_project_label(pid, l):
+def remove_project_label(pid, label):
     """Remove a label from a project."""
-    r.srem(project_labels_key(pid), l)
+    r.srem(project_labels_key(pid), label)
 
 def add_labels_to_network(net_id, labels):
     """Associate labels with a network."""
@@ -121,8 +195,10 @@ def get_network_labels(net_id: str) -> list:
 
 def label_scope(label: str, pid: str) -> str:
     """Determine if a label is global or project-specific."""
-    if r.sismember(GLOBAL_LABELS, label):                      return 'global'
-    if pid and r.sismember(project_labels_key(pid), label):    return 'project'
+    if r.sismember(GLOBAL_LABELS, label):
+        return 'global'
+    if pid and r.sismember(project_labels_key(pid), label):
+        return 'project'
     return 'unknown'
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -145,7 +221,8 @@ def save_template(tmpl):
 def delete_template(tid):
     """Delete a template and its index references."""
     tmpl = get_template(tid)
-    if not tmpl: return
+    if not tmpl:
+        return
     if tmpl.get('scope') == 'project' and tmpl.get('project_id'):
         r.srem(project_templates_key(tmpl['project_id']), tid)
     else:
@@ -171,8 +248,10 @@ def available_templates_for_project(pid: str) -> dict:
 
 def template_scope(tid: str, pid: str) -> str:
     """Determine if a template is global or project-specific."""
-    if r.sismember(GLOBAL_TEMPLATES, tid):                        return 'global'
-    if pid and r.sismember(project_templates_key(pid), tid):      return 'project'
+    if r.sismember(GLOBAL_TEMPLATES, tid):
+        return 'global'
+    if pid and r.sismember(project_templates_key(pid), tid):
+        return 'project'
     return 'unknown'
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -182,9 +261,17 @@ def template_scope(tid: str, pid: str) -> str:
 def resolve_template_rules(cidr: str, rules: list) -> list:
     """Resolve subnet rules into a list of specific IP slots."""
     network_obj = ipaddress.ip_network(cidr, strict=False)
-    hosts       = list(network_obj.hosts())
-    if not hosts:
-        return []
+    num_hosts   = network_obj.num_addresses
+    if num_hosts <= 2:
+        # For /31, /32 (IPv4) or /127, /128 (IPv6), use all addresses as potential hosts
+        host_list = [network_obj[i] for i in range(num_hosts)]
+    else:
+        # Standard subnet: skip network and broadcast
+        # In ipaddress, network_obj[0] is network, network_obj[-1] is broadcast
+        # num_hosts - 2 available hosts
+        num_hosts -= 2
+        host_list = None # We will index network_obj[idx + 1]
+
     slot_map = {}
     for rule in rules:
         rtype  = rule.get('type')
@@ -192,21 +279,28 @@ def resolve_template_rules(cidr: str, rules: list) -> list:
         status = rule.get('status', 'reserved')
         if rtype == 'from_start':
             idx = int(rule.get('offset', 1)) - 1
-            if 0 <= idx < len(hosts):
-                slot_map[idx] = {'role': role, 'status': status}
+            if 0 <= idx < num_hosts:
+                ip = host_list[idx] if host_list else network_obj[idx + 1]
+                slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
         elif rtype == 'from_end':
-            for i in range(int(rule.get('count', 1))):
-                idx = len(hosts) - 1 - i
+            count = int(rule.get('count', 1))
+            for i in range(count):
+                idx = num_hosts - 1 - i
                 if idx >= 0:
-                    slot_map[idx] = {'role': role, 'status': status}
+                    ip = host_list[idx] if host_list else network_obj[idx + 1]
+                    slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
         elif rtype == 'range':
             frm = int(rule.get('from', 1)) - 1
             to  = int(rule.get('to',  1)) - 1
-            for idx in range(frm, min(to + 1, len(hosts))):
+            # For range, we limit to a reasonable number to avoid huge loops
+            # if someone defines a range of billions.
+            for idx in range(frm, min(to + 1, num_hosts)):
                 if idx >= 0:
-                    slot_map[idx] = {'role': role, 'status': status}
-    return [{'ip': str(hosts[idx]), 'role': info['role'], 'status': info['status']}
-            for idx, info in sorted(slot_map.items())]
+                    if len(slot_map) > 1000: # Safety cap
+                        break
+                    ip = host_list[idx] if host_list else network_obj[idx + 1]
+                    slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
+    return [info for idx, info in sorted(slot_map.items())]
 
 
 def _validate_rules(rules: list):
@@ -250,31 +344,42 @@ def set_pending_slots(net_id: str, tid: str):
 def confirm_slot(net_id: str, ip_str: str) -> bool:
     """Confirm a pending IP slot, creating a real IP record."""
     net = get_network(net_id)
-    if not net: return False
+    if not net:
+        return False
     pending = net.get('pending_slots', [])
     slot = next((s for s in pending if s['ip'] == ip_str), None)
-    if not slot: return False
-    save_ip({'ip': ip_str, 'hostname': '', 'description': slot['role'],
-             'status': slot['status'], 'network_id': net_id,
-             'from_template': net.get('template_id', '')})
-    net['pending_slots'] = [s for s in pending if s['ip'] != ip_str]
-    save_network(net)
-    return True
+    if not slot:
+        return False
+
+    success = claim_ip_atomic({
+        'ip': ip_str, 'hostname': '', 'description': slot['role'],
+        'status': slot['status'], 'network_id': net_id,
+        'from_template': net.get('template_id', '')
+    }, net['cidr'])
+
+    if success:
+        net['pending_slots'] = [s for s in pending if s['ip'] != ip_str]
+        save_network(net)
+        return True
+    return False
 
 def confirm_all_slots(net_id: str) -> dict:
     """Confirm all pending IP slots for a network."""
     net = get_network(net_id)
-    if not net: return {'created': 0, 'skipped': 0}
+    if not net:
+        return {'created': 0, 'skipped': 0}
     pending = net.get('pending_slots', [])
     created = skipped = 0
     tid = net.get('template_id', '')
     for slot in pending:
-        if get_ip(slot['ip']):
-            skipped += 1
-        else:
-            save_ip({'ip': slot['ip'], 'hostname': '', 'description': slot['role'],
-                     'status': slot['status'], 'network_id': net_id, 'from_template': tid})
+        success = claim_ip_atomic({
+            'ip': slot['ip'], 'hostname': '', 'description': slot['role'],
+            'status': slot['status'], 'network_id': net_id, 'from_template': tid
+        }, net['cidr'])
+        if success:
             created += 1
+        else:
+            skipped += 1
     net['pending_slots'] = []
     save_network(net)
     return {'created': created, 'skipped': skipped}
@@ -282,17 +387,20 @@ def confirm_all_slots(net_id: str) -> dict:
 def dismiss_slot(net_id: str, ip_str: str) -> bool:
     """Remove a single pending IP slot."""
     net = get_network(net_id)
-    if not net: return False
+    if not net:
+        return False
     before = len(net.get('pending_slots', []))
     net['pending_slots'] = [s for s in net.get('pending_slots', []) if s['ip'] != ip_str]
     if len(net['pending_slots']) < before:
-        save_network(net); return True
+        save_network(net)
+        return True
     return False
 
 def dismiss_all_slots(net_id: str):
     """Remove all pending IP slots for a network."""
     net = get_network(net_id)
-    if not net: return
+    if not net:
+        return
     net['pending_slots'] = []
     save_network(net)
 
@@ -334,14 +442,79 @@ def save_ip(addr):
     r.set(ip_key(addr['ip']), json.dumps(addr))
     r.sadd(net_ips_key(addr['network_id']), addr['ip'])
 
+def claim_ip_atomic(addr, net_cidr, ttl=None) -> bool:
+    """
+    Atomically claims an IP address using a Lua script to prevent race conditions.
+    Also updates the subnet availability bitmap.
+    Supports an optional TTL (in seconds) for temporary reservations.
+    Returns True if successful, False if already taken.
+    """
+    script = """
+    if redis.call('EXISTS', KEYS[1]) == 0 then
+        if ARGV[4] ~= '' then
+            redis.call('SETEX', KEYS[1], ARGV[4], ARGV[1])
+        else
+            redis.call('SET', KEYS[1], ARGV[1])
+        end
+        redis.call('SADD', KEYS[2], ARGV[2])
+        redis.call('SETBIT', KEYS[3], ARGV[3], 1)
+        return 1
+    else
+        return 0
+    end
+    """
+    key = ip_key(addr['ip'])
+    idx_key = net_ips_key(addr['network_id'])
+    bkey = net_bitmap_key(addr['network_id'])
+    offset = get_ip_offset(net_cidr, addr['ip'])
+    ttl_val = str(ttl) if ttl else ''
+    res = r.eval(script, 3, key, idx_key, bkey, json.dumps(addr), addr['ip'], offset, ttl_val)
+    success = bool(res)
+    if success:
+        publish_ip_update('allocate', addr)
+    return success
+
 def all_networks():
     """Return all networks."""
     return [n for n in (get_network(nid) for nid in r.smembers(NETWORKS_INDEX)) if n]
 
+def find_network_by_cidr(cidr: str):
+    """Find a network record by its CIDR string."""
+    for net in all_networks():
+        if net['cidr'] == cidr:
+            return net
+    return None
+
 def network_addresses(net_id):
-    """Return all IP records for a network, sorted by IP address."""
-    addrs = [get_ip(ip) for ip in r.smembers(net_ips_key(net_id))]
-    return sorted([a for a in addrs if a], key=lambda a: ipaddress.ip_address(a['ip']))
+    """Return all IP records for a network, sorted by IP address. Performs lazy cleanup of expired TTLs."""
+    net = get_network(net_id)
+    if not net:
+        return []
+    
+    raw_ips = r.smembers(net_ips_key(net_id))
+    valid_addrs = []
+    expired_ips = []
+    
+    for ip_str in raw_ips:
+        addr = get_ip(ip_str)
+        if addr:
+            valid_addrs.append(addr)
+        else:
+            expired_ips.append(ip_str)
+    
+    # Lazy cleanup of expired TTL reservations
+    if expired_ips:
+        bkey = net_bitmap_key(net_id)
+        idx_key = net_ips_key(net_id)
+        for ip_str in expired_ips:
+            r.srem(idx_key, ip_str)
+            try:
+                offset = get_ip_offset(net['cidr'], ip_str)
+                r.setbit(bkey, offset, 0)
+            except (ValueError, TypeError):
+                pass # Should not happen if data is consistent
+                
+    return sorted(valid_addrs, key=lambda a: ipaddress.ip_address(a['ip']))
 
 def project_networks(pid):
     """Return all networks for a project with stats."""
@@ -417,7 +590,8 @@ def pool_by_label_set(networks: list) -> list:
 def project_pool_summary(pid):
     """Return a summary of IP usage and pools for a specific project."""
     proj = get_project(pid)
-    if not proj: return {}
+    if not proj:
+        return {}
     nets    = project_networks(pid)
     parent  = ipaddress.ip_network(proj['supernet'], strict=False)
     total   = parent.num_addresses
@@ -436,10 +610,11 @@ def global_pool_summary() -> dict:
     projects = all_projects()
     grand_total = grand_alloc = grand_pending = 0
     project_rows = []
-    label_groups: dict = {}
+    all_nets = []
 
     for proj in sorted(projects, key=lambda p: p['name']):
         nets   = project_networks(proj['id'])
+        all_nets.extend(nets)
         parent = ipaddress.ip_network(proj['supernet'], strict=False)
         proj_total   = parent.num_addresses
         proj_alloc   = sum(ipaddress.ip_network(n['cidr']).num_addresses for n in nets)
@@ -454,19 +629,6 @@ def global_pool_summary() -> dict:
             'utilization': round((proj_alloc / proj_total) * 100, 1) if proj_total else 0,
             'subnet_count': len(nets),
         })
-        for net in nets:
-            labels  = frozenset(net.get('labels', []))
-            key     = ' | '.join(sorted(labels))
-            size    = ipaddress.ip_network(net['cidr']).num_addresses
-            used    = net.get('used_count', 0)
-            pend    = len(net.get('pending_slots', []))
-            if key not in label_groups:
-                label_groups[key] = {'label_set': sorted(labels), 'total_ips': 0,
-                                     'alloc_ips': 0, 'pending': 0, 'subnet_count': 0}
-            label_groups[key]['total_ips']    += size
-            label_groups[key]['alloc_ips']    += used
-            label_groups[key]['pending']      += pend
-            label_groups[key]['subnet_count'] += 1
 
     return {
         'total_ips': grand_total, 'alloc_ips': grand_alloc,
@@ -474,7 +636,7 @@ def global_pool_summary() -> dict:
         'utilization': round((grand_alloc / grand_total) * 100, 1) if grand_total else 0,
         'project_count': len(projects),
         'projects': project_rows,
-        'label_pool': sorted(label_groups.values(), key=lambda g: g['total_ips'], reverse=True),
+        'label_pool': pool_by_label_set(all_nets),
     }
 
 def _delete_network_data(nid):
@@ -485,12 +647,113 @@ def _delete_network_data(nid):
         r.srem(label_nets_key(label), nid)
     r.delete(net_ips_key(nid))
     r.delete(net_labels_key(nid))
+    r.delete(net_bitmap_key(nid))
     r.delete(net_key(nid))
     r.srem(NETWORKS_INDEX, nid)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Routes — Dashboard & Projects
 # ══════════════════════════════════════════════════════════════════════════════
+
+@ipam_bp.route('/dashboard')
+def dashboard():
+    """Render the Visual Dashboard & Analytics."""
+    # 1. Global IP Utilization
+    summary = global_pool_summary()
+    ip_stats = {
+        'total_capacity': summary['total_ips'],
+        'allocated': summary['alloc_ips'],
+        'pending': summary['pending'],
+        'free': summary['free_ips']
+    }
+
+    # 2. Top 5 Projects by Subnets
+    projects = all_projects()
+    project_list = []
+    for p in projects:
+        nets = project_networks(p['id'])
+        project_list.append({
+            'name': p['name'],
+            'subnet_count': len(nets),
+            'id': p['id']
+        })
+    top_projects = sorted(project_list, key=lambda x: x['subnet_count'], reverse=True)[:5]
+
+    # 3. Rack Occupancy & Heavy/Power Racks
+    all_racks = []
+    for p in projects:
+        racks = project_instances(p['id'], category='rack')
+        for r_inst in racks:
+            slots = get_rack_slots(r_inst['id'])
+            tmpl = r_inst.get('template')
+            rack_u = int(tmpl['u_size']) if tmpl else 42
+            
+            used_u = 0
+            total_power = 0.0
+            total_weight = 0.0
+            for slot in slots:
+                inst = get_hw_instance(slot['instance_id'])
+                if inst:
+                    t = get_hw_template(inst['template_id'])
+                    if t:
+                        u_size = int(t.get('u_size', 1))
+                        used_u += u_size
+                        total_power += float(t.get('power_w', 0) or 0)
+                        total_weight += float(t.get('weight_kg', 0) or 0)
+            
+            all_racks.append({
+                'asset_tag': r_inst.get('asset_tag') or r_inst['id'],
+                'used_u': used_u,
+                'total_u': rack_u,
+                'power_w': total_power,
+                'max_power_w': float(tmpl.get('max_power_w', 0) or 0) if tmpl else 0,
+                'weight_kg': total_weight,
+                'max_weight_kg': float(tmpl.get('max_weight_kg', 0) or 0) if tmpl else 0,
+                'project_name': p['name']
+            })
+
+    total_u_capacity = sum(r['total_u'] for r in all_racks)
+    total_u_used = sum(r['used_u'] for r in all_racks)
+    
+    total_power_capacity = sum(r['max_power_w'] for r in all_racks)
+    total_power_used = sum(r['power_w'] for r in all_racks)
+
+    rack_stats = {
+        'total_u': total_u_capacity,
+        'used_u': total_u_used,
+        'free_u': total_u_capacity - total_u_used,
+        'total_power_cap': total_power_capacity,
+        'used_power': total_power_used
+    }
+
+    top_power_racks = sorted(all_racks, key=lambda x: x['power_w'], reverse=True)[:5]
+    top_heavy_racks = sorted(all_racks, key=lambda x: x['weight_kg'], reverse=True)[:5]
+
+    # 4. Global Health Alerts
+    from health_logic import check_project_health
+    all_health_issues = []
+    for p in projects:
+        project_issues = check_project_health(p['id'])
+        for issue in project_issues:
+            issue['project_name'] = p['name']
+            issue['project_id'] = p['id']
+            all_health_issues.append(issue)
+    all_health_issues.sort(key=lambda x: 0 if x['severity'] == 'error' else 1)
+
+    # 5. Summary Cards
+    hw_count = r.scard(HW_INST_INDEX)
+    total_subnets = r.scard(NETWORKS_INDEX)
+
+    return render_template('dashboard.html',
+                           ip_stats=ip_stats,
+                           top_projects=top_projects,
+                           rack_stats=rack_stats,
+                           top_power_racks=top_power_racks,
+                           top_heavy_racks=top_heavy_racks,
+                           active_projects=len(projects),
+                           total_subnets=total_subnets,
+                           total_hw_instances=hw_count,
+                           health_issues=all_health_issues[:20])
 
 @ipam_bp.route('/')
 def index():
@@ -503,7 +766,7 @@ def index():
             parent = ipaddress.ip_network(p['supernet'], strict=False)
             alloc  = sum(ipaddress.ip_network(n['cidr']).num_addresses for n in nets)
             p['utilization'] = round((alloc / parent.num_addresses) * 100, 1)
-        except Exception:
+        except (ValueError, TypeError):
             p['utilization'] = 0
     return render_template('index.html', projects=projects,
                            global_labels=global_labels(),
@@ -517,6 +780,7 @@ def overview():
 
 
 @ipam_bp.route('/labels', methods=['GET', 'POST'])
+@editor_required
 def manage_global_labels():
     """Manage global labels via web interface."""
     if request.method == 'POST':
@@ -535,13 +799,12 @@ def manage_global_labels():
 
 
 @ipam_bp.route('/projects/add', methods=['GET', 'POST'])
+@editor_required
 def add_project():
     """Add a new project with a defined supernet."""
     if request.method == 'POST':
         supernet = request.form['supernet'].strip()
-        try:
-            ipaddress.ip_network(supernet, strict=False)
-        except ValueError:
+        if not validate_ip_interface(supernet):
             flash('Invalid supernet CIDR.', 'danger')
             return redirect(url_for('ipam.add_project'))
         proj = {'id': new_id(), 'name': request.form['name'].strip(),
@@ -556,7 +819,8 @@ def add_project():
 def project_detail(pid):
     """Render the detail page for a specific project."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     nets      = sorted(project_networks(pid), key=lambda n: ipaddress.ip_network(n['cidr']))
     summary   = project_pool_summary(pid)
     labels    = available_labels_for_project(pid)
@@ -566,10 +830,12 @@ def project_detail(pid):
 
 
 @ipam_bp.route('/projects/<pid>/delete', methods=['POST'])
+@editor_required
 def delete_project(pid):
     """Delete a project and all its associated networks and data."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     for nid in list(r.smembers(project_nets_key(pid))):
         _delete_network_data(nid)
     r.delete(project_nets_key(pid))
@@ -584,10 +850,12 @@ def delete_project(pid):
 
 
 @ipam_bp.route('/projects/<pid>/labels', methods=['GET', 'POST'])
+@editor_required
 def manage_project_labels(pid):
     """Manage labels specific to a project."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     if request.method == 'POST':
         action = request.form.get('action')
         label  = request.form.get('label', '').strip()
@@ -619,6 +887,7 @@ def list_templates():
 
 @ipam_bp.route('/templates/add',                    methods=['GET', 'POST'])
 @ipam_bp.route('/projects/<pid>/templates/add',     methods=['GET', 'POST'])
+@editor_required
 def add_template(pid=None):
     """Add a new subnet template, optionally scoped to a project."""
     proj = get_project(pid) if pid else None
@@ -649,10 +918,12 @@ def add_template(pid=None):
 
 
 @ipam_bp.route('/templates/<tid>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_template(tid):
     """Edit an existing subnet template."""
     tmpl = get_template(tid)
-    if not tmpl: abort(404)
+    if not tmpl:
+        abort(404)
     pid  = tmpl.get('project_id') or None
     proj = get_project(pid) if pid else None
     if request.method == 'POST':
@@ -674,10 +945,12 @@ def edit_template(tid):
 
 
 @ipam_bp.route('/templates/<tid>/delete', methods=['POST'])
+@editor_required
 def delete_template_route(tid):
     """Delete a subnet template."""
     tmpl = get_template(tid)
-    if not tmpl: abort(404)
+    if not tmpl:
+        abort(404)
     pid = tmpl.get('project_id') or None
     delete_template(tid)
     flash(f'Template "{tmpl["name"]}" deleted.', 'info')
@@ -689,7 +962,8 @@ def delete_template_route(tid):
 def manage_project_templates(pid):
     """Manage templates for a specific project."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     return render_template('project_templates.html', proj=proj,
                            proj_tmpl=project_templates(pid),
                            global_tmpl=global_templates())
@@ -706,7 +980,8 @@ def preview_template(tid):
     except ValueError:
         return jsonify({'error': 'Invalid CIDR'}), 400
     tmpl = get_template(tid)
-    if not tmpl: abort(404)
+    if not tmpl:
+        abort(404)
     resolved = resolve_template_rules(cidr, tmpl['rules'])
     for slot in resolved:
         slot['already_allocated'] = bool(get_ip(slot['ip']))
@@ -736,10 +1011,12 @@ def preview_template_inline():
 
 
 @ipam_bp.route('/networks/<net_id>/template', methods=['GET', 'POST'])
+@editor_required
 def apply_template(net_id):
     """Apply a subnet template to an existing network."""
     net = get_network(net_id)
-    if not net: abort(404)
+    if not net:
+        abort(404)
     proj      = get_project(net.get('project_id')) if net.get('project_id') else None
     pid       = net.get('project_id', '')
     templates = available_templates_for_project(pid)
@@ -772,6 +1049,7 @@ def apply_template(net_id):
 
 
 @ipam_bp.route('/networks/<net_id>/slots/confirm',     methods=['POST'])
+@editor_required
 def confirm_slot_route(net_id):
     """Confirm a pending IP slot and allocate it."""
     ip_str = request.form.get('ip', '').strip()
@@ -781,6 +1059,7 @@ def confirm_slot_route(net_id):
     return redirect(url_for('ipam.network_detail', net_id=net_id))
 
 @ipam_bp.route('/networks/<net_id>/slots/confirm_all', methods=['POST'])
+@editor_required
 def confirm_all_slots_route(net_id):
     """Confirm all pending IP slots for a network."""
     result = confirm_all_slots(net_id)
@@ -788,6 +1067,7 @@ def confirm_all_slots_route(net_id):
     return redirect(url_for('ipam.network_detail', net_id=net_id))
 
 @ipam_bp.route('/networks/<net_id>/slots/dismiss',     methods=['POST'])
+@editor_required
 def dismiss_slot_route(net_id):
     """Dismiss a pending IP slot without allocating it."""
     ip_str = request.form.get('ip', '').strip()
@@ -797,6 +1077,7 @@ def dismiss_slot_route(net_id):
     return redirect(url_for('ipam.network_detail', net_id=net_id))
 
 @ipam_bp.route('/networks/<net_id>/slots/dismiss_all', methods=['POST'])
+@editor_required
 def dismiss_all_slots_route(net_id):
     """Dismiss all pending IP slots for a network."""
     dismiss_all_slots(net_id)
@@ -807,46 +1088,61 @@ def dismiss_all_slots_route(net_id):
 # Routes — Subnets
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _handle_auto_subnet(proj, pid):
+    """Handle auto-carving logic for a new subnet."""
+    prefix_len = request.form.get('prefix_len', '').strip()
+    if not prefix_len or not prefix_len.isdigit():
+        return None, 'Please enter a valid prefix length.'
+    try:
+        return str(carve_next_subnet(proj['supernet'], int(prefix_len), pid)), None
+    except ValueError as e:
+        return None, str(e)
+
+def _handle_manual_subnet(proj, pid):
+    """Handle manual CIDR validation for a new subnet."""
+    cidr = request.form.get('cidr', '').strip()
+    if not validate_ip_interface(cidr):
+        return None, f'Invalid CIDR: {cidr}'
+    
+    try:
+        subnet_obj = ipaddress.ip_network(cidr, strict=False)
+        if not subnet_obj.subnet_of(ipaddress.ip_network(proj['supernet'], strict=False)):
+            return None, f'{cidr} is not within {proj["supernet"]}.'
+    except (ValueError, TypeError) as e:
+        return None, f'Invalid CIDR: {e}'
+    for used in used_subnets_in_project(pid):
+        if ipaddress.ip_network(cidr, strict=False).overlaps(used):
+            return None, f'{cidr} overlaps with {used}.'
+    return cidr, None
+
 @ipam_bp.route('/projects/<pid>/subnet/add', methods=['GET', 'POST'])
+@editor_required
 def add_subnet(pid):
     """Add a new subnet to a project (manual or auto-carve)."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     if request.method == 'POST':
         mode   = request.form.get('mode', 'manual')
         labels = parse_labels(request.form.get('labels', ''))
         name   = request.form.get('name', '').strip()
         tid    = request.form.get('template_id', '').strip() or None
         if mode == 'auto':
-            prefix_len = request.form.get('prefix_len', '').strip()
-            if not prefix_len or not prefix_len.isdigit():
-                flash('Please enter a valid prefix length.', 'danger')
-                return redirect(url_for('ipam.add_subnet', pid=pid))
-            try:
-                cidr = str(carve_next_subnet(proj['supernet'], int(prefix_len), pid))
-            except ValueError as e:
-                flash(str(e), 'danger')
-                return redirect(url_for('ipam.add_subnet', pid=pid))
+            cidr, err = _handle_auto_subnet(proj, pid)
         else:
-            cidr = request.form.get('cidr', '').strip()
-            try:
-                subnet_obj = ipaddress.ip_network(cidr, strict=False)
-                if not subnet_obj.subnet_of(ipaddress.ip_network(proj['supernet'], strict=False)):
-                    flash(f'{cidr} is not within {proj["supernet"]}.', 'danger')
-                    return redirect(url_for('ipam.add_subnet', pid=pid))
-            except (ValueError, TypeError) as e:
-                flash(f'Invalid CIDR: {e}', 'danger')
-                return redirect(url_for('ipam.add_subnet', pid=pid))
-            for used in used_subnets_in_project(pid):
-                if ipaddress.ip_network(cidr, strict=False).overlaps(used):
-                    flash(f'{cidr} overlaps with {used}.', 'danger')
-                    return redirect(url_for('ipam.add_subnet', pid=pid))
+            cidr, err = _handle_manual_subnet(proj, pid)
+
+        if err:
+            flash(err, 'danger')
+            return redirect(url_for('ipam.add_subnet', pid=pid))
+
         net = {'id': new_id(), 'name': name or cidr, 'cidr': cidr,
                'description': request.form.get('description', ''),
                'vlan': request.form.get('vlan') or '', 'project_id': pid}
         save_network(net)
         r.sadd(project_nets_key(pid), net['id'])
         add_labels_to_network(net['id'], labels)
+        sync_net_bitmap(net['id'])
         if tid:
             try:
                 pending = set_pending_slots(net['id'], tid)
@@ -863,10 +1159,12 @@ def add_subnet(pid):
 
 
 @ipam_bp.route('/projects/<pid>/subnet/bulk', methods=['GET', 'POST'])
+@editor_required
 def bulk_add_subnets(pid):
     """Bulk create multiple subnets in a project (auto-carve)."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     if request.method == 'POST':
         try:
             subnet_requests = request.get_json(force=True).get('subnets', [])
@@ -884,6 +1182,7 @@ def bulk_add_subnets(pid):
                 save_network(net)
                 r.sadd(project_nets_key(pid), net['id'])
                 add_labels_to_network(net['id'], labels)
+                sync_net_bitmap(net['id'])
                 pending_count = 0
                 if tid:
                     pending = set_pending_slots(net['id'], tid)
@@ -899,10 +1198,12 @@ def bulk_add_subnets(pid):
 
 
 @ipam_bp.route('/networks/<net_id>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_network(net_id):
     """Edit subnet metadata."""
     net = get_network(net_id)
-    if not net: abort(404)
+    if not net:
+        abort(404)
     pid = net.get('project_id')
     if request.method == 'POST':
         net['name']        = request.form.get('name', net['name']).strip()
@@ -924,10 +1225,12 @@ def edit_network(net_id):
 
 
 @ipam_bp.route('/networks/<net_id>/delete', methods=['POST'])
+@editor_required
 def delete_network(net_id):
     """Delete a subnet."""
     net = get_network(net_id)
-    if not net: abort(404)
+    if not net:
+        abort(404)
     pid = net.get('project_id')
     if pid:
         r.srem(project_nets_key(pid), net_id)
@@ -943,7 +1246,8 @@ def delete_network(net_id):
 def network_detail(net_id):
     """View subnet details and allocated IPs."""
     net = get_network(net_id)
-    if not net: abort(404)
+    if not net:
+        abort(404)
     net  = net_stats(net)
     proj = get_project(net.get('project_id')) if net.get('project_id') else None
     pid  = net.get('project_id', '')
@@ -966,12 +1270,18 @@ def network_detail(net_id):
 
 
 @ipam_bp.route('/networks/<net_id>/ip/add', methods=['GET', 'POST'])
+@editor_required
 def add_ip(net_id):
     """Manually allocate an IP address in a subnet."""
     net = get_network(net_id)
-    if not net: abort(404)
+    if not net:
+        abort(404)
     if request.method == 'POST':
         ip_str = request.form['ip'].strip()
+        if not validate_ip_interface(ip_str):
+            flash(f'Invalid IP address: {ip_str}', 'danger')
+            return redirect(url_for('ipam.add_ip', net_id=net_id))
+
         try:
             ip_obj = ipaddress.ip_address(ip_str)
         except ValueError:
@@ -980,28 +1290,42 @@ def add_ip(net_id):
         if ip_obj not in ipaddress.ip_network(net['cidr'], strict=False):
             flash(f'{ip_str} is not within {net["cidr"]}.', 'danger')
             return redirect(url_for('ipam.add_ip', net_id=net_id))
-        if get_ip(ip_str):
-            flash(f'{ip_str} is already allocated.', 'warning')
+
+        addr_data = {
+            'ip': ip_str,
+            'hostname': request.form.get('hostname', ''),
+            'description': request.form.get('description', ''),
+            'status': request.form.get('status', 'allocated'),
+            'network_id': net_id
+        }
+
+        if not claim_ip_atomic(addr_data, net['cidr']):
+            flash(f'{ip_str} is already allocated or was just snatched.', 'warning')
             return redirect(url_for('ipam.add_ip', net_id=net_id))
-        net_rec    = get_network(net_id)
+
+        net_rec = get_network(net_id)
         is_pending = any(s['ip'] == ip_str for s in net_rec.get('pending_slots', []))
-        save_ip({'ip': ip_str, 'hostname': request.form.get('hostname', ''),
-                 'description': request.form.get('description', ''),
-                 'status': request.form.get('status', 'allocated'), 'network_id': net_id})
         if is_pending:
             dismiss_slot(net_id, ip_str)
+
         flash(f'{ip_str} allocated.', 'success')
         return redirect(url_for('ipam.network_detail', net_id=net_id))
     return render_template('ip_form.html', net=net)
 
 
 @ipam_bp.route('/ip/<path:ip_str>/edit', methods=['GET', 'POST'])
+@editor_required
 def edit_ip(ip_str):
     """Edit IP address metadata."""
     addr = get_ip(ip_str)
-    if not addr: abort(404)
+    if not addr:
+        abort(404)
     net = get_network(addr['network_id'])
     if request.method == 'POST':
+        if not validate_ip_interface(ip_str):
+            flash(f'Invalid IP address record: {ip_str}', 'danger')
+            return redirect(url_for('ipam.network_detail', net_id=addr['network_id']))
+            
         addr['hostname']    = request.form.get('hostname', '')
         addr['description'] = request.form.get('description', '')
         addr['status']      = request.form.get('status', 'allocated')
@@ -1012,27 +1336,70 @@ def edit_ip(ip_str):
 
 
 @ipam_bp.route('/ip/<path:ip_str>/delete', methods=['POST'])
+@editor_required
 def delete_ip(ip_str):
     """Release an allocated IP address."""
     addr = get_ip(ip_str)
-    if not addr: abort(404)
+    if not addr:
+        abort(404)
     net_id = addr['network_id']
+    net = get_network(net_id)
+    if net:
+        offset = get_ip_offset(net['cidr'], ip_str)
+        r.setbit(net_bitmap_key(net_id), offset, 0)
+    
     r.delete(ip_key(ip_str))
     r.srem(net_ips_key(net_id), ip_str)
+    publish_ip_update('release', addr)
     flash(f'{ip_str} released.', 'info')
     return redirect(url_for('ipam.network_detail', net_id=net_id))
 
 
+def find_next_free_ip(net_id: str) -> str:
+    """
+    High-performance search for the next available IP in a network using Bitmaps.
+    Returns the IP address string or None if full.
+    """
+    net = get_network(net_id)
+    if not net:
+        return None
+    
+    bkey = net_bitmap_key(net_id)
+    if not r.exists(bkey):
+        sync_net_bitmap(net_id)
+
+    offset = r.bitpos(bkey, 0)
+    net_obj = ipaddress.ip_network(net['cidr'], strict=False)
+    
+    if offset < 0 or offset >= net_obj.num_addresses:
+        # Subnet seems full. Trigger lazy cleanup of expired TTLs and retry.
+        network_addresses(net_id)
+        offset = r.bitpos(bkey, 0)
+        if offset < 0 or offset >= net_obj.num_addresses:
+            return None
+
+    ip_str = get_ip_at_offset(net['cidr'], offset)
+    pending = {s['ip'] for s in net.get('pending_slots', [])}
+    
+    if ip_str in pending:
+        # Fallback to BITPOS with bit-offset if pending slots interfere
+        for _ in range(100):
+            offset = r.bitpos(bkey, 0, offset + 1, -1, "BIT")
+            if offset < 0 or offset >= net_obj.num_addresses:
+                return None
+            ip_str = get_ip_at_offset(net['cidr'], offset)
+            if ip_str not in pending:
+                return ip_str
+        return None
+
+    return ip_str
+
 @ipam_bp.route('/api/networks/<net_id>/next')
 def next_available(net_id):
-    """API endpoint to find the next available IP in a network."""
-    net = get_network(net_id)
-    if not net: abort(404)
-    used    = r.smembers(net_ips_key(net_id))
-    pending = {s['ip'] for s in net.get('pending_slots', [])}
-    for host in ipaddress.ip_network(net['cidr'], strict=False).hosts():
-        if str(host) not in used and str(host) not in pending:
-            return jsonify({'next_available': str(host)})
+    """API endpoint to find the next available IP in a network using Bitmaps."""
+    ip_str = find_next_free_ip(net_id)
+    if ip_str:
+        return jsonify({'next_available': ip_str})
     return jsonify({'error': 'No available addresses'}), 404
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1041,7 +1408,8 @@ def next_available(net_id):
 
 def _pool_query(query_labels: list) -> dict:
     """Find all networks matching a set of labels and return summary stats."""
-    if not query_labels: return {}
+    if not query_labels:
+        return {}
     label_keys   = [label_nets_key(l) for l in query_labels]
     matching_ids = r.smembers(label_keys[0]) if len(label_keys) == 1 else r.sinter(*label_keys)
     nets = sorted(
@@ -1075,20 +1443,117 @@ def pool_ui():
                            result=result, labels_param=labels_param)
 
 
+@ipam_bp.route('/api/networks/export')
+def export_networks():
+    """Export all subnets to a CSV file."""
+    import csv
+    import io
+    from flask import make_response
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['ID', 'Name', 'CIDR', 'VLAN', 'Project', 'Template'])
+
+    for nid in r.smembers(NETWORKS_INDEX):
+        net = get_network(nid)
+        if not net:
+            continue
+        proj = get_project(net.get('project_id'))
+        tmpl = get_template(net.get('template_id'))
+        writer.writerow([
+            net['id'],
+            net['name'],
+            net['cidr'],
+            net.get('vlan', ''),
+            proj['name'] if proj else 'Unknown',
+            tmpl['name'] if tmpl else ''
+        ])
+
+    response = make_response(output.getvalue())
+    response.headers['Content-Disposition'] = 'attachment; filename=subnets.csv'
+    response.headers['Content-type'] = 'text/csv'
+    return response
+
+
+def _redisearch_ips(q):
+    """Perform a high-performance search using RediSearch (FT.SEARCH)."""
+    try:
+        # Check if index exists, if not create it
+        try:
+            r.ft("idx:ip").info()
+        except:
+            from redis.commands.search.field import TextField
+            from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+            schema = (
+                TextField("$.ip", as_name="ip"),
+                TextField("$.hostname", as_name="hostname"),
+                TextField("$.description", as_name="description"),
+            )
+            r.ft("idx:ip").create_index(schema, definition=IndexDefinition(prefix=["ip:"], index_type=IndexType.JSON))
+        
+        # Search
+        # ft().search returns a Result object
+        search_res = r.ft("idx:ip").search(q)
+        results = []
+        for doc in search_res.docs:
+            # RediSearch with JSON returns the JSON string in the 'json' field
+            addr = json.loads(doc.json)
+            addr['network'] = get_network(addr['network_id'])
+            results.append(addr)
+        return results
+    except Exception as e:
+        # Fallback to standard scan if RediSearch is not available
+        return None
+
 @ipam_bp.route('/search')
 def search():
-    """Search for IP records by IP, hostname, or description."""
+    """Search for IP records, HW instances, and Projects."""
     q = request.args.get('q', '').strip().lower()
-    results = []
-    if q:
+    results = {'ips': [], 'hw': [], 'projects': []}
+    if not q:
+        return render_template('search.html', results=results, q=q)
+
+    # 1. Search IPs (Try RediSearch first, then fallback)
+    ip_results = _redisearch_ips(q)
+    if ip_results is not None:
+        results['ips'] = ip_results
+    else:
         for key in r.scan_iter('ip:*'):
             raw = r.get(key)
-            if not raw: continue
+            if not raw:
+                continue
             addr = json.loads(raw)
             if (q in addr.get('ip', '').lower() or
                 q in addr.get('hostname', '').lower() or
                 q in addr.get('description', '').lower()):
                 addr['network'] = get_network(addr['network_id'])
-                results.append(addr)
-        results.sort(key=lambda a: ipaddress.ip_address(a['ip']))
+                results['ips'].append(addr)
+    results['ips'].sort(key=lambda a: ipaddress.ip_address(a['ip']))
+
+    # 2. Search HW Instances
+    from hw_logic import get_hw_instance, get_hw_template, HW_INST_INDEX
+    for iid in r.smembers(HW_INST_INDEX):
+        inst = get_hw_instance(iid)
+        if not inst:
+            continue
+        tmpl = get_hw_template(inst['template_id'])
+        tmpl_name = tmpl['name'].lower() if tmpl else ''
+        if (q in inst.get('asset_tag', '').lower() or
+            q in inst.get('serial', '').lower() or
+            q in tmpl_name):
+            inst['template'] = tmpl
+            results['hw'].append(inst)
+    results['hw'].sort(key=lambda i: i.get('asset_tag', ''))
+
+    # 3. Search Projects
+    for pid in r.smembers(PROJECTS_INDEX):
+        proj = get_project(pid)
+        if not proj:
+            continue
+        if (q in proj.get('name', '').lower() or
+            q in proj.get('description', '').lower() or
+            q in proj.get('id', '').lower()):
+            results['projects'].append(proj)
+    results['projects'].sort(key=lambda p: p.get('name', ''))
+
     return render_template('search.html', results=results, q=q)

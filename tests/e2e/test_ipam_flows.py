@@ -43,6 +43,7 @@ class TestE2EProjectLifecycle:
     def test_homepage_loads(self, page_base):
         """Test homepage loads."""
         page, base = page_base
+        goto(page, base, '/')
         expect(page).to_have_title(re.compile(r'IPAM|Project'))
         expect(page.locator('h4, h3, h2')).to_be_visible()
 
@@ -52,7 +53,7 @@ class TestE2EProjectLifecycle:
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'E2E Project')
         page.fill('input[name="supernet"]', '172.16.0.0/12')
-        page.fill('textarea[name="description"]', 'Created by E2E test')
+        page.fill('input[name="description"]', 'Created by E2E test')
         page.click('button[type="submit"]')
         # Should redirect to project detail
         expect(page).to_have_url(re.compile(r'/projects/'))
@@ -81,9 +82,11 @@ class TestE2EProjectLifecycle:
         # Get project URL
         url = page.url
         pid = url.rstrip('/').split('/')[-1]
+        # Go to index to delete
+        goto(page, base, '/')
         # Delete
         page.on('dialog', lambda dialog: dialog.accept())
-        page.click('form[action*="/delete"] button')
+        page.click(f'form[action*="{pid}/delete"] button')
         # Wait for navigation and ensure we are not on the project page anymore
         page.wait_for_url(lambda u: f'/projects/{pid}' not in u)
 
@@ -117,7 +120,7 @@ class TestE2ESubnets:
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Manual')
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.0.0.0/24')
         page.click('button[type="submit"]')
         expect(page).to_have_url(re.compile(f'/projects/{pid}'))
@@ -128,7 +131,7 @@ class TestE2ESubnets:
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Auto')
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'auto')
+        page.check('input[name="mode"][value="auto"]')
         page.fill('input[name="prefix_len"]', '24')
         page.click('button[type="submit"]')
         expect(page).to_have_url(re.compile(f'/projects/{pid}'))
@@ -138,11 +141,11 @@ class TestE2ESubnets:
         page, base = page_base
         pid = self._create_project(page, base, name='Subnet Detail')
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.0.1.0/24')
         page.click('button[type="submit"]')
         # Click into the subnet
-        page.click('a:has-text("10.0.1.0/24")')
+        page.click('tr:has-text("10.0.1.0/24") a:has-text("IPs")')
         expect(page).to_have_url(re.compile(r'/networks/'))
         expect(page.locator('body')).to_contain_text('10.0.1.0/24')
 
@@ -152,12 +155,12 @@ class TestE2ESubnets:
         pid = self._create_project(page, base, name='Overlap Test')
         # Add first subnet
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.0.0.0/24')
         page.click('button[type="submit"]')
         # Try to add overlapping
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.0.0.0/25')
         page.click('button[type="submit"]')
         expect(page.locator('.alert')).to_contain_text('overlap')
@@ -178,11 +181,11 @@ class TestE2EIPAllocation:
         page.click('button[type="submit"]')
         pid = page.url.rstrip('/').split('/')[-1]
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.0.0.0/24')
         page.click('button[type="submit"]')
         # Get network id from the project page link
-        page.click('a:has-text("10.0.0.0/24")')
+        page.click('tr:has-text("10.0.0.0/24") a:has-text("IPs")')
         nid = page.url.rstrip('/').split('/')[-1]
         return pid, nid
 
@@ -242,8 +245,15 @@ class TestE2EIPAllocation:
         page.fill('input[name="ip"]', '10.0.0.9')
         page.click('button[type="submit"]')
         page.on('dialog', lambda d: d.accept())
-        page.click('form[action*="/ip/10.0.0.9/delete"] button')
-        expect(page.locator('body')).not_to_contain_text('10.0.0.9')
+        page.click('form[action*="/delete"] button')
+        # Wait for flash message
+        expect(page.locator('.alert')).to_be_visible()
+        # Ensure it's not in the IP table
+        if page.locator('table').count() > 0:
+            expect(page.locator('table')).not_to_contain_text('10.0.0.9')
+        else:
+            expect(page.locator('body')).to_contain_text('No IPs allocated yet')
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -281,10 +291,12 @@ class TestE2ELabels:
         """Test empty label rejection."""
         page, base = page_base
         goto(page, base, '/labels')
-        # Try to submit empty label
+        # Try to submit empty label by bypassing browser 'required'
+        page.evaluate("document.querySelector('input[name=\"label\"]').required = false")
         page.fill('input[name="label"]', '')
         page.click('button[type="submit"]')
         expect(page.locator('.alert')).to_be_visible()
+        expect(page.locator('.alert')).to_contain_text('Label cannot be empty')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -302,10 +314,11 @@ class TestE2ESubnetTemplates:
         page.click('button[type="submit"]')
         pid = page.url.rstrip('/').split('/')[-1]
         goto(page, base, f'/projects/{pid}/subnet/add')
-        page.select_option('select[name="mode"]', 'manual')
+        page.check('input[name="mode"][value="manual"]')
         page.fill('input[name="cidr"]', '10.40.0.0/24')
         page.click('button[type="submit"]')
-        page.click('a:has-text("10.40.0.0/24")')
+        page.click('tr:has-text("10.40.0.0/24") a:has-text("IPs")')
+
         nid = page.url.rstrip('/').split('/')[-1]
         return pid, nid
 
@@ -342,7 +355,7 @@ class TestE2ESubnetTemplates:
 
         pid, nid = self._setup(page, base)
         goto(page, base, f'/networks/{nid}/template')
-        page.select_option('select[name="template_id"]', tmpl['id'])
+        page.check(f'input[name="template_id"][value="{tmpl["id"]}"]')
         page.click('button[type="submit"]')
         # Should redirect to network detail showing pending slot
         expect(page).to_have_url(re.compile(f'/networks/{nid}'))

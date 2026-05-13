@@ -1,23 +1,113 @@
 {% extends 'base.html' %}
 {% block title %}Search{% endblock %}
 {% block content %}
-<h5>Results for <em>"{{ q }}"</em></h5>
-{% if results %}
-<table class="table table-hover bg-white shadow-sm rounded">
-  <thead class="table-light"><tr><th>IP</th><th>Hostname</th><th>Description</th><th>Status</th><th>Network</th></tr></thead>
-  <tbody>
-    {% for a in results %}
-    <tr>
-      <td><code>{{ a.ip }}</code></td>
-      <td>{{ a.hostname or '—' }}</td>
-      <td>{{ a.description or '—' }}</td>
-      <td><span class="badge badge-{{ a.status }}">{{ a.status }}</span></td>
-      <td>{% if a.network %}<a href="{{ url_for('ipam.network_detail', net_id=a.network_id) }}">{{ a.network.cidr }}</a>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% elif q %}
-<p class="text-muted">No results found.</p>
+<div class="mb-4">
+  <h4>🔍 Search Results for <em class="text-primary">"{{ q }}"</em></h4>
+</div>
+
+{% if not results.ips and not results.hw and not results.projects %}
+  {% if q %}
+    <div class="alert alert-light border shadow-sm">
+      No matches found for <strong>"{{ q }}"</strong>.
+    </div>
+  {% endif %}
 {% endif %}
+
+{# ── Projects ── #}
+{% if results.projects %}
+<div class="mb-4">
+  <h5 class="mb-3 text-muted">📁 Projects ({{ results.projects|length }})</h5>
+  <div class="row g-3">
+    {% for p in results.projects %}
+    <div class="col-md-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <h6 class="card-title mb-1"><a href="{{ url_for('ipam.project_detail', pid=p.id) }}">{{ p.name }}</a></h6>
+          <p class="card-text small text-muted mb-2">{{ p.description or 'No description' }}</p>
+          <code class="small text-muted">{{ p.supernet }}</code>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── IP Addresses ── #}
+{% if results.ips %}
+<div class="mb-4">
+  <h5 class="mb-3 text-muted">🌐 IP Addresses ({{ results.ips|length }})</h5>
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>IP</th><th>Hostname</th><th>Description</th><th>Status</th><th>Network</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in results.ips %}
+          <tr>
+            <td><strong><code>{{ a.ip }}</code></strong></td>
+            <td>{{ a.hostname or '—' }}</td>
+            <td class="small">{{ a.description or '—' }}</td>
+            <td><span class="badge bg-{% if a.status=='allocated' %}primary{% elif a.status=='reserved' %}secondary{% else %}info{% endif %}">{{ a.status }}</span></td>
+            <td>
+              {% if a.network %}
+                <a href="{{ url_for('ipam.network_detail', net_id=a.network_id) }}">{{ a.network.cidr }}</a>
+                <br><small class="text-muted">{{ a.network.name }}</small>
+              {% else %}
+                <span class="text-muted small">Orphan</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Hardware Instances ── #}
+{% if results.hw %}
+<div class="mb-4">
+  <h5 class="mb-3 text-muted">📦 Hardware Instances ({{ results.hw|length }})</h5>
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Asset Tag</th><th>Template</th><th>Serial</th><th>Status</th><th>Project</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inst in results.hw %}
+          <tr>
+            <td>
+              <a href="{{ url_for('hw.project_inventory', pid=inst.project_id) }}#{{ inst.id }}">
+                <strong><code>{{ inst.asset_tag or inst.id }}</code></strong>
+              </a>
+            </td>
+            <td>
+              {% if inst.template %}
+                {{ inst.template.name }}<br><small class="text-muted">{{ inst.template.vendor }} {{ inst.template.model }}</small>
+              {% else %}
+                <span class="text-danger small">Unknown</span>
+              {% endif %}
+            </td>
+            <td class="small"><code>{{ inst.serial or '—' }}</code></td>
+            <td><span class="badge bg-secondary">{{ inst.status }}</span></td>
+            <td>
+              <a href="{{ url_for('ipam.project_detail', pid=inst.project_id) }}" class="small">View Project</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}

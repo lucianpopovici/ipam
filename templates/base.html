@@ -41,6 +41,7 @@
     <div class="navbar-nav me-auto flex-row gap-3 ms-3">
       <a class="nav-link text-white-50" href="{{ url_for('ipam.index') }}">Projects</a>
       <a class="nav-link text-white-50" href="{{ url_for('ipam.overview') }}">📊 Overview</a>
+      <a class="nav-link text-white-50" href="{{ url_for('ipam.dashboard') }}">📈 Dashboard</a>
       <a class="nav-link text-white-50" href="{{ url_for('ipam.pool_ui') }}">Pool Query</a>
       <a class="nav-link text-white-50" href="{{ url_for('ipam.manage_global_labels') }}">🌐 Labels</a>
       <a class="nav-link text-white-50" href="{{ url_for('ipam.list_templates') }}">📐 Templates</a>
@@ -50,6 +51,12 @@
       <a class="nav-link text-white-50" href="{{ url_for('hw.hw_connectors') }}">🔌 Connectors</a>
       <a class="nav-link text-white-50" href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a>
     </div>
+    {% if current_user.is_authenticated %}
+    <div class="navbar-nav ms-auto me-3">
+      <span class="navbar-text text-white-50 me-2">👤 {{ current_user.id }}</span>
+      <a class="nav-link text-white-50" href="{{ url_for('auth.logout') }}">Logout</a>
+    </div>
+    {% endif %}
     <form class="d-flex" action="{{ url_for('ipam.search') }}" method="get">
       <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="Search IP / hostname…">
       <button class="btn btn-sm btn-outline-light">Search</button>

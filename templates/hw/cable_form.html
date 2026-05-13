@@ -41,14 +41,16 @@
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="breakout" id="breakoutCb"
                      value="1" {% if cable and cable.breakout %}checked{% endif %}
-                     onchange="document.getElementById('fanOutRow').style.display=this.checked?'':'none'">
+                     onchange="document.getElementById('fanOutRow').style.display=this.checked?'':'none'; document.getElementById('breakoutFanOut').min=this.checked?2:1">
               <label class="form-check-label" for="breakoutCb">Breakout cable</label>
             </div>
           </div>
           <div class="col" id="fanOutRow" style="display:{% if cable and cable.breakout %}''{% else %}none{% endif %}">
             <label class="form-label small mb-0">Fan-out</label>
             <input type="number" name="breakout_fan_out" class="form-control form-control-sm"
-                   min="2" max="8" value="{{ cable.breakout_fan_out if cable else 4 }}">
+                   id="breakoutFanOut"
+                   min="{% if cable and cable.breakout %}2{% else %}1{% endif %}" max="8"
+                   value="{{ cable.breakout_fan_out if cable else 4 }}">
           </div>
         </div>
       </div>

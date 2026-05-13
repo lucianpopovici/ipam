@@ -9,6 +9,12 @@
       {{ view.rack_template.name if view.rack_template else '' }}
       · {{ view.rack_u }}U
       · {{ view.rack_template.form_factor if view.rack_template else '' }}
+      · <span class="{% if view.rack_template.max_power_w and view.total_power > view.rack_template.max_power_w %}text-danger fw-bold{% endif %}">
+          ⚡ {{ view.total_power }}W / {{ view.rack_template.max_power_w or '∞' }}W
+        </span>
+      · <span class="{% if view.rack_template.max_weight_kg and view.total_weight > view.rack_template.max_weight_kg %}text-danger fw-bold{% endif %}">
+          ⚖ {{ view.total_weight }}kg / {{ view.rack_template.max_weight_kg or '∞' }}kg
+        </span>
     </span>
   </div>
   <div class="d-flex gap-2">

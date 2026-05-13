@@ -417,10 +417,15 @@ def rack_layout_view(rack_iid: str) -> dict:
     slots = get_rack_slots(rack_iid)
     # Build u → slot map
     u_map = {}
+    total_power = 0.0
+    total_weight = 0.0
     for slot in slots:
         inst = get_hw_instance(slot['instance_id'])
         dev_tmpl = get_hw_template(inst['template_id']) if inst else None
         dev_u = int(dev_tmpl.get('u_size', 1)) if dev_tmpl else 1
+        if dev_tmpl:
+            total_power += float(dev_tmpl.get('power_w', 0) or 0)
+            total_weight += float(dev_tmpl.get('weight_kg', 0) or 0)
         for u in range(slot['u_pos'], slot['u_pos'] + dev_u):
             u_map[u] = {
                 'instance': inst,
@@ -449,6 +454,8 @@ def rack_layout_view(rack_iid: str) -> dict:
         'rack_u': rack_u,
         'rows': rows,
         'slots': slots,
+        'total_power': total_power,
+        'total_weight': total_weight,
     }
 
 
@@ -500,6 +507,89 @@ def _get_port(instance_id: str, port_id: str) -> dict | None:
     if not tmpl:
         return None
     return next((p for p in tmpl.get('ports', []) if p['id'] == port_id), None)
+
+
+def trace_cable_path(cable_id: str) -> list:
+    """
+    Follow a cable and its endpoints to discover the logical connection path.
+    Returns a list of elements:
+    [{'type': 'device', 'id': iid, 'name': '...', 'port': '...'},
+     {'type': 'cable', 'id': cid, 'name': '...'}, ...]
+    """
+    path = []
+    seen_cables = {cable_id}
+    
+    initial_cable = get_cable(cable_id)
+    if not initial_cable:
+        return []
+
+    # We'll trace in two directions from the cable: End A and End B
+    # Direction A
+    side_a = _trace_direction(cable_id, 'end_a', seen_cables)
+    # Direction B
+    side_b = _trace_direction(cable_id, 'end_b', seen_cables)
+    
+    # Path is side_a (reversed) + cable + side_b
+    path = list(reversed(side_a))
+    
+    cable_tmpl = get_hw_template(initial_cable.get('template_id'))
+    path.append({
+        'type': 'cable',
+        'id': cable_id,
+        'asset_tag': initial_cable.get('asset_tag', 'UNTYPED'),
+        'template_name': cable_tmpl['name'] if cable_tmpl else 'Generic Cable'
+    })
+    
+    path.extend(side_b)
+    return path
+
+
+def _trace_direction(start_cable_id, start_end, seen_cables) -> list:
+    """Helper to follow connections from one end of a cable."""
+    current_cable = get_cable(start_cable_id)
+    segment = []
+    
+    while current_cable:
+        end = current_cable.get(start_end, {})
+        iid = end.get('instance_id')
+        port_id = end.get('port_id')
+        
+        if not iid or not port_id:
+            break
+            
+        inst = get_hw_instance(iid)
+        port = _get_port(iid, port_id)
+        if not inst or not port:
+            break
+            
+        segment.append({
+            'type': 'device',
+            'id': iid,
+            'asset_tag': inst.get('asset_tag', iid),
+            'port_name': port.get('name', port_id),
+            'port_id': port_id
+        })
+        
+        # Look for another cable on this device but on a different port? 
+        # Actually, standard "tracing" in networking usually means following the SAME physical medium.
+        # But if it's a patch panel, we might want to "jump" to the corresponding internal port.
+        # For this IPAM, we'll implement "simple" tracing: only follow if the port itself 
+        # is connected to another cable (which shouldn't happen in a valid config, 
+        # as ports are 1:1 with cables).
+        
+        # However, some "devices" are passive (patch panels). 
+        # If the device is a 'patch-panel' category (we don't have this yet, but we have 'other'),
+        # we might want to jump.
+        
+        # Let's check if this port is connected to ANY OTHER cable.
+        # (This would be an error in validation, but let's see)
+        next_cable_id = None
+        # We need to find if there's another cable connected to this device.
+        # BUT standard tracing follow the cable. We are ALREADY at the end of the cable.
+        # So we stop here unless we implement "internal cross-connects".
+        break 
+        
+    return segment
 
 
 def _used_ports(pid: str) -> dict:
@@ -618,10 +708,14 @@ def validate_project(pid: str) -> list:
         if not rack_tmpl:
             continue
         rack_u = int(rack_tmpl.get('u_size', 42))
+        max_power = float(rack_tmpl.get('max_power_w', 0) or 0)
+        max_weight = float(rack_tmpl.get('max_weight_kg', 0) or 0)
         slots = get_rack_slots(rack['id'])
 
-        # Build occupancy map and check overlaps / form factor
+        # Build occupancy map and check overlaps / form factor / power / weight
         occupied = {}
+        total_power = 0.0
+        total_weight = 0.0
         for slot in slots:
             inst = get_hw_instance(slot['instance_id'])
             if not inst:
@@ -632,6 +726,9 @@ def validate_project(pid: str) -> list:
 
             ff_issues = _check_form_factor(rack_tmpl, dev_tmpl, inst['id'])
             issues.extend(ff_issues)
+
+            total_power += float(dev_tmpl.get('power_w', 0) or 0)
+            total_weight += float(dev_tmpl.get('weight_kg', 0) or 0)
 
             dev_u = int(dev_tmpl.get('u_size', 1))
             for u in range(slot['u_pos'], slot['u_pos'] + dev_u):
@@ -648,6 +745,15 @@ def validate_project(pid: str) -> list:
                                          {'rack': rack['id']}))
                 else:
                     occupied[u] = inst['asset_tag']
+
+        if max_power > 0 and total_power > max_power:
+            issues.append(_issue('error', 'POWER_OVERFLOW',
+                                 f'Rack {rack["asset_tag"]} power exceeded: {total_power}W > {max_power}W',
+                                 {'rack': rack['id']}))
+        if max_weight > 0 and total_weight > max_weight:
+            issues.append(_issue('error', 'WEIGHT_OVERFLOW',
+                                 f'Rack {rack["asset_tag"]} weight exceeded: {total_weight}kg > {max_weight}kg',
+                                 {'rack': rack['id']}))
 
     # Cache results
     r.set(_validation_key(pid), json.dumps(issues))
