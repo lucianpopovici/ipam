@@ -1,13 +1,20 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}{% if tmpl %}Edit Template{% else %}New Template{% endif %}{% endblock %}
 {% block content %}
-<div class="mb-2">
-  {% if proj %}
-    <a href="{{ url_for('ipam.manage_project_templates', pid=proj.id) }}" class="text-muted small">← {{ proj.name }} Templates</a>
-  {% else %}
-    <a href="{{ url_for('ipam.list_templates') }}" class="text-muted small">← Global Templates</a>
-  {% endif %}
-</div>
+{% if proj %}
+{{ breadcrumbs([
+  {'label': 'Projects',          'url': url_for('ipam.index')},
+  {'label': proj.name,           'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Subnet Templates',  'url': url_for('ipam.manage_project_templates', pid=proj.id)},
+  {'label': 'Edit: ' ~ tmpl.name if tmpl else 'New Template'}
+]) }}
+{% else %}
+{{ breadcrumbs([
+  {'label': 'Global Templates', 'url': url_for('ipam.list_templates')},
+  {'label': 'Edit: ' ~ tmpl.name if tmpl else 'New Template'}
+]) }}
+{% endif %}
 
 <div class="row justify-content-center"><div class="col-md-8">
   <div class="card shadow-sm">

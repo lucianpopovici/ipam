@@ -3,3 +3,4 @@ redis>=5.0
 Flask-Login>=0.6.3
 Werkzeug>=3.0.1
 flask_smorest
+PyYAML>=6.0

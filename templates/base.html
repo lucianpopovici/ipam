@@ -32,37 +32,124 @@
 
     .util-bar { height:6px; border-radius:3px; }
     code { color:#c0392b; }
+
+    /* Active nav link */
+    .navbar .nav-link.active { color: #fff !important; font-weight: 600; }
+
+    /* Project context nav strip */
+    .project-nav {
+      background: #fff;
+      border-bottom: 1px solid #dee2e6;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+      margin-bottom: 1rem;
+    }
+    .project-nav .overflow-auto::-webkit-scrollbar { display: none; }
+    .pnav-link {
+      display: inline-block;
+      padding: .35rem .65rem;
+      font-size: .875rem;
+      color: #6c757d;
+      text-decoration: none;
+      white-space: nowrap;
+      border-radius: 4px;
+      transition: color .15s, background .15s;
+    }
+    .pnav-link:hover { color: #0d6efd; background: #f0f4ff; }
+    .pnav-link.pnav-active {
+      color: #0d6efd;
+      font-weight: 600;
+      border-bottom: 2px solid #0d6efd;
+      border-radius: 4px 4px 0 0;
+    }
   </style>
 </head>
 <body>
-<nav class="navbar navbar-dark navbar-expand-lg mb-4">
+
+{# ── Top navbar ── #}
+<nav class="navbar navbar-dark navbar-expand-lg mb-0">
   <div class="container">
     <a class="navbar-brand fw-bold" href="{{ url_for('ipam.index') }}">🗺️ IPAM</a>
-    <div class="navbar-nav me-auto flex-row gap-3 ms-3">
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.index') }}">Projects</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.overview') }}">📊 Overview</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.dashboard') }}">📈 Dashboard</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.pool_ui') }}">Pool Query</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.manage_global_labels') }}">🌐 Labels</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ipam.list_templates') }}">📐 Templates</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ne.list_ne_types') }}">🔧 NE Types</a>
-      <a class="nav-link text-white-50" href="{{ url_for('ne.admin_schemas') }}">⚙️ Schemas</a>
-      <a class="nav-link text-white-50" href="{{ url_for('hw.hw_templates_list') }}">🖥 HW Templates</a>
-      <a class="nav-link text-white-50" href="{{ url_for('hw.hw_connectors') }}">🔌 Connectors</a>
-      <a class="nav-link text-white-50" href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a>
+
+    <button class="navbar-toggler" type="button"
+            data-bs-toggle="collapse" data-bs-target="#mainNav"
+            aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="mainNav">
+      <ul class="navbar-nav me-auto gap-1 ms-3">
+        <li class="nav-item">
+          <a class="nav-link text-white-50{% if is_active('ipam.index') %} active{% endif %}"
+             href="{{ url_for('ipam.index') }}">Projects</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white-50{% if is_active('ipam.overview') %} active{% endif %}"
+             href="{{ url_for('ipam.overview') }}">Overview</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white-50{% if is_active('ipam.dashboard') %} active{% endif %}"
+             href="{{ url_for('ipam.dashboard') }}">Dashboard</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white-50{% if is_active('ipam.pool_ui') %} active{% endif %}"
+             href="{{ url_for('ipam.pool_ui') }}">Pool Query</a>
+        </li>
+
+        {# ── ⚙ Admin dropdown ── #}
+        <li class="nav-item dropdown">
+          <a class="nav-link text-white-50 dropdown-toggle
+             {% if is_active('ipam.manage_global_labels','ipam.list_templates','ne.list_ne_types',
+                             'ne.add_ne_type','ne.edit_ne_type','ne.admin_schemas',
+                             'hw.hw_templates_list','hw.add_hw_template','hw.edit_hw_template',
+                             'hw.hw_connectors','vmware.') %} active{% endif %}"
+             href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            ⚙ Admin
+          </a>
+          <ul class="dropdown-menu dropdown-menu-dark">
+            <li><h6 class="dropdown-header">IPAM</h6></li>
+            <li><a class="dropdown-item{% if is_active('ipam.manage_global_labels') %} active{% endif %}"
+                   href="{{ url_for('ipam.manage_global_labels') }}">🌐 Global Labels</a></li>
+            <li><a class="dropdown-item{% if is_active('ipam.list_templates') %} active{% endif %}"
+                   href="{{ url_for('ipam.list_templates') }}">📐 Subnet Templates</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Network Elements</h6></li>
+            <li><a class="dropdown-item{% if is_active('ne.list_ne_types') and not request.view_args.get('pid') %} active{% endif %}"
+                   href="{{ url_for('ne.list_ne_types') }}">🔧 Global NE Types</a></li>
+            <li><a class="dropdown-item{% if is_active('ne.admin_schemas') %} active{% endif %}"
+                   href="{{ url_for('ne.admin_schemas') }}">⚙️ Global Schemas</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Hardware</h6></li>
+            <li><a class="dropdown-item{% if is_active('hw.hw_templates_list') %} active{% endif %}"
+                   href="{{ url_for('hw.hw_templates_list') }}">🖥 HW Templates</a></li>
+            <li><a class="dropdown-item{% if is_active('hw.hw_connectors') %} active{% endif %}"
+                   href="{{ url_for('hw.hw_connectors') }}">🔌 Connectors</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Integrations</h6></li>
+            <li><a class="dropdown-item{% if is_active('vmware.') %} active{% endif %}"
+                   href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a></li>
+          </ul>
+        </li>
+      </ul>
+
+      {# ── User + search ── #}
+      <div class="d-flex align-items-center gap-2 mt-2 mt-lg-0">
+        {% if current_user.is_authenticated %}
+        <span class="navbar-text text-white-50 small">👤 {{ current_user.id }}</span>
+        <a class="nav-link text-white-50" href="{{ url_for('auth.logout') }}">Logout</a>
+        {% endif %}
+        <form class="d-flex" action="{{ url_for('ipam.search') }}" method="get">
+          <input class="form-control form-control-sm me-1" type="search" name="q"
+                 placeholder="Search…" style="width:160px">
+          <button class="btn btn-sm btn-outline-light">🔍</button>
+        </form>
+      </div>
     </div>
-    {% if current_user.is_authenticated %}
-    <div class="navbar-nav ms-auto me-3">
-      <span class="navbar-text text-white-50 me-2">👤 {{ current_user.id }}</span>
-      <a class="nav-link text-white-50" href="{{ url_for('auth.logout') }}">Logout</a>
-    </div>
-    {% endif %}
-    <form class="d-flex" action="{{ url_for('ipam.search') }}" method="get">
-      <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="Search IP / hostname…">
-      <button class="btn btn-sm btn-outline-light">Search</button>
-    </form>
   </div>
 </nav>
+
+{# ── Project context strip (auto-rendered when inside a project) ── #}
+{% include '_project_nav.html' %}
+
 <div class="container pb-5">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for cat, msg in messages %}
@@ -73,6 +160,7 @@
   {% endwith %}
   {% block content %}{% endblock %}
 </div>
+
 <script>
 function addLabel(label, inputId) {
   inputId = inputId || 'labelsInput';

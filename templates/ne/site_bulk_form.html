@@ -1,10 +1,14 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% from 'ne/_param_fields.html' import param_fields %}
 {% block title %}Bulk Create Sites{% endblock %}
 {% block content %}
-<div class="mb-2">
-  <a href="{{ url_for('ne.list_sites', pid=proj.id) }}" class="text-muted small">← Sites</a>
-</div>
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Sites',    'url': url_for('ne.list_sites', pid=proj.id)},
+  {'label': 'Bulk Create'}
+]) }}
 <h4 class="mb-3">⚡ Bulk Create Sites</h4>
 
 <div class="row justify-content-center"><div class="col-md-7">

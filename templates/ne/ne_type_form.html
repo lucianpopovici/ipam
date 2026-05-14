@@ -1,14 +1,21 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% from 'ne/_param_fields.html' import param_fields %}
 {% block title %}{% if ne %}Edit NE Type{% else %}New NE Type{% endif %}{% endblock %}
 {% block content %}
-<div class="mb-2">
-  {% if proj %}
-    <a href="{{ url_for('ne.list_project_ne_types', pid=proj.id) }}" class="text-muted small">← NE Types</a>
-  {% else %}
-    <a href="{{ url_for('ne.list_ne_types') }}" class="text-muted small">← NE Types</a>
-  {% endif %}
-</div>
+{% if proj %}
+{{ breadcrumbs([
+  {'label': 'Projects',  'url': url_for('ipam.index')},
+  {'label': proj.name,   'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'NE Types',  'url': url_for('ne.list_project_ne_types', pid=proj.id)},
+  {'label': 'Edit: ' ~ ne.name if ne else 'New NE Type'}
+]) }}
+{% else %}
+{{ breadcrumbs([
+  {'label': 'Global NE Types', 'url': url_for('ne.list_ne_types')},
+  {'label': 'Edit: ' ~ ne.name if ne else 'New NE Type'}
+]) }}
+{% endif %}
 <h4 class="mb-3">{% if ne %}Edit: {{ ne.name }}{% else %}New NE Type{% endif %}</h4>
 
 <form method="post">
@@ -57,9 +64,31 @@
   {# ── Right: Interface builder ── #}
   <div class="col-lg-7">
     <div class="card shadow-sm">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <strong>Interfaces</strong>
-        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addInterface()">+ Add Interface</button>
+      <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+          <strong>Interfaces</strong>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleAddBar()">+ Add Interface</button>
+        </div>
+        <div id="addBar" class="d-none mt-2">
+          <div class="d-flex gap-2 align-items-end flex-wrap">
+            <div style="flex:2;min-width:160px">
+              <label class="form-label small mb-0">Name / Pattern</label>
+              <input class="form-control form-control-sm" id="addName"
+                     placeholder="eth{0..7}  gi-{N}/0  eth"
+                     oninput="updateAddPreview()">
+            </div>
+            <div style="flex:1;min-width:80px">
+              <label class="form-label small mb-0">Count</label>
+              <input type="number" class="form-control form-control-sm" id="addCount"
+                     value="1" min="1" max="1024" oninput="updateAddPreview()">
+            </div>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-primary" onclick="doAddInterfaces()">Add</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="toggleAddBar()">Cancel</button>
+            </div>
+          </div>
+          <div id="addPreview" class="small text-muted mt-1"></div>
+        </div>
       </div>
       <div class="card-body p-0" id="ifaceList"></div>
     </div>
@@ -87,7 +116,69 @@ function newIface(){
   };
 }
 
-function addInterface(){ ifaces.push(newIface()); render(); }
+const IFACE_CAP = 1024;
+
+function expandPattern(namePattern, count) {
+  const rangeMatch = namePattern.match(/\{(\d+)\.\.(\d+)\}/);
+  if (rangeMatch) {
+    const startStr = rangeMatch[1], endStr = rangeMatch[2];
+    const start = parseInt(startStr), end = parseInt(endStr);
+    if (end < start) return { error: 'End must be >= start' };
+    if (end - start + 1 > IFACE_CAP) return { error: `Range too large (max ${IFACE_CAP})` };
+    const w = startStr.length;
+    const prefix = namePattern.slice(0, namePattern.indexOf('{'));
+    const suffix = namePattern.slice(namePattern.indexOf('}') + 1);
+    const names = [];
+    for (let i = start; i <= end; i++) names.push(`${prefix}${String(i).padStart(w, '0')}${suffix}`);
+    return { names };
+  }
+  const n = parseInt(count) || 1;
+  if (n > IFACE_CAP) return { error: `Count too large (max ${IFACE_CAP})` };
+  if (namePattern.includes('{N}')) {
+    const names = [];
+    for (let i = 0; i < n; i++) names.push(namePattern.replace('{N}', i));
+    return { names };
+  }
+  if (n === 1) return { names: [namePattern] };
+  const names = [];
+  for (let i = 0; i < n; i++) names.push(`${namePattern}${i}`);
+  return { names };
+}
+
+function toggleAddBar() {
+  const bar = document.getElementById('addBar');
+  bar.classList.toggle('d-none');
+  if (!bar.classList.contains('d-none')) {
+    document.getElementById('addName').focus();
+    updateAddPreview();
+  }
+}
+
+function updateAddPreview() {
+  const name = document.getElementById('addName').value;
+  const countEl = document.getElementById('addCount');
+  const hasRange = /\{\d+\.\.\d+\}/.test(name);
+  countEl.disabled = hasRange;
+  const result = expandPattern(name, countEl.value);
+  const el = document.getElementById('addPreview');
+  if (result.error) { el.textContent = result.error; return; }
+  const n = result.names.length;
+  if (n === 1) el.textContent = `1 interface: ${result.names[0] || '(unnamed)'}`;
+  else el.innerHTML = `<strong>${n}</strong> interfaces: ${esc(result.names[0])} … ${esc(result.names[n-1])}`;
+}
+
+function doAddInterfaces() {
+  const name = document.getElementById('addName').value;
+  const count = document.getElementById('addCount').value;
+  const result = expandPattern(name, count);
+  if (result.error) { alert(result.error); return; }
+  for (const n of result.names) { const iface = newIface(); iface.name = n; ifaces.push(iface); }
+  document.getElementById('addName').value = '';
+  document.getElementById('addCount').value = '1';
+  document.getElementById('addBar').classList.add('d-none');
+  render();
+}
+
 function removeIface(i){ ifaces.splice(i,1); render(); }
 function moveIface(i,d){ const j=i+d; if(j>=0&&j<ifaces.length){[ifaces[i],ifaces[j]]=[ifaces[j],ifaces[i]]; render();} }
 

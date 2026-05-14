@@ -4,8 +4,18 @@ Covers: schemas, NE types, sites, PODs, and subnet requirement generation.
 """
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
 from auth import editor_required
-import ipaddress, json, re, uuid, os
+import ipaddress, json, re, uuid, os, pathlib
+import yaml
 from db import r   # shared Redis connection
+import core.relations as relations
+
+# ── Load enums from config/app_config.yaml (fallback to hardcoded defaults) ──
+_cfg_path = pathlib.Path(__file__).parent / 'config' / 'app_config.yaml'
+try:
+    with _cfg_path.open() as _f:
+        _cfg = yaml.safe_load(_f) or {}
+except FileNotFoundError:
+    _cfg = {}
 
 ne_bp = Blueprint('ne', __name__, url_prefix='')
 
@@ -25,17 +35,9 @@ def _site_key(sid):
     """Return the Redis key for a site."""
     return f'site:{sid}'
 
-def _site_pods_key(sid):
-    """Return the Redis key for site PODs."""
-    return f'site:{sid}:pods'
-
 def _pod_key(pid_):
     """Return the Redis key for a POD."""
     return f'pod:{pid_}'
-
-def _pod_sites_key(pid_):
-    """Return the Redis key for POD sites."""
-    return f'pod:{pid_}:sites'
 
 def _pod_slots_key(pid_):
     """Return the Redis key for POD slots."""
@@ -54,10 +56,10 @@ def _proj_netypes_key(pid):
     return f'project:{pid}:ne_types'
 
 NE_TYPES_INDEX = 'ne_types:index'
-ENTITY_TYPES   = ('site', 'pod', 'ne', 'interface')
-NE_KINDS       = ('CNF', 'VNF', 'PNF', 'VM', 'Container')
-SHARING_LEVELS = ('project', 'site', 'pod', 'ne', 'interface')
-FIELD_TYPES    = ('text', 'number', 'textarea', 'dropdown', 'multi-select', 'checkbox')
+ENTITY_TYPES   = tuple(_cfg.get('entity_types',   ('site', 'pod', 'ne', 'interface')))
+NE_KINDS       = tuple(_cfg.get('ne_kinds',        ('CNF', 'VNF', 'PNF', 'VM', 'Container')))
+SHARING_LEVELS = tuple(_cfg.get('sharing_levels',  ('project', 'site', 'pod', 'ne', 'interface')))
+FIELD_TYPES    = tuple(_cfg.get('field_types',     ('text', 'number', 'textarea', 'dropdown', 'multi-select', 'checkbox')))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Schema helpers
@@ -172,9 +174,7 @@ def delete_site(sid):
     site = get_site(sid)
     if not site: return
     r.srem(_proj_sites_key(site['project_id']), sid)
-    for pod_id in r.smembers(_site_pods_key(sid)):
-        r.srem(_pod_sites_key(pod_id), sid)
-    r.delete(_site_pods_key(sid))
+    relations.clear_entity('pod_of_site', sid)
     r.delete(_site_key(sid))
 
 def project_sites(pid) -> list:
@@ -184,8 +184,7 @@ def project_sites(pid) -> list:
 
 def site_pods(sid) -> list:
     """Return all PODs assigned to a specific site."""
-    from ne import get_pod
-    return [p for p in (get_pod(pid_) for pid_ in r.smembers(_site_pods_key(sid))) if p]
+    return [p for p in (get_pod(pid_) for pid_ in relations.related('pod_of_site', sid, 'rev')) if p]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # POD helpers
@@ -208,9 +207,7 @@ def delete_pod(pod_id):
     pod = get_pod(pod_id)
     if not pod: return
     r.srem(_proj_pods_key(pod['project_id']), pod_id)
-    for sid in r.smembers(_pod_sites_key(pod_id)):
-        r.srem(_site_pods_key(sid), pod_id)
-    r.delete(_pod_sites_key(pod_id))
+    relations.clear_entity('pod_of_site', pod_id)
     r.delete(_pod_slots_key(pod_id))
     r.delete(_pod_key(pod_id))
 
@@ -230,17 +227,15 @@ def save_pod_slots(pod_id, slots: list):
 
 def pod_sites(pod_id) -> list:
     """Return all sites where this POD is assigned."""
-    return [s for s in (get_site(sid) for sid in r.smembers(_pod_sites_key(pod_id))) if s]
+    return [s for s in (get_site(sid) for sid in relations.related('pod_of_site', pod_id, 'fwd')) if s]
 
 def assign_pod_to_site(pod_id, sid):
     """Associate a POD with a site."""
-    r.sadd(_site_pods_key(sid), pod_id)
-    r.sadd(_pod_sites_key(pod_id), sid)
+    relations.relate('pod_of_site', pod_id, sid)
 
 def unassign_pod_from_site(pod_id, sid):
     """Disassociate a POD from a site."""
-    r.srem(_site_pods_key(sid), pod_id)
-    r.srem(_pod_sites_key(pod_id), sid)
+    relations.unrelate('pod_of_site', pod_id, sid)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Bulk site creation from pattern

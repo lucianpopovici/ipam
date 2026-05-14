@@ -1,7 +1,13 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}{% if cable %}Edit Cable{% else %}Add Cable{% endif %}{% endblock %}
 {% block content %}
-<div class="mb-2"><a href="{{ url_for('hw.cable_list', pid=proj.id) }}" class="text-muted small">← Cables</a></div>
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Cables',   'url': url_for('hw.cable_list', pid=proj.id)},
+  {'label': 'Edit: ' ~ cable.asset_tag if cable else 'Add Cable'}
+]) }}
 <h4 class="mb-3">{% if cable %}Edit: {{ cable.asset_tag }}{% else %}Add Cable{% endif %}</h4>
 
 <form method="post">

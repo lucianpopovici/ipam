@@ -2,10 +2,10 @@
 IPAM application factory — registers blueprints and shared filters.
 """
 import os
-from flask import Flask, redirect, url_for, request
+from flask import Flask, redirect, url_for, request, g
 from flask_login import LoginManager, current_user
 from flask_smorest import Api
-from ipam import ipam_bp
+from ipam import ipam_bp, get_project, all_projects
 from ne import ne_bp
 from hw import hw_bp
 from vmware import vmware_bp
@@ -30,6 +30,19 @@ login_manager.login_view = 'auth.login'
 login_manager.anonymous_user = AnonymousUser
 login_manager.init_app(app)
 login_manager.user_loader(load_user)
+
+@app.context_processor
+def inject_nav_helpers():
+    def is_active(*endpoints):
+        ep = request.endpoint or ''
+        return ep in endpoints or any(ep.startswith(p) for p in endpoints if p.endswith('.'))
+    return {'is_active': is_active}
+
+@app.before_request
+def attach_project_context():
+    pid = (request.view_args or {}).get('pid')
+    g.current_project = get_project(pid) if pid else None
+    g.all_projects = sorted(all_projects(), key=lambda p: p['name']) if g.current_project else []
 
 @app.after_request
 def add_security_headers(response):

@@ -1,3 +1,19 @@
+{# ── Breadcrumb navigation ── #}
+{% macro breadcrumbs(items) %}
+<nav aria-label="breadcrumb" class="mb-2">
+  <ol class="breadcrumb small mb-0">
+    {% for item in items %}
+      {% if loop.last %}
+        <li class="breadcrumb-item active" aria-current="page">{{ item.label }}</li>
+      {% else %}
+        <li class="breadcrumb-item"><a href="{{ item.url }}">{{ item.label }}</a></li>
+      {% endif %}
+    {% endfor %}
+  </ol>
+</nav>
+{% endmacro %}
+
+
 {# ── Label pill rendering ── #}
 {% macro label_pill(label, labels_global=[], labels_project=[]) %}
   {% if label in labels_global %}

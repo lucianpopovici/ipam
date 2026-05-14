@@ -1,10 +1,14 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% from 'ne/_param_fields.html' import param_fields %}
 {% block title %}{{ site.name }}{% endblock %}
 {% block content %}
-<div class="mb-1">
-  <a href="{{ url_for('ne.list_sites', pid=proj.id) }}" class="text-muted small">← Sites</a>
-</div>
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Sites',    'url': url_for('ne.list_sites', pid=proj.id)},
+  {'label': site.name}
+]) }}
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <div>
     <h4 class="mb-0">📍 {{ site.name }}</h4>

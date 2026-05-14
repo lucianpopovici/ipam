@@ -1,9 +1,12 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Schemas – {{ proj.name }}{% endblock %}
 {% block content %}
-<div class="mb-2">
-  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
-</div>
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Schemas'}
+]) }}
 <h4 class="mb-1">⚙️ Project Schemas <small class="text-muted fs-6">{{ proj.name }}</small></h4>
 <p class="text-muted small mb-4">
   Override global schemas for this project. Fields not overridden fall back to the global definition.

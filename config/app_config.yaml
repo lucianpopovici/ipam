@@ -1,0 +1,4 @@
+ne_kinds:       [CNF, VNF, PNF, VM, Container]
+field_types:    [text, number, textarea, dropdown, multi-select, checkbox]
+sharing_levels: [project, site, pod, ne, interface]
+entity_types:   [site, pod, ne, interface]

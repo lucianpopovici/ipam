@@ -1,8 +1,13 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Templates – {{ proj.name }}{% endblock %}
 {% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',          'url': url_for('ipam.index')},
+  {'label': proj.name,           'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Subnet Templates'}
+]) }}
 <div class="mb-3">
-  <a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a>
   <h4 class="mb-0 mt-1">📐 Project Templates <small class="text-muted fs-6">{{ proj.name }}</small></h4>
   <p class="text-muted small">Project-scoped templates are private to this project and not visible elsewhere.</p>
 </div>

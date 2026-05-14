@@ -1,10 +1,20 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}{% if tmpl %}Edit{% else %}New{% endif %} Hardware Template{% endblock %}
 {% block content %}
-<div class="mb-2">
-  {% if proj %}<a href="{{ url_for('hw.project_hw_templates_route', pid=proj.id) }}" class="text-muted small">← HW Templates</a>
-  {% else %}<a href="{{ url_for('hw.hw_templates_list') }}" class="text-muted small">← HW Templates</a>{% endif %}
-</div>
+{% if proj %}
+{{ breadcrumbs([
+  {'label': 'Projects',     'url': url_for('ipam.index')},
+  {'label': proj.name,      'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'HW Templates', 'url': url_for('hw.project_hw_templates_route', pid=proj.id)},
+  {'label': 'Edit: ' ~ tmpl.name if tmpl else 'New Template'}
+]) }}
+{% else %}
+{{ breadcrumbs([
+  {'label': 'Global HW Templates', 'url': url_for('hw.hw_templates_list')},
+  {'label': 'Edit: ' ~ tmpl.name if tmpl else 'New Template'}
+]) }}
+{% endif %}
 <h4 class="mb-3">{% if tmpl %}Edit: {{ tmpl.name }}{% else %}New Hardware Template{% endif %}</h4>
 
 <form method="post">

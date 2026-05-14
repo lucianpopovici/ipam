@@ -1,0 +1,3 @@
+relations:
+  - { name: pod_of_site, from: pod, to: site, kind: many-to-many }
+  # New relations land here — no Python changes for storage.

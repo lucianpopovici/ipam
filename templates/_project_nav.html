@@ -1,0 +1,62 @@
+{# Project context navigation strip — auto-included by base.html when g.current_project is set #}
+{% if g.current_project %}
+{% set pid = g.current_project.id %}
+{% set ep  = request.endpoint or '' %}
+
+{# Section detection by endpoint membership #}
+{% set in_subnets  = ep in ['ipam.project_detail','ipam.add_subnet','ipam.bulk_add_subnets',
+                             'ipam.edit_network','ipam.network_detail','ipam.add_ip','ipam.edit_ip',
+                             'ipam.manage_project_labels','ipam.manage_project_templates',
+                             'ipam.apply_template','ipam.confirm_slot','ipam.confirm_all_slots',
+                             'ipam.dismiss_slot','ipam.dismiss_all_slots'] %}
+{% set in_sites    = ep in ['ne.list_sites','ne.add_site','ne.edit_site','ne.site_detail','ne.bulk_add_sites'] %}
+{% set in_pods     = ep in ['ne.list_pods','ne.add_pod','ne.edit_pod','ne.pod_detail'] %}
+{% set in_netypes  = ep in ['ne.list_project_ne_types','ne.add_ne_type','ne.edit_ne_type','ne.delete_ne_type_route'] %}
+{% set in_schemas  = ep == 'ne.project_schemas' %}
+{% set in_reqs     = ep in ['ne.requirements','ne.push_requirement','ne.push_all_requirements'] %}
+{% set in_topology = ep == 'ne.topology_page' %}
+{% set in_bom      = ep in ['hw.project_bom','hw.generate_from_bom','hw.generate_all_from_bom'] %}
+{% set in_inv      = ep in ['hw.project_inventory','hw.add_hw_instance','hw.edit_hw_instance','hw.export_hw_inventory'] %}
+{% set in_racks    = ep in ['hw.rack_list','hw.rack_detail','hw.place_device','hw.remove_from_rack_route','hw.rack_table'] %}
+{% set in_cables   = ep in ['hw.cable_list','hw.add_cable','hw.edit_cable','hw.cable_trace'] %}
+{% set in_hwtmpls  = ep in ['hw.project_hw_templates_route','hw.add_hw_template','hw.edit_hw_template'] %}
+{% set in_validate = ep in ['hw.hw_validate','hw.api_hw_validate'] %}
+
+<div class="project-nav">
+  <div class="container d-flex align-items-center gap-1 py-1 flex-nowrap overflow-auto" style="scrollbar-width:none;-ms-overflow-style:none">
+
+    {# ── Project picker ── #}
+    <div class="dropdown flex-shrink-0 me-1">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle fw-semibold text-truncate"
+              style="max-width:180px" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        {{ g.current_project.name }}
+      </button>
+      <ul class="dropdown-menu shadow" style="max-height:300px;overflow-y:auto;min-width:200px">
+        {% for p in g.all_projects %}
+        <li>
+          <a class="dropdown-item{% if p.id == pid %} active{% endif %}"
+             href="{{ url_for('ipam.project_detail', pid=p.id) }}">{{ p.name }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="vr mx-1 flex-shrink-0"></div>
+
+    {# ── Section tabs ── #}
+    <a class="pnav-link{% if in_subnets %} pnav-active{% endif %}" href="{{ url_for('ipam.project_detail',           pid=pid) }}">Subnets</a>
+    <a class="pnav-link{% if in_sites   %} pnav-active{% endif %}" href="{{ url_for('ne.list_sites',                 pid=pid) }}">Sites</a>
+    <a class="pnav-link{% if in_pods    %} pnav-active{% endif %}" href="{{ url_for('ne.list_pods',                  pid=pid) }}">PODs</a>
+    <a class="pnav-link{% if in_netypes %} pnav-active{% endif %}" href="{{ url_for('ne.list_project_ne_types',      pid=pid) }}">NE Types</a>
+    <a class="pnav-link{% if in_schemas %} pnav-active{% endif %}" href="{{ url_for('ne.project_schemas',            pid=pid) }}">Schemas</a>
+    <a class="pnav-link{% if in_reqs    %} pnav-active{% endif %}" href="{{ url_for('ne.requirements',               pid=pid) }}">Requirements</a>
+    <a class="pnav-link{% if in_topology%} pnav-active{% endif %}" href="{{ url_for('ne.topology_page',              pid=pid) }}">Topology</a>
+    <a class="pnav-link{% if in_bom     %} pnav-active{% endif %}" href="{{ url_for('hw.project_bom',                pid=pid) }}">BoM</a>
+    <a class="pnav-link{% if in_inv     %} pnav-active{% endif %}" href="{{ url_for('hw.project_inventory',          pid=pid) }}">Inventory</a>
+    <a class="pnav-link{% if in_racks   %} pnav-active{% endif %}" href="{{ url_for('hw.rack_list',                  pid=pid) }}">Racks</a>
+    <a class="pnav-link{% if in_cables  %} pnav-active{% endif %}" href="{{ url_for('hw.cable_list',                 pid=pid) }}">Cables</a>
+    <a class="pnav-link{% if in_hwtmpls %} pnav-active{% endif %}" href="{{ url_for('hw.project_hw_templates_route', pid=pid) }}">HW Templates</a>
+    <a class="pnav-link{% if in_validate%} pnav-active{% endif %}" href="{{ url_for('hw.hw_validate',                pid=pid) }}">Validate</a>
+  </div>
+</div>
+{% endif %}

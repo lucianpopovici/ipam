@@ -1,7 +1,13 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}{% if inst %}Edit Instance{% else %}Add Instance{% endif %}{% endblock %}
 {% block content %}
-<div class="mb-2"><a href="{{ url_for('hw.project_inventory', pid=proj.id) }}" class="text-muted small">← Inventory</a></div>
+{{ breadcrumbs([
+  {'label': 'Projects',   'url': url_for('ipam.index')},
+  {'label': proj.name,    'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Inventory',  'url': url_for('hw.project_inventory', pid=proj.id)},
+  {'label': 'Edit: ' ~ inst.asset_tag if inst else 'Add Instance'}
+]) }}
 <h4 class="mb-3">{% if inst %}Edit: {{ inst.asset_tag }}{% else %}Add Hardware Instance{% endif %}</h4>
 
 <div class="row justify-content-center"><div class="col-md-6">

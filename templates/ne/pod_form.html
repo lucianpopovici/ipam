@@ -1,10 +1,14 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% from 'ne/_param_fields.html' import param_fields %}
 {% block title %}{% if pod %}Edit POD{% else %}Add POD{% endif %}{% endblock %}
 {% block content %}
-<div class="mb-2">
-  <a href="{{ url_for('ne.list_pods', pid=proj.id) }}" class="text-muted small">← PODs</a>
-</div>
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'PODs',     'url': url_for('ne.list_pods', pid=proj.id)},
+  {'label': 'Edit: ' ~ pod.name if pod else 'Add POD'}
+]) }}
 <h4 class="mb-3">{% if pod %}Edit: {{ pod.name }}{% else %}Add POD{% endif %}</h4>
 
 <div class="row justify-content-center"><div class="col-md-7">
