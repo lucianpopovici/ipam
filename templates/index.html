@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import confirm_delete %}
 {% block title %}Projects{% endblock %}
 {% block content %}
 
@@ -71,10 +72,11 @@
       <div class="card-footer d-flex gap-2">
         <a href="{{ url_for('ipam.project_detail', pid=p.id) }}" class="btn btn-sm btn-outline-primary flex-fill">View</a>
         {% if current_user.role == 'editor' %}
-        <form action="{{ url_for('ipam.delete_project', pid=p.id) }}" method="post"
-              onsubmit="return confirm('Delete project and all subnets?')">
-          <button class="btn btn-sm btn-outline-danger">Delete</button>
-        </form>
+        {{ confirm_delete(
+             url_for('ipam.delete_project', pid=p.id),
+             p.name,
+             url_for('ipam.project_impact', pid=p.id)
+           ) }}
         {% endif %}
       </div>
     </div>

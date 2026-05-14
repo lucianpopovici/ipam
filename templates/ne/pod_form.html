@@ -17,18 +17,19 @@
     <div class="card-body">
       <div class="mb-3">
         <label class="form-label">POD Name *</label>
-        <input type="text" name="name" class="form-control" required
-               value="{{ pod.name if pod else '' }}" placeholder="e.g. CORE-POD-1">
+        <input type="text" name="name" class="form-control {% if errors.name %}is-invalid{% endif %}" required
+               value="{{ form_values.name or (pod.name if pod else '') }}" placeholder="e.g. CORE-POD-1">
+        {% if errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
       </div>
       <div class="mb-3">
         <label class="form-label">Description</label>
         <input type="text" name="description" class="form-control"
-               value="{{ pod.description if pod else '' }}">
+               value="{{ form_values.description or (pod.description if pod else '') }}">
       </div>
       <div class="mb-3">
         <label class="form-label">Labels <span class="text-muted small">(comma-separated)</span></label>
         <input type="text" name="labels" class="form-control"
-               value="{{ (pod.labels if pod else []) | join(', ') }}">
+               value="{{ form_values.labels or ((pod.labels if pod else []) | join(', ')) }}">
       </div>
       {{ param_fields(schema, pod.params if pod else {}) }}
     </div>

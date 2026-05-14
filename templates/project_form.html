@@ -8,16 +8,25 @@
       <form method="post">
         <div class="mb-3">
           <label class="form-label">Project Name *</label>
-          <input type="text" name="name" class="form-control" required placeholder="e.g. EMEA Expansion Q3">
+          <input type="text" name="name" class="form-control {% if errors.name %}is-invalid{% endif %}"
+                 required placeholder="e.g. EMEA Expansion Q3"
+                 value="{{ form_values.name or '' }}">
+          {% if errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
         </div>
         <div class="mb-3">
           <label class="form-label">Supernet (parent CIDR) *</label>
-          <input type="text" name="supernet" class="form-control" required placeholder="e.g. 10.20.0.0/16">
+          <input type="text" name="supernet"
+                 class="form-control {% if errors.supernet %}is-invalid{% endif %}"
+                 required placeholder="e.g. 10.20.0.0/16"
+                 value="{{ form_values.supernet or '' }}"
+                 data-validate="ip-interface">
           <div class="form-text">All subnets in this project will be carved from this block.</div>
+          {% if errors.supernet %}<div class="invalid-feedback">{{ errors.supernet }}</div>{% endif %}
         </div>
         <div class="mb-3">
           <label class="form-label">Description</label>
-          <input type="text" name="description" class="form-control">
+          <input type="text" name="description" class="form-control"
+                 value="{{ form_values.description or '' }}">
         </div>
         <div class="d-flex gap-2">
           <button type="submit" class="btn btn-primary">Create Project</button>

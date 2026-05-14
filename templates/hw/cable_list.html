@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
 {% block title %}Cable Plant – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -68,8 +68,13 @@
   </div>
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No cables yet. <a href="{{ url_for('hw.add_cable', pid=proj.id) }}">Add one.</a>
-</div>
+{{ empty_state(
+  icon='🔗',
+  title='No cables yet',
+  body='Cables connect ports between hardware instances.
+        Define port types in HW Templates first, then add point-to-point cable records here.',
+  primary_action={'label': '+ Add Cable', 'url': url_for('hw.add_cable', pid=proj.id)},
+  secondary=[{'label': '🖥 HW Templates', 'url': url_for('hw.project_hw_templates_route', pid=proj.id)}]
+) }}
 {% endif %}
 {% endblock %}

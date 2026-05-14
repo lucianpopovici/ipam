@@ -126,7 +126,6 @@ async function pushSelected(){
 }
 
 async function pushAll(){
-  if(!confirm('Push ALL unpushed requirements to IPAM?')) return;
   await doPush({all:true});
 }
 

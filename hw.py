@@ -8,7 +8,7 @@ Covers: connector types, compatibility matrix, hardware templates,
 import json
 
 from flask import (Blueprint, render_template, request, jsonify,
-                   redirect, url_for, flash, abort)
+                   redirect, url_for, flash, abort, current_app)
 from flask_login import login_required
 
 from db import new_id
@@ -244,10 +244,34 @@ def generate_from_bom(pid):
 @hw_bp.route('/projects/<pid>/bom/generate-all', methods=['POST'])
 @editor_required
 def generate_all_from_bom(pid):
-    """Generate instances for all BoM lines."""
+    """Generate instances for all BoM lines. JSON POST triggers async job."""
     proj = get_project(pid)
     if not proj:
         abort(404)
+
+    if request.is_json:
+        from core.jobs import create_job, run_job, update_job
+        bom_snap = get_bom(pid)
+        job_id   = create_job()
+        app      = current_app._get_current_object()
+
+        def _work(job_id, pid, bom_snap):
+            total_items = len(bom_snap)
+            created_total = 0
+            for i, item in enumerate(bom_snap):
+                update_job(job_id, i, total_items, f'Processing item {i + 1}/{total_items}…')
+                try:
+                    created_total += len(generate_instances_from_bom_line(pid, item))
+                except ValueError:
+                    pass
+            update_job(job_id, total_items, total_items,
+                       f'{created_total} instance(s) generated', status='done',
+                       result={'created': created_total})
+
+        run_job(app, job_id, _work, pid, bom_snap)
+        return jsonify({'job_id': job_id})
+
+    # Sync path (form submit / tests)
     bom = get_bom(pid)
     total = 0
     for item in bom:

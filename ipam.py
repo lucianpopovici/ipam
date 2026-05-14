@@ -11,6 +11,7 @@ from db import r
 from hw_logic import (
     HW_INST_INDEX, get_hw_instance, get_hw_template, project_instances, get_rack_slots
 )
+from core.forms import form_errors
 
 ipam_bp = Blueprint('ipam', __name__, url_prefix='')
 
@@ -803,16 +804,20 @@ def manage_global_labels():
 def add_project():
     """Add a new project with a defined supernet."""
     if request.method == 'POST':
-        supernet = request.form['supernet'].strip()
-        if not validate_ip_interface(supernet):
-            flash('Invalid supernet CIDR.', 'danger')
-            return redirect(url_for('ipam.add_project'))
-        proj = {'id': new_id(), 'name': request.form['name'].strip(),
-                'supernet': supernet, 'description': request.form.get('description', '')}
+        name     = request.form.get('name', '').strip()
+        supernet = request.form.get('supernet', '').strip()
+        errors   = form_errors(
+            ('name',     bool(name),                  'Project name is required.'),
+            ('supernet', validate_ip_interface(supernet), 'Invalid supernet CIDR.'),
+        )
+        if errors:
+            return render_template('project_form.html', errors=errors, form_values=request.form)
+        proj = {'id': new_id(), 'name': name, 'supernet': supernet,
+                'description': request.form.get('description', '')}
         save_project(proj)
         flash(f'Project "{proj["name"]}" created.', 'success')
         return redirect(url_for('ipam.project_detail', pid=proj['id']))
-    return render_template('project_form.html')
+    return render_template('project_form.html', errors={}, form_values={})
 
 
 @ipam_bp.route('/projects/<pid>')
@@ -1557,3 +1562,78 @@ def search():
     results['projects'].sort(key=lambda p: p.get('name', ''))
 
     return render_template('search.html', results=results, q=q)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Validation API — /api/validate/<type>
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ipam_bp.route('/api/validate/cidr')
+def api_validate_cidr():
+    val = request.args.get('v', '').strip()
+    return jsonify({'ok': True} if validate_cidr(val) else {'ok': False, 'error': 'Invalid CIDR'})
+
+
+@ipam_bp.route('/api/validate/ip-interface')
+def api_validate_ip_interface():
+    val = request.args.get('v', '').strip()
+    return jsonify({'ok': True} if validate_ip_interface(val) else {'ok': False, 'error': 'Invalid IP/prefix'})
+
+
+@ipam_bp.route('/api/validate/prefix-in-supernet')
+def api_validate_prefix_in_supernet():
+    val      = request.args.get('v', '').strip()
+    supernet = request.args.get('supernet', '').strip()
+    if not validate_cidr(val):
+        return jsonify({'ok': False, 'error': 'Invalid CIDR'})
+    if supernet and validate_cidr(supernet):
+        try:
+            net = ipaddress.ip_network(val, strict=False)
+            sup = ipaddress.ip_network(supernet, strict=False)
+            if not net.subnet_of(sup):
+                return jsonify({'ok': False, 'error': f'Not within {supernet}'})
+        except (ValueError, TypeError):
+            pass
+    return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Jobs polling API — /api/jobs/<job_id>
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ipam_bp.route('/api/jobs/<job_id>')
+def api_get_job(job_id):
+    from core.jobs import get_job
+    job = get_job(job_id)
+    if not job: abort(404)
+    return jsonify(job)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Project impact + subnet bulk delete
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ipam_bp.route('/api/projects/<pid>/impact')
+def project_impact(pid):
+    proj = get_project(pid)
+    if not proj: abort(404)
+    nets = project_networks(pid)
+    cascades = []
+    if nets:
+        total_ips = sum(r.scard(net_ips_key(nid)) for nid in (n['id'] for n in nets))
+        n = len(nets)
+        cascades.append({'kind': 'delete', 'count': n,
+                         'what': f'{n} subnet{"s" if n != 1 else ""} ({total_ips} IPs) will be deleted'})
+    return jsonify({'label': proj['name'], 'cascades': cascades})
+
+
+@ipam_bp.route('/projects/<pid>/subnets/bulk-delete', methods=['POST'])
+@editor_required
+def bulk_delete_subnets(pid):
+    ids = (request.get_json(silent=True, force=True) or {}).get('ids', [])
+    for nid in ids:
+        net = get_network(nid)
+        if net and net.get('project_id') == pid:
+            _delete_network_data(nid)
+            r.srem(project_nets_key(pid), nid)
+    return jsonify({'deleted': len(ids)})

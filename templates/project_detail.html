@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card %}
+{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card, confirm_delete %}
 {% block title %}{{ proj.name }}{% endblock %}
 {% block content %}
 
@@ -139,10 +139,7 @@
         <a href="{{ url_for('ipam.network_detail', net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">IPs</a>
         {% if current_user.role == 'editor' %}
         <a href="{{ url_for('ipam.edit_network',   net_id=n.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-        <form class="d-inline" action="{{ url_for('ipam.delete_network', net_id=n.id) }}" method="post"
-              onsubmit="return confirm('Delete subnet {{ n.cidr }}?')">
-          <button class="btn btn-sm btn-outline-danger">Del</button>
-        </form>
+        {{ confirm_delete(url_for('ipam.delete_network', net_id=n.id), n.cidr) }}
         {% endif %}
       </td>
     </tr>

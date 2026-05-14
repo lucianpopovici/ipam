@@ -27,26 +27,30 @@
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Name *</label>
-          <input type="text" name="name" class="form-control" required
-                 value="{{ ne.name if ne else '' }}" placeholder="e.g. Firewall-VNF">
+          <input type="text" name="name" class="form-control {% if errors.name %}is-invalid{% endif %}" required
+                 value="{{ form_values.name or (ne.name if ne else '') }}" placeholder="e.g. Firewall-VNF">
+          {% if errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
         </div>
+        {% if errors.interfaces %}
+        <div class="alert alert-danger py-1 small">{{ errors.interfaces }}</div>
+        {% endif %}
         <div class="mb-3">
           <label class="form-label">Kind</label>
           <select name="kind" class="form-select">
             {% for k in ne_kinds %}
-            <option value="{{ k }}" {% if ne and ne.kind == k %}selected{% endif %}>{{ k }}</option>
+            <option value="{{ k }}" {% if (form_values.kind or (ne.kind if ne else '')) == k %}selected{% endif %}>{{ k }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="mb-3">
           <label class="form-label">Description</label>
           <input type="text" name="description" class="form-control"
-                 value="{{ ne.description if ne else '' }}">
+                 value="{{ form_values.description or (ne.description if ne else '') }}">
         </div>
         <div class="mb-3">
           <label class="form-label">Labels <span class="text-muted small">(comma-separated)</span></label>
           <input type="text" name="labels" id="labelsInput" class="form-control"
-                 value="{{ (ne.labels if ne else []) | join(', ') }}">
+                 value="{{ form_values.labels or ((ne.labels if ne else []) | join(', ')) }}">
         </div>
       </div>
     </div>

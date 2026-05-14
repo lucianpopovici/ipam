@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
 {% block title %}Racks – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -49,10 +49,13 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No rack instances yet. Add rack hardware in the
-  <a href="{{ url_for('hw.project_bom', pid=proj.id) }}">Bill of Materials</a>
-  and generate instances.
-</div>
+{{ empty_state(
+  icon='🗄',
+  title='No racks yet',
+  body='Racks are created from hardware instances with a "rack" template.
+        Add a rack template under HW Templates, include it in your BoM, and generate instances.',
+  primary_action={'label': '📋 Go to BoM', 'url': url_for('hw.project_bom', pid=proj.id)},
+  secondary=[{'label': '🖥 HW Templates', 'url': url_for('hw.project_hw_templates_route', pid=proj.id)}]
+) }}
 {% endif %}
 {% endblock %}

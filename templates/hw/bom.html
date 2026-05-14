@@ -10,10 +10,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <h4 class="mb-0">📋 Bill of Materials <small class="text-muted fs-6">{{ proj.name }}</small></h4>
   <div class="d-flex gap-2">
-    <form method="post" action="{{ url_for('hw.generate_all_from_bom', pid=proj.id) }}"
-          onsubmit="return confirm('Generate instances for all BoM lines?')">
-      <button class="btn btn-sm btn-success">⚡ Generate All Instances</button>
-    </form>
+    <button id="genAllBtn" class="btn btn-sm btn-success"
+            onclick="generateAllAsync('{{ url_for('hw.generate_all_from_bom', pid=proj.id) }}')">
+      ⚡ Generate All Instances
+    </button>
   </div>
 </div>
 
@@ -160,5 +160,48 @@ async function saveBom(){
 }
 
 render();
+
+async function generateAllAsync(url) {
+  const btn = document.getElementById('genAllBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({}),
+    });
+    const data = await resp.json();
+    if (data.job_id) {
+      btn.textContent = '⏳ Working…';
+      // Job polling is handled by base.html's job-polling script via data-job-id
+      // Insert a progress element
+      const prog = document.createElement('div');
+      prog.className = 'job-progress mt-2';
+      prog.dataset.jobId = data.job_id;
+      prog.innerHTML = '<div class="progress" style="height:6px"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:100%"></div></div><div class="small text-muted mt-1 job-message">Working…</div>';
+      btn.after(prog);
+      // Kick off polling manually (base.html only catches elements present at load time)
+      const msgEl = prog.querySelector('.job-message');
+      const bar   = prog.querySelector('.progress-bar');
+      function poll() {
+        fetch('/api/jobs/' + data.job_id).then(r=>r.json()).then(job => {
+          if (msgEl) msgEl.textContent = job.message || '';
+          if (bar && job.total > 0) bar.style.width = Math.round((job.progress/job.total)*100)+'%';
+          if (job.status === 'running') setTimeout(poll, 500);
+          else if (job.status === 'done') window.location.href = '{{ url_for('hw.project_inventory', pid=proj.id) }}';
+          else { btn.disabled=false; btn.textContent='⚡ Generate All Instances'; if(msgEl) msgEl.textContent='⚠ '+job.message; }
+        }).catch(()=>setTimeout(poll,2000));
+      }
+      poll();
+    } else {
+      window.location.reload();
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '⚡ Generate All Instances';
+    alert('Error: ' + e.message);
+  }
+}
 </script>
 {% endblock %}

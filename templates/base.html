@@ -161,7 +161,31 @@
   {% block content %}{% endblock %}
 </div>
 
+{# ── Shared delete confirmation modal ── #}
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-labelledby="deleteModalHeading" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="deleteModalHeading">Confirm deletion</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <p class="mb-2">Delete <strong id="deleteModalLabel"></strong>?</p>
+        <div id="deleteModalImpact"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form id="deleteModalForm" method="post" class="d-inline">
+          <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+/* ── addLabel helper (used by label pickers) ── */
 function addLabel(label, inputId) {
   inputId = inputId || 'labelsInput';
   const inp = document.getElementById(inputId);
@@ -169,7 +193,63 @@ function addLabel(label, inputId) {
   const existing = inp.value.split(',').map(s => s.trim()).filter(Boolean);
   if (!existing.includes(label)) { existing.push(label); inp.value = existing.join(', '); }
 }
+
+/* ── Impact-aware delete modal (shared across all pages) ── */
+const _deleteModal = document.getElementById('deleteModal');
+if (_deleteModal) {
+  _deleteModal.addEventListener('show.bs.modal', function (e) {
+    const btn = e.relatedTarget;
+    const label     = btn?.dataset.deleteLabel || '';
+    const url       = btn?.dataset.deleteUrl   || '';
+    const impactUrl = btn?.dataset.deleteImpact|| '';
+    _deleteModal.querySelector('#deleteModalLabel').textContent = label;
+    _deleteModal.querySelector('#deleteModalForm').action = url;
+    const impactEl = _deleteModal.querySelector('#deleteModalImpact');
+    impactEl.innerHTML = '';
+    if (impactUrl) {
+      impactEl.innerHTML = '<span class="text-muted small">Loading…</span>';
+      fetch(impactUrl)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.cascades?.length) {
+            impactEl.innerHTML = '<span class="text-muted small">No cascading effects.</span>';
+            return;
+          }
+          const shown = data.cascades.slice(0, 5);
+          const more  = data.cascades.length - shown.length;
+          impactEl.innerHTML = shown.map(c =>
+            `<div class="d-flex gap-2 align-items-center my-1">
+               <span class="badge bg-${c.kind === 'delete' ? 'danger' : 'warning'} text-dark">${c.kind}</span>
+               <span class="small">${c.count} — ${c.what}</span>
+             </div>`
+          ).join('') + (more ? `<div class="small text-muted mt-1">…and ${more} more</div>` : '');
+        })
+        .catch(() => { impactEl.innerHTML = '<span class="text-muted small">Impact info unavailable.</span>'; });
+    }
+  });
+}
+
+/* ── Job progress polling ── */
+document.querySelectorAll('[data-job-id]').forEach(function (el) {
+  const jobId = el.dataset.jobId;
+  const msgEl = el.querySelector('.job-message');
+  const bar   = el.querySelector('.progress-bar');
+  function poll() {
+    fetch('/api/jobs/' + jobId)
+      .then(r => r.json())
+      .then(job => {
+        if (msgEl) msgEl.textContent = job.message || '';
+        if (bar && job.total > 0) bar.style.width = Math.round((job.progress / job.total) * 100) + '%';
+        if (job.status === 'running') setTimeout(poll, 500);
+        else if (job.status === 'done') window.location.reload();
+        else if (job.status === 'error') { if (msgEl) msgEl.textContent = '⚠ ' + job.message; bar?.classList.replace('bg-primary','bg-danger'); }
+      })
+      .catch(() => setTimeout(poll, 2000));
+  }
+  poll();
+});
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/validate.js"></script>
+<script src="/static/js/bulk-actions.js"></script>
 </body>
 </html>

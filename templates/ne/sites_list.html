@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}Sites – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -16,11 +16,22 @@
 </div>
 
 {% if sites %}
+{# ── Bulk action bar ── #}
+<div class="bulk-action-bar bg-light border rounded p-2 mb-2 d-none d-flex gap-2 align-items-center">
+  <span class="selected-count fw-semibold">0</span> selected
+  <button class="btn btn-sm btn-outline-danger ms-2"
+          data-bulk-action="delete"
+          data-action-url="{{ url_for('ne.bulk_delete_sites', pid=proj.id) }}">
+    Delete selected
+  </button>
+</div>
+
 <div class="card shadow-sm">
   <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead class="table-light">
       <tr>
+        <th style="width:32px"><input type="checkbox" id="selectAll" class="form-check-input"></th>
         <th>Name</th>
         <th>Labels</th>
         <th>PODs assigned</th>
@@ -31,6 +42,7 @@
     <tbody>
       {% for site in sites %}
       <tr>
+        <td><input type="checkbox" class="form-check-input row-select" value="{{ site.id }}"></td>
         <td>
           <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}">
             <strong>{{ site.name }}</strong>
@@ -57,12 +69,13 @@
         </td>
         {% endfor %}
         <td class="text-end text-nowrap">
-          <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}"  class="btn btn-sm btn-outline-secondary">View</a>
-          <a href="{{ url_for('ne.edit_site',   pid=proj.id, sid=site.id) }}"  class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" action="{{ url_for('ne.delete_site_route', pid=proj.id, sid=site.id) }}" method="post"
-                onsubmit="return confirm('Delete site {{ site.name }}?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          <a href="{{ url_for('ne.site_detail', pid=proj.id, sid=site.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+          <a href="{{ url_for('ne.edit_site',   pid=proj.id, sid=site.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          {{ confirm_delete(
+               url_for('ne.delete_site_route', pid=proj.id, sid=site.id),
+               site.name,
+               url_for('ne.site_impact', sid=site.id)
+             ) }}
         </td>
       </tr>
       {% endfor %}
@@ -71,10 +84,16 @@
   </div>
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No sites yet.
-  <a href="{{ url_for('ne.add_site', pid=proj.id) }}">Add one</a> or
-  <a href="{{ url_for('ne.bulk_add_sites', pid=proj.id) }}">bulk create</a>.
-</div>
+{{ empty_state(
+  icon='📍',
+  title='No sites yet',
+  body='A site is a physical location (datacenter, PoP, office) that hosts one or more PODs.
+        Define site fields under Schemas first — region, country, tier — then add sites here.',
+  primary_action={'label': '+ Add Site', 'url': url_for('ne.add_site', pid=proj.id)},
+  secondary=[
+    {'label': '⚡ Bulk Create', 'url': url_for('ne.bulk_add_sites', pid=proj.id)},
+    {'label': '⚙ Configure Schema', 'url': url_for('ne.project_schemas', pid=proj.id)},
+  ]
+) }}
 {% endif %}
 {% endblock %}

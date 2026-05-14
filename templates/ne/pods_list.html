@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}PODs – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -13,11 +13,21 @@
 </div>
 
 {% if pods %}
+<div class="bulk-action-bar bg-light border rounded p-2 mb-2 d-none d-flex gap-2 align-items-center">
+  <span class="selected-count fw-semibold">0</span> selected
+  <button class="btn btn-sm btn-outline-danger ms-2"
+          data-bulk-action="delete"
+          data-action-url="{{ url_for('ne.bulk_delete_pods', pid=proj.id) }}">
+    Delete selected
+  </button>
+</div>
+
 <div class="card shadow-sm">
   <div class="table-responsive">
   <table class="table table-hover align-middle mb-0">
     <thead class="table-light">
       <tr>
+        <th style="width:32px"><input type="checkbox" id="selectAll" class="form-check-input"></th>
         <th>Name</th>
         <th>Labels</th>
         <th>NE Slots</th>
@@ -29,6 +39,7 @@
     <tbody>
       {% for pod in pods %}
       <tr>
+        <td><input type="checkbox" class="form-check-input row-select" value="{{ pod.id }}"></td>
         <td>
           <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}">
             <strong>{{ pod.name }}</strong>
@@ -60,10 +71,11 @@
         <td class="text-end text-nowrap">
           <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
           <a href="{{ url_for('ne.edit_pod',   pid=proj.id, pod_id=pod.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" action="{{ url_for('ne.delete_pod_route', pid=proj.id, pod_id=pod.id) }}" method="post"
-                onsubmit="return confirm('Delete POD {{ pod.name }}?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          {{ confirm_delete(
+               url_for('ne.delete_pod_route', pid=proj.id, pod_id=pod.id),
+               pod.name,
+               url_for('ne.pod_impact', pod_id=pod.id)
+             ) }}
         </td>
       </tr>
       {% endfor %}
@@ -72,8 +84,16 @@
   </div>
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No PODs yet. <a href="{{ url_for('ne.add_pod', pid=proj.id) }}">Create one.</a>
-</div>
+{{ empty_state(
+  icon='📦',
+  title='No PODs yet',
+  body='A POD (Point of Delivery) is a logical grouping of network elements deployed at one or more sites.
+        Add NE types first, then build PODs with NE slots to define your topology.',
+  primary_action={'label': '+ Add POD', 'url': url_for('ne.add_pod', pid=proj.id)},
+  secondary=[
+    {'label': 'Manage NE Types', 'url': url_for('ne.list_project_ne_types', pid=proj.id)},
+    {'label': '⚙ Configure Schema', 'url': url_for('ne.project_schemas', pid=proj.id)},
+  ]
+) }}
 {% endif %}
 {% endblock %}

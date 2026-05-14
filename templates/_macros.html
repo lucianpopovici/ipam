@@ -1,3 +1,41 @@
+{# ── Empty state ── #}
+{% macro empty_state(icon, title, body, primary_action, secondary=[]) %}
+<div class="text-center py-5 text-muted">
+  <div style="font-size:2.5rem">{{ icon }}</div>
+  <h6 class="mt-2 text-dark">{{ title }}</h6>
+  <p class="small mx-auto mb-3" style="max-width:30rem">{{ body }}</p>
+  <a href="{{ primary_action.url }}" class="btn btn-primary btn-sm">{{ primary_action.label }}</a>
+  {% for s in secondary %}
+  <a href="{{ s.url }}" class="btn btn-outline-secondary btn-sm ms-1">{{ s.label }}</a>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+
+{# ── Delete confirmation trigger ── #}
+{# Populates the shared #deleteModal in base.html via data-* attributes. #}
+{% macro confirm_delete(url, label, impact_url='') %}
+<button type="button" class="btn btn-sm btn-outline-danger"
+        data-bs-toggle="modal" data-bs-target="#deleteModal"
+        data-delete-url="{{ url }}"
+        data-delete-label="{{ label }}"
+        data-delete-impact="{{ impact_url }}">Del</button>
+{% endmacro %}
+
+
+{# ── Async job progress bar ── #}
+{# data-job-id triggers polling; shows a Bootstrap progress bar until done. #}
+{% macro job_progress(job_id) %}
+<div class="job-progress mt-2" data-job-id="{{ job_id }}">
+  <div class="progress" style="height:6px">
+    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+         style="width:100%"></div>
+  </div>
+  <div class="small text-muted mt-1 job-message">Working…</div>
+</div>
+{% endmacro %}
+
+
 {# ── Breadcrumb navigation ── #}
 {% macro breadcrumbs(items) %}
 <nav aria-label="breadcrumb" class="mb-2">

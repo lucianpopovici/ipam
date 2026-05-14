@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
 {% block title %}Inventory – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -82,12 +82,13 @@
   </div>
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No instances yet.
-  <a href="{{ url_for('hw.project_bom', pid=proj.id) }}">Build a BoM and generate them</a>
-  {% if current_user.role == 'editor' %}
-  or <a href="{{ url_for('hw.add_hw_instance', pid=proj.id) }}">add manually</a>.
-  {% endif %}
-</div>
+{{ empty_state(
+  icon='📦',
+  title='No hardware instances yet',
+  body='Instances are physical or virtual devices tracked in your inventory.
+        Build a Bill of Materials and generate instances in bulk, or add them one at a time.',
+  primary_action={'label': '📋 Build BoM', 'url': url_for('hw.project_bom', pid=proj.id)},
+  secondary=[{'label': '+ Add Manually', 'url': url_for('hw.add_hw_instance', pid=proj.id)}]
+) }}
 {% endif %}
 {% endblock %}

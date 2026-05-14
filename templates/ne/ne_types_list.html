@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}NE Types{% endblock %}
 {% block content %}
 {% if proj %}
@@ -58,10 +58,11 @@
   </div>
   <div class="card-footer d-flex gap-2 py-2">
     <a href="{{ url_for('ne.edit_ne_type', tid=ne.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">Edit</a>
-    <form action="{{ url_for('ne.delete_ne_type_route', tid=ne.id) }}" method="post"
-          onsubmit="return confirm('Delete NE type \'{{ ne.name }}\'?')">
-      <button class="btn btn-sm btn-outline-danger">Delete</button>
-    </form>
+    {{ confirm_delete(
+         url_for('ne.delete_ne_type_route', tid=ne.id),
+         ne.name,
+         url_for('ne.ne_type_impact', tid=ne.id)
+       ) }}
   </div>
 </div>
 {% endmacro %}
@@ -79,6 +80,13 @@
   {% for ne in global_types %}<div class="col-md-6">{{ ne_card(ne) }}</div>{% endfor %}
 </div>
 {% else %}
-<div class="text-center py-4 text-muted">No global NE types yet. <a href="{{ url_for('ne.add_ne_type') }}">Create one.</a></div>
+{{ empty_state(
+  icon='🔧',
+  title='No global NE types yet',
+  body='NE (Network Element) types define the logical roles in your network — routers, firewalls, switches, VNFs.
+        Each type carries interfaces (with optional IP requirements) and custom parameters from schemas.',
+  primary_action={'label': '+ Add NE Type', 'url': url_for('ne.add_ne_type')},
+  secondary=[]
+) }}
 {% endif %}
 {% endblock %}

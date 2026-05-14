@@ -8,6 +8,7 @@ import ipaddress, json, re, uuid, os, pathlib
 import yaml
 from db import r   # shared Redis connection
 import core.relations as relations
+from core.forms import form_errors
 
 # ── Load enums from config/app_config.yaml (fallback to hardcoded defaults) ──
 _cfg_path = pathlib.Path(__file__).parent / 'config' / 'app_config.yaml'
@@ -489,19 +490,28 @@ def list_ne_types():
 def add_ne_type(pid=None):
     """Add a new global or project-specific NE type."""
     from ipam import get_project
-    proj = get_project(pid) if pid else None
+    proj         = get_project(pid) if pid else None
+    ne_schema    = get_schema('ne', pid)
+    iface_schema = get_schema('interface', pid)
     if request.method == 'POST':
-        name = request.form.get('name','').strip()
-        if not name:
-            flash('Name is required.', 'danger')
-            return redirect(request.url)
+        name       = request.form.get('name','').strip()
         ifaces_raw = request.form.get('interfaces_json','[]')
         try:
             interfaces = json.loads(ifaces_raw)
+            iface_err  = None
         except json.JSONDecodeError as e:
-            flash(f'Invalid interfaces JSON: {e}', 'danger')
-            return redirect(request.url)
-        ne_schema = get_schema('ne', pid)
+            interfaces = []
+            iface_err  = str(e)
+        errors = form_errors(
+            ('name',       bool(name),      'Name is required.'),
+            ('interfaces', iface_err is None, f'Invalid interfaces JSON: {iface_err}'),
+        )
+        if errors:
+            return render_template('ne/ne_type_form.html', ne=None, proj=proj,
+                                   ne_schema=ne_schema, iface_schema=iface_schema,
+                                   ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
+                                   field_types=FIELD_TYPES,
+                                   errors=errors, form_values=request.form)
         ne = {
             'id':          new_id(),
             'name':        name,
@@ -517,12 +527,10 @@ def add_ne_type(pid=None):
         flash(f'NE Type "{name}" saved.', 'success')
         return redirect(url_for('ne.list_project_ne_types', pid=pid) if pid
                         else url_for('ne.list_ne_types'))
-    ne_schema    = get_schema('ne', pid)
-    iface_schema = get_schema('interface', pid)
     return render_template('ne/ne_type_form.html', ne=None, proj=proj,
                            ne_schema=ne_schema, iface_schema=iface_schema,
                            ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
-                           field_types=FIELD_TYPES)
+                           field_types=FIELD_TYPES, errors={}, form_values={})
 
 
 @ne_bp.route('/ne-types/<tid>/edit', methods=['GET','POST'])
@@ -532,17 +540,30 @@ def edit_ne_type(tid):
     from ipam import get_project
     ne = get_ne_type(tid)
     if not ne: abort(404)
-    pid  = ne.get('project_id') or None
-    proj = get_project(pid) if pid else None
+    pid          = ne.get('project_id') or None
+    proj         = get_project(pid) if pid else None
+    ne_schema    = get_schema('ne', pid)
+    iface_schema = get_schema('interface', pid)
     if request.method == 'POST':
         ifaces_raw = request.form.get('interfaces_json','[]')
         try:
             interfaces = json.loads(ifaces_raw)
+            iface_err  = None
         except json.JSONDecodeError as e:
-            flash(f'Invalid interfaces JSON: {e}', 'danger')
-            return redirect(request.url)
-        ne_schema = get_schema('ne', pid)
-        ne['name']        = request.form.get('name', ne['name']).strip()
+            interfaces = ne.get('interfaces', [])
+            iface_err  = str(e)
+        name   = request.form.get('name', ne['name']).strip()
+        errors = form_errors(
+            ('name',       bool(name),      'Name is required.'),
+            ('interfaces', iface_err is None, f'Invalid interfaces JSON: {iface_err}'),
+        )
+        if errors:
+            return render_template('ne/ne_type_form.html', ne=ne, proj=proj,
+                                   ne_schema=ne_schema, iface_schema=iface_schema,
+                                   ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
+                                   field_types=FIELD_TYPES,
+                                   errors=errors, form_values=request.form)
+        ne['name']        = name
         ne['kind']        = request.form.get('kind', ne['kind'])
         ne['description'] = request.form.get('description','')
         ne['labels']      = parse_labels(request.form.get('labels',''))
@@ -552,12 +573,10 @@ def edit_ne_type(tid):
         flash(f'NE Type "{ne["name"]}" updated.', 'success')
         return redirect(url_for('ne.list_project_ne_types', pid=pid) if pid
                         else url_for('ne.list_ne_types'))
-    ne_schema    = get_schema('ne', pid)
-    iface_schema = get_schema('interface', pid)
     return render_template('ne/ne_type_form.html', ne=ne, proj=proj,
                            ne_schema=ne_schema, iface_schema=iface_schema,
                            ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
-                           field_types=FIELD_TYPES)
+                           field_types=FIELD_TYPES, errors={}, form_values={})
 
 
 @ne_bp.route('/ne-types/<tid>/delete', methods=['POST'])
@@ -608,14 +627,15 @@ def list_sites(pid):
 def add_site(pid):
     """Add a new site to a project."""
     from ipam import get_project
-    proj = get_project(pid)
+    proj   = get_project(pid)
     if not proj: abort(404)
     schema = get_schema('site', pid)
     if request.method == 'POST':
-        name = request.form.get('name','').strip()
-        if not name:
-            flash('Site name is required.', 'danger')
-            return redirect(request.url)
+        name   = request.form.get('name','').strip()
+        errors = form_errors(('name', bool(name), 'Site name is required.'))
+        if errors:
+            return render_template('ne/site_form.html', proj=proj, site=None,
+                                   schema=schema, errors=errors, form_values=request.form)
         site = {
             'id':          new_id(),
             'name':        name,
@@ -627,7 +647,8 @@ def add_site(pid):
         save_site(site)
         flash(f'Site "{name}" created.', 'success')
         return redirect(url_for('ne.list_sites', pid=pid))
-    return render_template('ne/site_form.html', proj=proj, site=None, schema=schema)
+    return render_template('ne/site_form.html', proj=proj, site=None,
+                           schema=schema, errors={}, form_values={})
 
 
 @ne_bp.route('/projects/<pid>/sites/bulk', methods=['GET','POST'])
@@ -757,14 +778,15 @@ def list_pods(pid):
 def add_pod(pid):
     """Create a new POD in a project."""
     from ipam import get_project
-    proj = get_project(pid)
+    proj   = get_project(pid)
     if not proj: abort(404)
     schema = get_schema('pod', pid)
     if request.method == 'POST':
-        name = request.form.get('name','').strip()
-        if not name:
-            flash('POD name is required.', 'danger')
-            return redirect(request.url)
+        name   = request.form.get('name','').strip()
+        errors = form_errors(('name', bool(name), 'POD name is required.'))
+        if errors:
+            return render_template('ne/pod_form.html', proj=proj, pod=None,
+                                   schema=schema, errors=errors, form_values=request.form)
         pod = {
             'id':          new_id(),
             'name':        name,
@@ -776,7 +798,8 @@ def add_pod(pid):
         save_pod(pod)
         flash(f'POD "{name}" created.', 'success')
         return redirect(url_for('ne.list_pods', pid=pid))
-    return render_template('ne/pod_form.html', proj=proj, pod=None, schema=schema)
+    return render_template('ne/pod_form.html', proj=proj, pod=None,
+                           schema=schema, errors={}, form_values={})
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/edit', methods=['GET','POST'])
@@ -1046,3 +1069,87 @@ def push_requirements(pid):
             mark_pushed(pid, req['key'])
 
     return jsonify({'pushed': results, 'errors': errors})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Impact API — used by the confirm_delete modal
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ne_bp.route('/api/sites/<sid>/impact')
+def site_impact(sid):
+    """Return cascade effects of deleting a site."""
+    site = get_site(sid)
+    if not site: abort(404)
+    pods = site_pods(sid)
+    cascades = []
+    if pods:
+        n = len(pods)
+        cascades.append({'kind': 'detach', 'count': n,
+                         'what': f'{n} POD{"s" if n != 1 else ""} will be detached'})
+    return jsonify({'label': site['name'], 'cascades': cascades})
+
+
+@ne_bp.route('/api/pods/<pod_id>/impact')
+def pod_impact(pod_id):
+    """Return cascade effects of deleting a POD."""
+    pod = get_pod(pod_id)
+    if not pod: abort(404)
+    sites_ = pod_sites(pod_id)
+    slots  = get_pod_slots(pod_id)
+    cascades = []
+    if sites_:
+        n = len(sites_)
+        cascades.append({'kind': 'detach', 'count': n,
+                         'what': f'{n} site{"s" if n != 1 else ""} will lose this POD'})
+    if slots:
+        n = len(slots)
+        cascades.append({'kind': 'delete', 'count': n,
+                         'what': f'{n} NE slot{"s" if n != 1 else ""} will be deleted'})
+    return jsonify({'label': pod['name'], 'cascades': cascades})
+
+
+@ne_bp.route('/api/ne-types/<tid>/impact')
+def ne_type_impact(tid):
+    """Return cascade effects of deleting an NE type."""
+    ne = get_ne_type(tid)
+    if not ne: abort(404)
+    pid = ne.get('project_id') or None
+    slot_count = 0
+    if pid:
+        for pod_id in r.smembers(_proj_pods_key(pid)):
+            slot_count += sum(1 for s in get_pod_slots(pod_id) if s.get('ne_type_id') == tid)
+    cascades = []
+    if slot_count:
+        cascades.append({'kind': 'orphan', 'count': slot_count,
+                         'what': f'{slot_count} POD slot{"s" if slot_count != 1 else ""} will be orphaned'})
+    return jsonify({'label': ne['name'], 'cascades': cascades})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Bulk delete endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ne_bp.route('/projects/<pid>/sites/bulk-delete', methods=['POST'])
+@editor_required
+def bulk_delete_sites(pid):
+    """Delete multiple sites by ID."""
+    ids = request.get_json(silent=True, force=True) or {}
+    ids = ids.get('ids', [])
+    for sid in ids:
+        site = get_site(sid)
+        if site and site.get('project_id') == pid:
+            delete_site(sid)
+    return jsonify({'deleted': len(ids)})
+
+
+@ne_bp.route('/projects/<pid>/pods/bulk-delete', methods=['POST'])
+@editor_required
+def bulk_delete_pods(pid):
+    """Delete multiple PODs by ID."""
+    ids = request.get_json(silent=True, force=True) or {}
+    ids = ids.get('ids', [])
+    for pod_id in ids:
+        pod = get_pod(pod_id)
+        if pod and pod.get('project_id') == pid:
+            delete_pod(pod_id)
+    return jsonify({'deleted': len(ids)})
