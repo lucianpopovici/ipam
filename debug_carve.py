@@ -1,6 +1,3 @@
-import ipaddress
-import json
-import redis
 from ipam import carve_next_subnet, save_project, save_network, project_nets_key
 from db import r
 

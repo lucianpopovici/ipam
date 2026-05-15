@@ -1,12 +1,12 @@
+# pylint: disable=cyclic-import
 """
 Health and conflict detection engine.
 Consolidates checks for subnets, hardware, and logical requirements.
 """
 import ipaddress
-from db import r
 from ipam import project_networks, net_stats
 from ne import compute_requirements, load_requirements
-from hw_logic import project_instances, project_cables, validate_project
+from hw_logic import project_cables, validate_project
 
 def check_project_health(pid: str) -> list:
     """

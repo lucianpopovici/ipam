@@ -1,5 +1,4 @@
 from app import app
-from flask import url_for
 
 def test_login_redirection():
     app.config['TESTING'] = False

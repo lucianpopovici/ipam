@@ -1,5 +1,5 @@
 import json
-from auth import create_default_admin, User, load_user
+from auth import create_default_admin, load_user
 from db import r
 from werkzeug.security import check_password_hash
 

@@ -604,7 +604,7 @@ def trace_cable_path(cable_id: str) -> list:
     return path
 
 
-def _trace_direction(start_cable_id, start_end, seen_cables) -> list:
+def _trace_direction(start_cable_id, start_end, _seen_cables) -> list:
     """Helper to follow connections from one end of a cable."""
     current_cable = get_cable(start_cable_id)
     segment = []
@@ -643,13 +643,15 @@ def _trace_direction(start_cable_id, start_end, seen_cables) -> list:
         
         # Let's check if this port is connected to ANY OTHER cable.
         # (This would be an error in validation, but let's see)
-        next_cable_id = None
-        # We need to find if there's another cable connected to this device.
-        # BUT standard tracing follow the cable. We are ALREADY at the end of the cable.
-        # So we stop here unless we implement "internal cross-connects".
-        break 
+        # Standard tracing ends at the device port — no cross-connect implemented yet.
+        break
         
     return segment
+
+
+def used_ports(pid: str) -> dict:
+    """Public alias for _used_ports — return (instance_id, port_id) → cable_id."""
+    return _used_ports(pid)
 
 
 def _used_ports(pid: str) -> dict:
@@ -806,11 +808,11 @@ def validate_project(pid: str) -> list:
                 else:
                     occupied[u] = inst['asset_tag']
 
-        if max_power > 0 and total_power > max_power:
+        if 0 < max_power < total_power:
             issues.append(_issue('error', 'POWER_OVERFLOW',
                                  f'Rack {rack["asset_tag"]} power exceeded: {total_power}W > {max_power}W',
                                  {'rack': rack['id']}))
-        if max_weight > 0 and total_weight > max_weight:
+        if 0 < max_weight < total_weight:
             issues.append(_issue('error', 'WEIGHT_OVERFLOW',
                                  f'Rack {rack["asset_tag"]} weight exceeded: {total_weight}kg > {max_weight}kg',
                                  {'rack': rack['id']}))

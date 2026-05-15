@@ -57,11 +57,12 @@ def add_security_headers(response):
 @app.before_request
 def require_login():
     if app.config.get('TESTING'):
-        return
+        return None
     if request.endpoint and (request.endpoint in ('auth.login', 'static') or request.endpoint.startswith('api_v1.')):
-        return
+        return None
     if not current_user.is_authenticated:
         return redirect(url_for('auth.login'))
+    return None
 
 @app.template_filter('format_num')
 def format_num(value):

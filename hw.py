@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 """
 Hardware Management blueprint.
 Covers: connector types, compatibility matrix, hardware templates,
@@ -9,8 +10,6 @@ import json
 
 from flask import (Blueprint, render_template, request, jsonify,
                    redirect, url_for, flash, abort, current_app)
-from flask_login import login_required
-
 from db import new_id
 from ipam import get_project
 from auth import editor_required
@@ -258,7 +257,7 @@ def generate_all_from_bom(pid):
         from core.jobs import create_job, run_job, update_job
         bom_snap = get_bom(pid)
         job_id   = create_job()
-        app      = current_app._get_current_object()
+        app      = current_app._get_current_object()  # pylint: disable=protected-access
 
         def _work(job_id, pid, bom_snap):
             total_items = len(bom_snap)
@@ -532,7 +531,7 @@ def remove_from_rack_route(pid, rack_iid):
 
 @hw_bp.route('/api/projects/<pid>/hw/racks/<rack_iid>/place', methods=['POST'])
 @editor_required
-def api_place_device(pid, rack_iid):
+def api_place_device(pid, rack_iid):  # pylint: disable=unused-argument
     """JSON API for drag-and-drop placement."""
     data = request.get_json(force=True) or {}
     iid = data.get('instance_id', '')

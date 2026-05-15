@@ -7,8 +7,8 @@ from flask_smorest import Blueprint, abort
 from marshmallow import Schema, fields
 from db import r
 from ipam import (
-    all_networks, get_network, find_network_by_cidr, 
-    find_next_free_ip, claim_ip_atomic, get_ip, delete_ip
+    all_networks, find_network_by_cidr,
+    find_next_free_ip, claim_ip_atomic, get_ip,
 )
 
 api_v1_bp = Blueprint("api_v1", "api_v1", url_prefix="/api/v1", description="Standardized IPAM API")
@@ -101,7 +101,7 @@ def stream_updates():
             # In case of disconnection or error
             try:
                 pubsub.unsubscribe('ipam:updates')
-            except:
+            except Exception:  # pylint: disable=broad-except
                 pass
 
     return Response(event_stream(), mimetype="text/event-stream")

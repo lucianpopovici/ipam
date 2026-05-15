@@ -4,10 +4,13 @@ Covers: schemas, NE types, sites, PODs, and subnet requirement generation.
 """
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
 from auth import editor_required
-import ipaddress, json, re, uuid, os, pathlib
+import json
+import re
+import uuid
+import pathlib
 import yaml
 from db import r   # shared Redis connection
-import core.relations as relations
+from core import relations
 from core.forms import form_errors
 
 # ── Load enums from config/app_config.yaml (fallback to hardcoded defaults) ──
@@ -82,7 +85,7 @@ def save_schema(entity: str, fields: list, pid=None):
     """Save a schema to Redis."""
     r.set(_schema_key(entity, pid), json.dumps(fields))
 
-def new_field(name, label, field_type='text', required=False, options=None, default=''):
+def new_field(name, label, field_type='text', required=False, options=None, default=''):  # pylint: disable=too-many-positional-arguments
     """Create a new field definition."""
     return {
         'id':         str(uuid.uuid4())[:8],
@@ -291,7 +294,7 @@ def compute_requirements(pid: str) -> list:
     # keyed requirements for shared dedup
     shared_keys: dict = {}   # key → req record (shared ones appear once)
 
-    for site in sites:
+    for site in sites:  # pylint: disable=too-many-nested-blocks
         site_labels = set(site.get('labels', []))
         site_pods_list = site_pods(site['id'])
 
@@ -961,7 +964,7 @@ def pod_detail(pid, pod_id):
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/slots', methods=['POST'])
 @editor_required
-def update_pod_slots(pid, pod_id):
+def update_pod_slots(pid, pod_id):  # pylint: disable=unused-argument
     """Replace the NE slot list for a POD (posted as JSON)."""
     pod = get_pod(pod_id)
     if not pod: abort(404)
@@ -1123,8 +1126,8 @@ def push_requirements(pid):
     Push selected (or all) requirements to IPAM as subnets.
     Expects JSON: { "keys": ["key1","key2",...] }  or  { "all": true }
     """
-    from ipam import get_project, get_network, save_network as _save_net, \
-                    carve_next_subnet, add_labels_to_network, project_nets_key, new_id as _new_id
+    from ipam import (get_project, save_network as _save_net,
+                      carve_next_subnet, add_labels_to_network, project_nets_key, new_id as _new_id)
     proj = get_project(pid)
     if not proj: abort(404)
 
@@ -1158,10 +1161,8 @@ def push_requirements(pid):
                     'vlan':        '',
                     'project_id':  pid,
                 }
-                from ipam import save_network as _sn
-                from db import r as _r
-                _sn(net)
-                _r.sadd(project_nets_key(pid), net['id'])
+                _save_net(net)
+                r.sadd(project_nets_key(pid), net['id'])
                 add_labels_to_network(net['id'], req['labels'])
                 results.append({'cidr': cidr, 'labels': req['labels']})
             except ValueError as e:
@@ -1390,7 +1391,7 @@ def ne_instance_detail(pid, nid):
 def bind_iface(nid, iface_id):
     """Create or replace a binding on one NE iface (Workflows A and D)."""
     import datetime
-    import hw_logic, rules as rules_mod
+    import rules as rules_mod
 
     inst = get_ne_instance(nid) or abort(404)
     pid  = inst['project_id']
@@ -1481,7 +1482,7 @@ def unbind_iface(nid, iface_id):
 def rematerialize_iface(nid, iface_id):
     """Refresh the ports[] of an auto-rule binding."""
     import datetime
-    import hw_logic, rules as rules_mod
+    import rules as rules_mod
 
     inst = get_ne_instance(nid) or abort(404)
     pid  = inst['project_id']
@@ -1522,7 +1523,7 @@ def api_hw_free_ports(pid, hwid):
         return jsonify({'ports': []})
 
     type_filter = request.args.get('type', '')
-    used_cables = hw_logic._used_ports(pid)
+    used_cables = hw_logic.used_ports(pid)
 
     ports = []
     for port in tmpl.get('ports', []):

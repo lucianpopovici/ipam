@@ -5,7 +5,6 @@ import ipaddress
 import json
 import uuid
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort, make_response
-from flask_login import login_required
 from auth import editor_required
 from db import r
 from hw_logic import (
@@ -1453,8 +1452,6 @@ def export_networks():
     """Export all subnets to a CSV file."""
     import csv
     import io
-    from flask import make_response
-
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['ID', 'Name', 'CIDR', 'VLAN', 'Project', 'Template'])
@@ -1486,9 +1483,12 @@ def _redisearch_ips(q):
         # Check if index exists, if not create it
         try:
             r.ft("idx:ip").info()
-        except:
-            from redis.commands.search.field import TextField
-            from redis.commands.search.indexDefinition import IndexDefinition, IndexType
+        except Exception:  # RediSearch index may not exist yet
+            try:
+                from redis.commands.search.field import TextField  # type: ignore[import]
+                from redis.commands.search.indexDefinition import IndexDefinition, IndexType  # type: ignore[import]
+            except ImportError:
+                return None
             schema = (
                 TextField("$.ip", as_name="ip"),
                 TextField("$.hostname", as_name="hostname"),
@@ -1506,7 +1506,7 @@ def _redisearch_ips(q):
             addr['network'] = get_network(addr['network_id'])
             results.append(addr)
         return results
-    except Exception as e:
+    except Exception:  # pylint: disable=broad-except
         # Fallback to standard scan if RediSearch is not available
         return None
 
@@ -1536,7 +1536,6 @@ def search():
     results['ips'].sort(key=lambda a: ipaddress.ip_address(a['ip']))
 
     # 2. Search HW Instances
-    from hw_logic import get_hw_instance, get_hw_template, HW_INST_INDEX
     for iid in r.smembers(HW_INST_INDEX):
         inst = get_hw_instance(iid)
         if not inst:

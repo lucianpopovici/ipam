@@ -1,3 +1,4 @@
+# pylint: disable=cyclic-import
 """
 VMware External Connector — allocates IP addresses from designated IPAM subnets
 to VMware environments via a REST API, and provides a management UI.
