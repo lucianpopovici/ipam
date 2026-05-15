@@ -12,6 +12,7 @@
 {% set in_sites    = ep in ['ne.list_sites','ne.add_site','ne.edit_site','ne.site_detail','ne.bulk_add_sites'] %}
 {% set in_pods     = ep in ['ne.list_pods','ne.add_pod','ne.edit_pod','ne.pod_detail'] %}
 {% set in_netypes  = ep in ['ne.list_project_ne_types','ne.add_ne_type','ne.edit_ne_type','ne.delete_ne_type_route'] %}
+{% set in_neinsts  = ep in ['ne.list_ne_instances','ne.add_ne_instance','ne.edit_ne_instance','ne.ne_instance_detail','ne.bind_iface','ne.unbind_iface','ne.rematerialize_iface'] %}
 {% set in_schemas  = ep == 'ne.project_schemas' %}
 {% set in_reqs     = ep in ['ne.requirements','ne.push_requirement','ne.push_all_requirements'] %}
 {% set in_topology = ep == 'ne.topology_page' %}
@@ -48,6 +49,7 @@
     <a class="pnav-link{% if in_sites   %} pnav-active{% endif %}" href="{{ url_for('ne.list_sites',                 pid=pid) }}">Sites</a>
     <a class="pnav-link{% if in_pods    %} pnav-active{% endif %}" href="{{ url_for('ne.list_pods',                  pid=pid) }}">PODs</a>
     <a class="pnav-link{% if in_netypes %} pnav-active{% endif %}" href="{{ url_for('ne.list_project_ne_types',      pid=pid) }}">NE Types</a>
+    <a class="pnav-link{% if in_neinsts %} pnav-active{% endif %}" href="{{ url_for('ne.list_ne_instances',           pid=pid) }}">NE Instances</a>
     <a class="pnav-link{% if in_schemas %} pnav-active{% endif %}" href="{{ url_for('ne.project_schemas',            pid=pid) }}">Schemas</a>
     <a class="pnav-link{% if in_reqs    %} pnav-active{% endif %}" href="{{ url_for('ne.requirements',               pid=pid) }}">Requirements</a>
     <a class="pnav-link{% if in_topology%} pnav-active{% endif %}" href="{{ url_for('ne.topology_page',              pid=pid) }}">Topology</a>

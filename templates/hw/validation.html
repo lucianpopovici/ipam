@@ -55,6 +55,16 @@
   'FORM_FACTOR_MISMATCH':  'Device form factor is incompatible with the rack form factor.',
   'NOT_FOUND':             'Referenced rack or device instance not found.',
   'TEMPLATE_NOT_FOUND':    'Hardware template not found for an instance.',
+  'NE_PORT_DOUBLE_BOUND':  'The same (hw_instance, port) appears in two different NE iface bindings.',
+  'NE_PORT_NOT_FOUND':     'A binding references a port_id that does not exist in the HW template.',
+  'NE_PORT_TYPE_MISMATCH': 'An NE iface labeled "data" is bound to a "mgmt" port or vice versa.',
+  'NE_LAG_SINGLE_PORT':    'A bind_mode=lag binding has only one port in ports[].',
+  'NE_LAG_SPEED_MISMATCH': 'LAG members have different speed_gbps values.',
+  'NE_LAG_MIXED_HOSTS':    'LAG spans multiple HW instances (probably MC-LAG; may be intentional).',
+  'NE_RULE_EXPLICIT_OVERLAP': 'An auto-rule match was excluded because the port is explicitly bound to another iface.',
+  'NE_RULE_NO_MATCH':      'An auto-rule binding is defined but matched zero ports on current inventory.',
+  'NE_RULE_UNRACKED_PORT': 'An auto-rule with group_by=rack matched a port whose HW instance has no rack placement.',
+  'NE_RULE_STALE':         'HW inventory changed since the auto-rule was last materialized — click ↺ to refresh.',
 } %}
 
 {% for severity, label, cls in [('error','Errors','danger'),('warning','Warnings','warning'),('info','Info','info')] %}

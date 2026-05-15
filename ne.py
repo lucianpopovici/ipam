@@ -56,7 +56,8 @@ def _proj_netypes_key(pid):
     """Return the Redis key for project NE types."""
     return f'project:{pid}:ne_types'
 
-NE_TYPES_INDEX = 'ne_types:index'
+NE_TYPES_INDEX  = 'ne_types:index'
+NE_INSTS_INDEX  = 'ne:instances:index'
 ENTITY_TYPES   = tuple(_cfg.get('entity_types',   ('site', 'pod', 'ne', 'interface')))
 NE_KINDS       = tuple(_cfg.get('ne_kinds',        ('CNF', 'VNF', 'PNF', 'VM', 'Container')))
 SHARING_LEVELS = tuple(_cfg.get('sharing_levels',  ('project', 'site', 'pod', 'ne', 'interface')))
@@ -383,6 +384,106 @@ def mark_pushed(pid: str, req_key: str):
         if req['key'] == req_key:
             req['pushed'] = True
     save_requirements(pid, reqs)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NE Instance model
+# Each NE instance is a deployed instance of an NE type within a project.
+# Redis key: ne:instance:{nid}  — JSON  {id, ne_type_id, project_id,
+#   name, description, labels, params, iface_bindings}
+# iface_bindings: {iface_id: {bind_mode, ports[], rule?, lag_id?, rule_materialized_at?}}
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _ne_inst_key(nid):      return f'ne:instance:{nid}'
+def _proj_ne_insts_key(pid): return f'project:{pid}:ne_instances'
+
+
+def get_ne_instance(nid):
+    """Retrieve a NE instance by ID."""
+    from db import redis_get
+    return redis_get(_ne_inst_key(nid))
+
+
+def save_ne_instance(inst: dict) -> dict:
+    """Persist a NE instance and keep the port-bound index in sync."""
+    import hw_logic
+    from db import redis_save
+    nid = inst['id']
+    # Diff against the old bindings to update the port-bound index
+    old = get_ne_instance(nid) or {}
+    old_bindings = old.get('iface_bindings', {})
+    new_bindings = inst.get('iface_bindings', {})
+
+    # Collect old bound ports for this NE instance
+    old_ports = {
+        (p['hw_instance_id'], p['port_id'])
+        for b in old_bindings.values()
+        for p in b.get('ports', [])
+    }
+    # Collect new bound ports
+    new_ports = {
+        (p['hw_instance_id'], p['port_id'])
+        for b in new_bindings.values()
+        for p in b.get('ports', [])
+    }
+    # Release ports no longer bound
+    for iid, port_id in old_ports - new_ports:
+        hw_logic.clear_port_bound(iid, port_id)
+    # Register newly bound ports
+    for iface_id, binding in new_bindings.items():
+        for p in binding.get('ports', []):
+            if (p['hw_instance_id'], p['port_id']) not in old_ports:
+                hw_logic.set_port_bound(
+                    p['hw_instance_id'], p['port_id'],
+                    nid, iface_id, binding.get('bind_mode', 'single'),
+                )
+    redis_save(_ne_inst_key(nid), inst)
+    r.sadd(NE_INSTS_INDEX, nid)
+    r.sadd(_proj_ne_insts_key(inst['project_id']), nid)
+    return inst
+
+
+def delete_ne_instance(nid: str):
+    """Delete a NE instance and clean up the port-bound index."""
+    import hw_logic
+    from db import redis_delete
+    inst = get_ne_instance(nid)
+    if not inst:
+        return
+    for binding in inst.get('iface_bindings', {}).values():
+        for p in binding.get('ports', []):
+            hw_logic.clear_port_bound(p['hw_instance_id'], p['port_id'])
+    r.srem(NE_INSTS_INDEX, nid)
+    r.srem(_proj_ne_insts_key(inst['project_id']), nid)
+    redis_delete(_ne_inst_key(nid))
+
+
+def project_ne_instances(pid: str) -> list:
+    """Return all NE instances in a project, sorted by name."""
+    from db import redis_all
+    return redis_all(_proj_ne_insts_key(pid), get_ne_instance,
+                     sort_key=lambda x: x.get('name', ''))
+
+
+def ne_instance_with_type(nid: str) -> dict | None:
+    """Return a NE instance enriched with its NE type dict."""
+    inst = get_ne_instance(nid)
+    if not inst:
+        return None
+    ne_type = get_ne_type(inst.get('ne_type_id', ''))
+    return {**inst, 'ne_type': ne_type}
+
+
+def _collect_excluded_ports(project_id: str, skip_nid: str) -> set:
+    """Return set of (iid, port_id) explicitly bound by OTHER NE instances."""
+    excluded = set()
+    for inst in project_ne_instances(project_id):
+        if inst['id'] == skip_nid:
+            continue
+        for binding in inst.get('iface_bindings', {}).values():
+            if binding.get('bind_mode') in ('single', 'lag', 'active-passive'):
+                for p in binding.get('ports', []):
+                    excluded.add((p['hw_instance_id'], p['port_id']))
+    return excluded
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Utility
@@ -1153,3 +1254,350 @@ def bulk_delete_pods(pid):
         if pod and pod.get('project_id') == pid:
             delete_pod(pod_id)
     return jsonify({'deleted': len(ids)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NE Instance routes
+# ══════════════════════════════════════════════════════════════════════════════
+
+@ne_bp.route('/projects/<pid>/ne-instances')
+def list_ne_instances(pid):
+    from ipam import get_project
+    proj = get_project(pid) or abort(404)
+    instances = project_ne_instances(pid)
+    # Enrich each with its NE type
+    enriched = []
+    for inst in instances:
+        ne_type = get_ne_type(inst.get('ne_type_id', ''))
+        enriched.append({**inst, 'ne_type': ne_type})
+    return render_template('ne/ne_instances_list.html', proj=proj,
+                           instances=enriched)
+
+
+@ne_bp.route('/projects/<pid>/ne-instances/add', methods=['GET', 'POST'])
+@editor_required
+def add_ne_instance(pid):
+    from ipam import get_project
+    proj = get_project(pid) or abort(404)
+    ne_types = available_ne_types(pid)
+    all_types = ne_types['global'] + ne_types['project']
+    errors, form_values = {}, {}
+
+    if request.method == 'POST':
+        name      = request.form.get('name', '').strip()
+        ne_type_id = request.form.get('ne_type_id', '').strip()
+        description = request.form.get('description', '').strip()
+        labels    = parse_labels(request.form.get('labels', ''))
+        form_values = request.form
+
+        errors = form_errors(
+            ('name',       bool(name),       'Name is required.'),
+            ('ne_type_id', bool(ne_type_id), 'NE type is required.'),
+        )
+        if not errors:
+            inst = {
+                'id':           new_id(),
+                'ne_type_id':   ne_type_id,
+                'project_id':   pid,
+                'name':         name,
+                'description':  description,
+                'labels':       labels,
+                'params':       {},
+                'iface_bindings': {},
+            }
+            save_ne_instance(inst)
+            flash(f'NE instance "{name}" created.', 'success')
+            return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=inst['id']))
+
+    return render_template('ne/ne_instance_form.html', proj=proj,
+                           ne_types=all_types, errors=errors,
+                           form_values=form_values)
+
+
+@ne_bp.route('/projects/<pid>/ne-instances/<nid>/edit', methods=['GET', 'POST'])
+@editor_required
+def edit_ne_instance(pid, nid):
+    from ipam import get_project
+    proj = get_project(pid) or abort(404)
+    inst = get_ne_instance(nid) or abort(404)
+    errors, form_values = {}, {}
+
+    if request.method == 'POST':
+        name        = request.form.get('name', '').strip()
+        description = request.form.get('description', '').strip()
+        labels      = parse_labels(request.form.get('labels', ''))
+        form_values = request.form
+
+        errors = form_errors(
+            ('name', bool(name), 'Name is required.'),
+        )
+        if not errors:
+            inst = {**inst, 'name': name, 'description': description,
+                    'labels': labels}
+            save_ne_instance(inst)
+            flash(f'NE instance "{name}" updated.', 'success')
+            return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    return render_template('ne/ne_instance_form.html', proj=proj, inst=inst,
+                           ne_types=[], errors=errors, form_values=form_values)
+
+
+@ne_bp.route('/projects/<pid>/ne-instances/<nid>/delete', methods=['POST'])
+@editor_required
+def delete_ne_instance_route(pid, nid):
+    inst = get_ne_instance(nid) or abort(404)
+    delete_ne_instance(nid)
+    flash(f'NE instance "{inst["name"]}" deleted.', 'success')
+    return redirect(url_for('ne.list_ne_instances', pid=pid))
+
+
+@ne_bp.route('/projects/<pid>/ne-instances/<nid>')
+def ne_instance_detail(pid, nid):
+    from ipam import get_project
+    import hw_logic
+    proj = get_project(pid) or abort(404)
+    inst = get_ne_instance(nid) or abort(404)
+    ne_type = get_ne_type(inst.get('ne_type_id', '')) or {}
+    ifaces = ne_type.get('interfaces', [])
+
+    # Build iface → binding map with enrichment
+    bindings = {}
+    for iface in ifaces:
+        iid = iface['id']
+        binding = inst.get('iface_bindings', {}).get(iid, {})
+        # Enrich ports with asset tags
+        enriched_ports = []
+        for p in binding.get('ports', []):
+            hw_inst = hw_logic.get_hw_instance(p['hw_instance_id'])
+            enriched_ports.append({
+                **p,
+                'asset_tag': hw_inst.get('asset_tag', p['hw_instance_id']) if hw_inst else '?',
+            })
+        bindings[iid] = {**binding, 'enriched_ports': enriched_ports}
+
+    # HW instances in project for the bind modal
+    hw_instances = hw_logic.project_instances(pid)
+
+    return render_template('ne/ne_instance_detail.html', proj=proj, inst=inst,
+                           ne_type=ne_type, ifaces=ifaces, bindings=bindings,
+                           hw_instances=hw_instances)
+
+
+# ── Binding routes ─────────────────────────────────────────────────────────────
+
+@ne_bp.route('/ne-instances/<nid>/bindings/<iface_id>', methods=['POST'])
+@editor_required
+def bind_iface(nid, iface_id):
+    """Create or replace a binding on one NE iface (Workflows A and D)."""
+    import datetime
+    import hw_logic, rules as rules_mod
+
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+    ne_type = get_ne_type(inst.get('ne_type_id', ''))
+    if not ne_type:
+        abort(404)
+
+    iface_map = {i['id']: i for i in ne_type.get('interfaces', [])}
+    if iface_id not in iface_map:
+        abort(404)
+
+    bind_mode = request.form.get('bind_mode', 'single')
+
+    if bind_mode == 'auto-rule':
+        # Workflow D — parse rule, materialize
+        try:
+            rule = json.loads(request.form.get('rule_json', '{}'))
+        except (json.JSONDecodeError, ValueError):
+            flash('Invalid rule JSON.', 'danger')
+            return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+        excluded = _collect_excluded_ports(pid, nid)
+        ports = rules_mod.materialize_binding(rule, pid, excluded)
+        binding = {
+            'bind_mode':             'auto-rule',
+            'rule':                  rule,
+            'rule_materialized_at':  datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'ports':                 ports,
+        }
+    else:
+        # Workflow A — explicit port selection
+        try:
+            ports_raw = json.loads(request.form.get('ports_json', '[]'))
+        except (json.JSONDecodeError, ValueError):
+            ports_raw = []
+
+        lag_id = request.form.get('lag_id', '')
+
+        # Check for conflicts with other NE instances
+        excluded = _collect_excluded_ports(pid, nid)
+        conflicts = []
+        for p in ports_raw:
+            key = (p.get('hw_instance_id', ''), p.get('port_id', ''))
+            if key in excluded:
+                conflicts.append(f"{key[0]}/{key[1]}")
+
+        if conflicts:
+            flash(f'Port(s) already bound: {", ".join(conflicts[:3])}', 'danger')
+            return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+        ports = [{'hw_instance_id': p['hw_instance_id'],
+                  'port_id':        p['port_id'],
+                  'role':           p.get('role', 'primary'),
+                  'bucket':         []}
+                 for p in ports_raw]
+
+        binding = {'bind_mode': bind_mode, 'ports': ports}
+        if lag_id:
+            binding['lag_id'] = lag_id
+
+    # Replace the iface binding and save
+    iface_bindings = dict(inst.get('iface_bindings', {}))
+    iface_bindings[iface_id] = binding
+    inst = {**inst, 'iface_bindings': iface_bindings}
+    save_ne_instance(inst)
+
+    iface_name = iface_map.get(iface_id, {}).get('name', iface_id)
+    flash(f'Binding for iface "{iface_name}" saved ({bind_mode}).', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+@ne_bp.route('/ne-instances/<nid>/bindings/<iface_id>/delete', methods=['POST'])
+@editor_required
+def unbind_iface(nid, iface_id):
+    """Remove a binding from one NE iface."""
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+    iface_bindings = dict(inst.get('iface_bindings', {}))
+    iface_bindings.pop(iface_id, None)
+    inst = {**inst, 'iface_bindings': iface_bindings}
+    save_ne_instance(inst)
+    flash('Binding removed.', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+@ne_bp.route('/ne-instances/<nid>/bindings/<iface_id>/rematerialize', methods=['POST'])
+@editor_required
+def rematerialize_iface(nid, iface_id):
+    """Refresh the ports[] of an auto-rule binding."""
+    import datetime
+    import hw_logic, rules as rules_mod
+
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+    binding = inst.get('iface_bindings', {}).get(iface_id)
+    if not binding or binding.get('bind_mode') != 'auto-rule':
+        flash('Not an auto-rule binding.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    excluded = _collect_excluded_ports(pid, nid)
+    ports = rules_mod.materialize_binding(binding['rule'], pid, excluded)
+    binding = {
+        **binding,
+        'ports':                ports,
+        'rule_materialized_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    iface_bindings = {**inst.get('iface_bindings', {}), iface_id: binding}
+    save_ne_instance({**inst, 'iface_bindings': iface_bindings})
+    flash(f'Auto-rule rematerialized: {len(ports)} port(s) matched.', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+# ── API endpoints ─────────────────────────────────────────────────────────────
+
+@ne_bp.route('/api/projects/<pid>/hw/<hwid>/free-ports')
+def api_hw_free_ports(pid, hwid):
+    """
+    List all ports on a HW instance with their binding/cable status.
+    Used by the bind modal picker (Workflow A).
+    Query param: ?type=<port_type> to filter.
+    """
+    import hw_logic
+    inst = hw_logic.get_hw_instance(hwid)
+    if not inst or inst.get('project_id') != pid:
+        return jsonify({'error': 'not found'}), 404
+
+    tmpl = hw_logic.get_hw_template(inst['template_id']) if inst.get('template_id') else None
+    if not tmpl:
+        return jsonify({'ports': []})
+
+    type_filter = request.args.get('type', '')
+    used_cables = hw_logic._used_ports(pid)
+
+    ports = []
+    for port in tmpl.get('ports', []):
+        if type_filter and port.get('port_type') != type_filter:
+            continue
+        count = int(port.get('count', 1))
+        for n in range(count):
+            pid_ = port['id']
+            pname = port['name'] if count == 1 else f"{port['name']}-{n}"
+            bound = hw_logic.get_port_bound(hwid, pid_)
+            cabled = (hwid, pid_) in used_cables
+            ports.append({
+                'port_id':    pid_,
+                'name':       pname,
+                'port_type':  port.get('port_type', ''),
+                'connector':  port.get('connector', ''),
+                'is_bound':   bool(bound),
+                'bound_to':   bound,
+                'is_cabled':  cabled,
+            })
+
+    return jsonify({'hw_instance_id': hwid, 'asset_tag': inst.get('asset_tag', ''),
+                    'ports': ports})
+
+
+@ne_bp.route('/api/projects/<pid>/hw/<hwid>/bindings')
+def api_hw_bindings(pid, hwid):
+    """Return NE bindings for a HW instance (read-only HW-side view)."""
+    import hw_logic
+    inst = hw_logic.get_hw_instance(hwid)
+    if not inst or inst.get('project_id') != pid:
+        return jsonify({'error': 'not found'}), 404
+    bindings = hw_logic.hw_instance_bindings(hwid)
+    # Enrich with NE instance names
+    enriched = []
+    for b in bindings:
+        ne_inst = get_ne_instance(b['ne_instance_id'])
+        enriched.append({
+            **b,
+            'ne_name': ne_inst.get('name', b['ne_instance_id']) if ne_inst else '?',
+        })
+    return jsonify({'bindings': enriched})
+
+
+@ne_bp.route('/api/projects/<pid>/rules/preview', methods=['POST'])
+def api_rules_preview(pid):
+    """
+    Preview Workflow D rule without committing.
+    Body: {rule: {...}, exclude_nid: '...' (optional)}
+    """
+    import rules as rules_mod
+    body = request.get_json(silent=True, force=True) or {}
+    rule = body.get('rule', {})
+    exclude_nid = body.get('exclude_nid', '')
+
+    if not isinstance(rule, dict):
+        return jsonify({'error': 'rule must be a JSON object'}), 400
+
+    excluded = _collect_excluded_ports(pid, exclude_nid) if exclude_nid else set()
+    summary = rules_mod.preview_binding(rule, pid, excluded)
+    return jsonify(summary)
+
+
+@ne_bp.route('/api/ne-instances/<nid>/impact')
+def ne_instance_impact(nid):
+    """Return cascade info for delete-confirm modal."""
+    inst = get_ne_instance(nid)
+    if not inst:
+        abort(404)
+    n_bindings = sum(
+        1 for b in inst.get('iface_bindings', {}).values()
+        if b.get('ports')
+    )
+    cascades = []
+    if n_bindings:
+        cascades.append({'kind': 'detach', 'count': n_bindings,
+                         'what': f'{n_bindings} iface binding(s) will be released'})
+    return jsonify({'label': inst['name'], 'cascades': cascades})

@@ -259,7 +259,67 @@ def delete_hw_instance(iid):
     # Remove from rack if placed
     if inst.get('location', {}).get('rack_id'):
         _remove_from_rack(inst['location']['rack_id'], iid)
+    # Clean up NE-HW port-bound index for this instance
+    bound = r.hgetall(_bound_ports_key(iid))
+    for port_id in bound:
+        r.delete(_port_bound_key(iid, port_id))
+    r.delete(_bound_ports_key(iid))
     redis_delete(_inst_key(iid))
+
+
+# ── NE-HW port-bound index ────────────────────────────────────────────────────
+
+def _port_bound_key(iid: str, port_id: str) -> str:
+    return f'hw:port_bound:{iid}:{port_id}'
+
+
+def _bound_ports_key(iid: str) -> str:
+    return f'hw:instance:{iid}:bound_ports'
+
+
+def set_port_bound(iid: str, port_id: str,
+                   ne_instance_id: str, iface_id: str, bind_mode: str):
+    """Record that (iid, port_id) is bound to an NE iface."""
+    payload = json.dumps({
+        'ne_instance_id': ne_instance_id,
+        'iface_id':       iface_id,
+        'bind_mode':      bind_mode,
+    })
+    r.set(_port_bound_key(iid, port_id), ne_instance_id)
+    r.hset(_bound_ports_key(iid), port_id, payload)
+
+
+def clear_port_bound(iid: str, port_id: str):
+    """Remove a port-bound index entry."""
+    r.delete(_port_bound_key(iid, port_id))
+    r.hdel(_bound_ports_key(iid), port_id)
+
+
+def get_port_bound(iid: str, port_id: str) -> dict | None:
+    """Return binding info dict for (iid, port_id) or None if free."""
+    raw = r.hget(_bound_ports_key(iid), port_id)
+    return json.loads(raw) if raw else None
+
+
+def hw_instance_bindings(iid: str) -> list:
+    """
+    Return all NE iface bindings covering ports on this HW instance.
+    Each item: {port_id, ne_instance_id, iface_id, bind_mode}.
+    Uses the cached hw:instance:{iid}:bound_ports hash — O(1).
+    """
+    result = []
+    for port_id, payload in r.hgetall(_bound_ports_key(iid)).items():
+        try:
+            info = json.loads(payload)
+        except Exception:
+            continue
+        result.append({
+            'port_id':        port_id,
+            'ne_instance_id': info.get('ne_instance_id', ''),
+            'iface_id':       info.get('iface_id', ''),
+            'bind_mode':      info.get('bind_mode', 'single'),
+        })
+    return result
 
 
 def project_instances(pid, category=None) -> list:

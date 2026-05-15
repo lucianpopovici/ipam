@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{% if inst %}Edit NE Instance{% else %}New NE Instance{% endif %}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',     'url': url_for('ipam.index')},
+  {'label': proj.name,      'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'NE Instances', 'url': url_for('ne.list_ne_instances', pid=proj.id)},
+  {'label': 'Edit: ' ~ inst.name if inst else 'New NE Instance'}
+]) }}
+<h4 class="mb-3">{% if inst %}Edit: {{ inst.name }}{% else %}New NE Instance{% endif %}</h4>
+
+<div class="row justify-content-center"><div class="col-md-6">
+<form method="post">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      {% if not inst %}
+      <div class="mb-3">
+        <label class="form-label">NE Type *</label>
+        <select name="ne_type_id" class="form-select {% if errors.ne_type_id %}is-invalid{% endif %}" required>
+          <option value="">— select —</option>
+          {% for t in ne_types %}
+          <option value="{{ t.id }}"
+            {% if (form_values.ne_type_id or '') == t.id %}selected{% endif %}>
+            [{{ t.kind }}] {{ t.name }}
+          </option>
+          {% endfor %}
+        </select>
+        {% if errors.ne_type_id %}<div class="invalid-feedback">{{ errors.ne_type_id }}</div>{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="mb-3">
+        <label class="form-label">Name *</label>
+        <input type="text" name="name"
+               class="form-control {% if errors.name %}is-invalid{% endif %}"
+               value="{{ form_values.name or (inst.name if inst else '') }}"
+               placeholder="e.g. pe-lon-01" required>
+        {% if errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <input type="text" name="description" class="form-control"
+               value="{{ form_values.description or (inst.description if inst else '') }}">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Labels <small class="text-muted">(comma-separated)</small></label>
+        <input type="text" name="labels" class="form-control"
+               value="{{ form_values.labels or ((inst.labels | join(', ')) if inst else '') }}"
+               placeholder="e.g. core, pe, london">
+      </div>
+    </div>
+    <div class="card-footer d-flex gap-2">
+      <button type="submit" class="btn btn-primary">{% if inst %}Update{% else %}Create{% endif %}</button>
+      <a href="{{ url_for('ne.list_ne_instances', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </div>
+</form>
+</div></div>
+{% endblock %}

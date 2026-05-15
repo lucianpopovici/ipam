@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ inst.asset_tag }} – HW Instance{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',  'url': url_for('ipam.index')},
+  {'label': proj.name,   'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Inventory', 'url': url_for('hw.project_inventory', pid=proj.id)},
+  {'label': inst.asset_tag}
+]) }}
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🖥 {{ inst.asset_tag }}
+    {% if tmpl %}
+    <small class="text-muted fs-6">{{ tmpl.category }} · {{ tmpl.name }}</small>
+    {% endif %}
+  </h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('hw.edit_hw_instance', pid=proj.id, iid=inst.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+  </div>
+</div>
+
+{# Instance meta #}
+<div class="row g-3 mb-3">
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-2">
+      <div class="fw-bold">{{ inst.status }}</div>
+      <div class="text-muted small">Status</div>
+    </div>
+  </div>
+  {% if inst.serial %}
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-2">
+      <div class="fw-bold"><code>{{ inst.serial }}</code></div>
+      <div class="text-muted small">Serial</div>
+    </div>
+  </div>
+  {% endif %}
+  {% if inst.location and inst.location.rack_id %}
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-2">
+      <div class="fw-bold">U{{ inst.location.u_pos }}</div>
+      <div class="text-muted small">Rack position</div>
+    </div>
+  </div>
+  {% endif %}
+  {% if tmpl %}
+  <div class="col-sm-3">
+    <div class="card shadow-sm text-center py-2">
+      <div class="fw-bold">{{ tmpl.u_size }}U</div>
+      <div class="text-muted small">{{ tmpl.form_factor }}</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# Port table — bound / cabled / free #}
+<div class="card shadow-sm">
+  <div class="card-header py-2">
+    <strong>Ports</strong>
+    {% set bound_count  = port_rows | selectattr('is_bound')  | list | length %}
+    {% set cabled_count = port_rows | selectattr('is_cabled') | list | length %}
+    {% set free_count   = port_rows | rejectattr('is_bound')  | rejectattr('is_cabled') | list | length %}
+    <span class="ms-2 badge bg-primary">{{ bound_count }} bound</span>
+    <span class="badge bg-secondary">{{ cabled_count }} cabled</span>
+    <span class="badge bg-success">{{ free_count }} free</span>
+  </div>
+  {% if not port_rows %}
+  <div class="card-body text-muted small">No ports defined in template.</div>
+  {% else %}
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Port</th>
+        <th>Type</th>
+        <th>Connector</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in port_rows %}
+      <tr class="{% if p.is_bound %}table-primary bg-opacity-25{% elif p.is_cabled %}table-secondary bg-opacity-10{% endif %}">
+        <td><code>{{ p.name }}</code></td>
+        <td><span class="badge bg-light text-dark border">{{ p.port_type }}</span></td>
+        <td>{{ p.connector or '—' }}</td>
+        <td>
+          {% if p.is_bound %}
+          <span class="badge bg-primary">bound</span>
+          <small class="text-muted ms-1">
+            NE: <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=p.ne_id) }}">{{ p.ne_name }}</a>
+            <span class="badge bg-light text-dark border ms-1">{{ p.bind_mode }}</span>
+          </small>
+          {% elif p.is_cabled %}
+          <span class="badge bg-secondary">cabled</span>
+          <small class="text-muted ms-1">(no NE binding)</small>
+          {% else %}
+          <span class="badge bg-success">free</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

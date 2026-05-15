@@ -26,7 +26,8 @@ from hw_logic import (
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, place_in_rack, _remove_from_rack, rack_layout_view,
     get_cable, save_cable, delete_cable, project_cables, _used_ports,
-    validate_project, load_validation, trace_cable_path
+    validate_project, load_validation, trace_cable_path,
+    hw_instance_bindings,
 )
 
 hw_bp = Blueprint('hw', __name__, url_prefix='')
@@ -345,6 +346,47 @@ def project_inventory(pid):
     return render_template('hw/inventory.html', proj=proj,
                            instances=instances, racks=racks,
                            categories=CATEGORIES, selected_cat=cat)
+
+
+@hw_bp.route('/projects/<pid>/hw/instances/<iid>')
+def hw_instance_detail(pid, iid):
+    """Hardware instance detail: port table with bound/cabled/free states."""
+    from ne import get_ne_instance
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    inst = get_hw_instance(iid)
+    if not inst or inst.get('project_id') != pid:
+        abort(404)
+    tmpl = get_hw_template(inst.get('template_id', ''))
+    used_cables = _used_ports(pid)
+    bound_info  = hw_instance_bindings(iid)
+    bound_map   = {b['port_id']: b for b in bound_info}
+
+    # Build per-port rows
+    port_rows = []
+    for port in (tmpl.get('ports', []) if tmpl else []):
+        count = int(port.get('count', 1))
+        for n in range(count):
+            pid_ = port['id']
+            pname = port['name'] if count == 1 else f"{port['name']}-{n}"
+            bound = bound_map.get(pid_)
+            cabled = (iid, pid_) in used_cables
+            ne_inst = get_ne_instance(bound['ne_instance_id']) if bound else None
+            port_rows.append({
+                'port_id':   pid_,
+                'name':      pname,
+                'port_type': port.get('port_type', ''),
+                'connector': port.get('connector', ''),
+                'is_bound':  bool(bound),
+                'ne_name':   ne_inst.get('name', '') if ne_inst else '',
+                'ne_id':     bound.get('ne_instance_id', '') if bound else '',
+                'bind_mode': bound.get('bind_mode', '') if bound else '',
+                'is_cabled': cabled,
+            })
+
+    return render_template('hw/instance_detail.html', proj=proj, inst=inst,
+                           tmpl=tmpl, port_rows=port_rows)
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/add', methods=['GET', 'POST'])

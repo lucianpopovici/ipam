@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
+{% block title %}NE Instances – {{ proj.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',    'url': url_for('ipam.index')},
+  {'label': proj.name,     'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'NE Instances'}
+]) }}
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🖧 NE Instances <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+  <a href="{{ url_for('ne.add_ne_instance', pid=proj.id) }}" class="btn btn-sm btn-primary">+ Add Instance</a>
+</div>
+
+{% if not instances %}
+{{ empty_state(
+  icon='🖧',
+  title='No NE instances yet',
+  body='An NE instance is a deployed instance of an NE type. Create one and bind its interfaces to hardware ports.',
+  primary_action={'label': '+ Add NE Instance', 'url': url_for('ne.add_ne_instance', pid=proj.id)}
+) }}
+{% else %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th>NE Type</th>
+        <th>Kind</th>
+        <th>Bound ifaces</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inst in instances %}
+      {% set bound_count = inst.get('iface_bindings', {})|length %}
+      {% set total_ifaces = (inst.ne_type.get('interfaces', [])|length) if inst.ne_type else 0 %}
+      <tr>
+        <td>
+          <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=inst.id) }}" class="fw-semibold text-decoration-none">
+            {{ inst.name }}
+          </a>
+          {% if inst.description %}<div class="text-muted small">{{ inst.description }}</div>{% endif %}
+        </td>
+        <td>
+          {% if inst.ne_type %}
+          <span class="badge bg-light text-dark border">{{ inst.ne_type.kind }}</span>
+          {{ inst.ne_type.name }}
+          {% else %}
+          <span class="text-danger small">type missing</span>
+          {% endif %}
+        </td>
+        <td>{{ inst.ne_type.kind if inst.ne_type else '—' }}</td>
+        <td>
+          {% if total_ifaces %}
+          <span class="badge {% if bound_count == total_ifaces %}bg-success{% elif bound_count > 0 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+            {{ bound_count }}/{{ total_ifaces }}
+          </span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=inst.id) }}" class="btn btn-xs btn-outline-secondary btn-sm">View</a>
+          <a href="{{ url_for('ne.edit_ne_instance', pid=proj.id, nid=inst.id) }}" class="btn btn-xs btn-outline-primary btn-sm">Edit</a>
+          {{ confirm_delete(
+               url_for('ne.delete_ne_instance_route', pid=proj.id, nid=inst.id),
+               inst.name,
+               url_for('ne.ne_instance_impact', nid=inst.id)
+             ) }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

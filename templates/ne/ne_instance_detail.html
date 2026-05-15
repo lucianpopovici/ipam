@@ -1,0 +1,414 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, confirm_delete %}
+{% block title %}{{ inst.name }} – NE Instance{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',     'url': url_for('ipam.index')},
+  {'label': proj.name,      'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'NE Instances', 'url': url_for('ne.list_ne_instances', pid=proj.id)},
+  {'label': inst.name}
+]) }}
+<div class="d-flex justify-content-between align-items-center mb-3 mt-1">
+  <h4 class="mb-0">🖧 {{ inst.name }}
+    {% if ne_type %}<small class="text-muted fs-6">{{ ne_type.kind }} · {{ ne_type.name }}</small>{% endif %}
+  </h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('ne.edit_ne_instance', pid=proj.id, nid=inst.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+    {{ confirm_delete(
+         url_for('ne.delete_ne_instance_route', pid=proj.id, nid=inst.id),
+         inst.name,
+         url_for('ne.ne_instance_impact', nid=inst.id)
+       ) }}
+  </div>
+</div>
+
+{# ── Interface bindings table ─────────────────────────────────────────────── #}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center py-2">
+    <strong>Interface Bindings</strong>
+    <small class="text-muted">{{ ifaces|length }} interface(s)</small>
+  </div>
+  {% if not ifaces %}
+  <div class="card-body text-muted small">No interfaces defined on this NE type.</div>
+  {% else %}
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th style="width:18%">Interface</th>
+        <th style="width:10%">Sharing</th>
+        <th>Bound ports</th>
+        <th style="width:22%">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for iface in ifaces %}
+      {% set binding = bindings.get(iface.id, {}) %}
+      {% set bound_ports = binding.get('enriched_ports', []) %}
+      {% set mode = binding.get('bind_mode', '') %}
+      <tr>
+        <td>
+          <strong>{{ iface.name }}</strong>
+          {% if iface.ipv4 %}<span class="badge bg-primary ms-1">IPv4/{{ iface.ipv4.prefix_len }}</span>{% endif %}
+          {% if iface.ipv6 %}<span class="badge bg-info ms-1">IPv6/{{ iface.ipv6.prefix_len }}</span>{% endif %}
+        </td>
+        <td><span class="badge bg-light text-dark border">{{ iface.sharing }}</span></td>
+        <td>
+          {% if not bound_ports %}
+          <span class="text-muted small">unbound</span>
+          {% elif mode == 'auto-rule' %}
+          <span class="badge bg-info text-dark me-1">auto-rule</span>
+          {% if binding.rule_materialized_at %}
+          <small class="text-muted">{{ binding.rule_materialized_at[:16] }}Z · </small>
+          {% endif %}
+          <span class="small">{{ bound_ports|length }} port(s) matched</span>
+          <ul class="list-unstyled mb-0 mt-1">
+            {% for p in bound_ports[:5] %}
+            <li class="small text-muted">{{ p.asset_tag }}/{{ p.port_id }}
+              {% if p.bucket %}<span class="text-info">[{{ p.bucket|join(', ') }}]</span>{% endif %}
+            </li>
+            {% endfor %}
+            {% if bound_ports|length > 5 %}<li class="small text-muted">…and {{ bound_ports|length - 5 }} more</li>{% endif %}
+          </ul>
+          {% else %}
+          <span class="badge bg-secondary me-1">{{ mode or 'single' }}</span>
+          {% for p in bound_ports %}
+          <span class="badge bg-light text-dark border me-1">
+            {{ p.asset_tag }}/{{ p.port_id }}
+            {% if p.role and p.role != 'primary' %}<small>({{ p.role }})</small>{% endif %}
+          </span>
+          {% endfor %}
+          {% endif %}
+        </td>
+        <td>
+          <div class="d-flex gap-1 flex-wrap">
+            {# Bind / Edit button — opens the bind modal #}
+            <button class="btn btn-sm btn-outline-primary"
+                    onclick="openBindModal('{{ iface.id }}','{{ iface.name }}','{{ mode or '' }}')"
+                    data-iface-id="{{ iface.id }}">
+              {{ '↻ Edit' if bound_ports else '+ Bind' }}
+            </button>
+            {% if mode == 'auto-rule' %}
+            <form method="post" action="{{ url_for('ne.rematerialize_iface', nid=inst.id, iface_id=iface.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-info" title="Re-evaluate rule">↺</button>
+            </form>
+            {% endif %}
+            {% if bound_ports %}
+            <form method="post" action="{{ url_for('ne.unbind_iface', nid=inst.id, iface_id=iface.id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-danger"
+                      onclick="return confirm('Remove binding for {{ iface.name }}?')">Unbind</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Bind modal ────────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="bindModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Bind interface: <span id="bindModalIfaceName"></span></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="bindForm" method="post">
+        <div class="modal-body">
+          {# Bind mode selector #}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Bind mode</label>
+            <div class="d-flex gap-3">
+              {% for mode_val, mode_label in [('single','Single port'),('lag','LAG'),('active-passive','Active/Passive'),('auto-rule','Auto-rule (fleet)')] %}
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="bind_mode"
+                       id="mode_{{ mode_val }}" value="{{ mode_val }}"
+                       onchange="onModeChange(this.value)"
+                       {% if mode_val == 'single' %}checked{% endif %}>
+                <label class="form-check-label" for="mode_{{ mode_val }}">{{ mode_label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          {# Section A: explicit port picker #}
+          <div id="sectionExplicit">
+            <div class="row g-3 mb-2">
+              <div class="col-md-6">
+                <label class="form-label">Hardware Instance</label>
+                <select id="pickHwInstance" class="form-select form-select-sm"
+                        onchange="loadPortsFor(this.value)">
+                  <option value="">— select device —</option>
+                  {% for hw in hw_instances %}
+                  <option value="{{ hw.id }}">[{{ hw.template.category if hw.template else '?' }}] {{ hw.asset_tag }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Filter by type</label>
+                <select id="portTypeFilter" class="form-select form-select-sm" onchange="filterPorts()">
+                  <option value="">all types</option>
+                  <option value="mgmt">mgmt</option>
+                  <option value="data">data</option>
+                  <option value="console">console</option>
+                  <option value="power">power</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Show</label>
+                <select id="portFreeFilter" class="form-select form-select-sm" onchange="filterPorts()">
+                  <option value="">all</option>
+                  <option value="free">free only</option>
+                </select>
+              </div>
+            </div>
+            <div id="portList" class="border rounded p-2 bg-light" style="max-height:220px;overflow-y:auto">
+              <span class="text-muted small">Select a hardware instance above.</span>
+            </div>
+            <div class="mt-2">
+              <label class="form-label small">LAG ID <span class="text-muted">(optional)</span></label>
+              <input type="text" name="lag_id" class="form-control form-control-sm" style="width:120px"
+                     placeholder="e.g. 1">
+            </div>
+          </div>
+
+          {# Section D: auto-rule editor #}
+          <div id="sectionAutoRule" class="d-none">
+            <div class="row g-3 mb-2">
+              <div class="col-md-6">
+                <label class="form-label">Port types</label>
+                <div class="d-flex flex-wrap gap-2">
+                  {% for pt in ['mgmt','data','console','power','usb'] %}
+                  <div class="form-check">
+                    <input class="form-check-input rule-port-type" type="checkbox"
+                           value="{{ pt }}" id="rpt_{{ pt }}"
+                           {% if pt == 'mgmt' %}checked{% endif %}
+                           onchange="previewRule()">
+                    <label class="form-check-label" for="rpt_{{ pt }}">{{ pt }}</label>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Device categories</label>
+                <div class="d-flex flex-wrap gap-2">
+                  {% for cat in ['server','switch','router','pdu'] %}
+                  <div class="form-check">
+                    <input class="form-check-input rule-category" type="checkbox"
+                           value="{{ cat }}" id="rcat_{{ cat }}"
+                           {% if cat in ['server','switch','router'] %}checked{% endif %}
+                           onchange="previewRule()">
+                    <label class="form-check-label" for="rcat_{{ cat }}">{{ cat }}</label>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Name regex</label>
+              <input type="text" id="ruleNameRegex" class="form-control form-control-sm"
+                     value="^(iLO|iDRAC|BMC|mgmt)\d*$"
+                     placeholder="^(iLO|iDRAC|BMC|mgmt)\d*$"
+                     oninput="previewRule()">
+            </div>
+            <div class="mb-2">
+              <label class="form-label">Group by</label>
+              <div class="d-flex gap-3">
+                {% for g in ['rack','hw_template','category'] %}
+                <div class="form-check">
+                  <input class="form-check-input rule-group" type="checkbox"
+                         value="{{ g }}" id="rg_{{ g }}"
+                         {% if g == 'rack' %}checked{% endif %}
+                         onchange="previewRule()">
+                  <label class="form-check-label" for="rg_{{ g }}">{{ g }}</label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div id="rulePreview" class="border rounded p-2 bg-light small text-muted mt-2">
+              Preview will appear here…
+            </div>
+            <input type="hidden" name="rule_json" id="ruleJsonInput">
+          </div>
+
+          <input type="hidden" name="ports_json" id="portsJsonInput" value="[]">
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary" onclick="prepareSubmit()">Save binding</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+const NID    = {{ inst.id | tojson }};
+const PID    = {{ proj.id | tojson }};
+let _allPorts = [];
+let _selectedPorts = new Set();  // port_ids currently checked
+
+function openBindModal(ifaceId, ifaceName, currentMode) {
+  document.getElementById('bindModalIfaceName').textContent = ifaceName;
+  document.getElementById('bindForm').action =
+    '/ne-instances/' + NID + '/bindings/' + ifaceId;
+  // Reset
+  _selectedPorts = new Set();
+  _allPorts = [];
+  document.getElementById('pickHwInstance').value = '';
+  document.getElementById('portList').innerHTML =
+    '<span class="text-muted small">Select a hardware instance above.</span>';
+  document.getElementById('portsJsonInput').value = '[]';
+  document.getElementById('ruleJsonInput').value = '{}';
+
+  // Set mode radio
+  const modeToSet = currentMode || 'single';
+  const radio = document.querySelector(`input[name="bind_mode"][value="${modeToSet}"]`);
+  if (radio) radio.checked = true;
+  onModeChange(modeToSet);
+
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('bindModal')).show();
+}
+
+function onModeChange(mode) {
+  const explSec  = document.getElementById('sectionExplicit');
+  const ruleSec  = document.getElementById('sectionAutoRule');
+  if (mode === 'auto-rule') {
+    explSec.classList.add('d-none');
+    ruleSec.classList.remove('d-none');
+    previewRule();
+  } else {
+    explSec.classList.remove('d-none');
+    ruleSec.classList.add('d-none');
+  }
+}
+
+function loadPortsFor(hwid) {
+  if (!hwid) {
+    document.getElementById('portList').innerHTML =
+      '<span class="text-muted small">Select a hardware instance above.</span>';
+    return;
+  }
+  const typeFilter = document.getElementById('portTypeFilter').value;
+  const url = `/api/projects/${PID}/hw/${hwid}/free-ports` +
+              (typeFilter ? `?type=${typeFilter}` : '');
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      _allPorts = data.ports || [];
+      renderPortList();
+    })
+    .catch(() => {
+      document.getElementById('portList').innerHTML =
+        '<span class="text-danger small">Error loading ports.</span>';
+    });
+}
+
+function filterPorts() {
+  const hwid = document.getElementById('pickHwInstance').value;
+  if (hwid) loadPortsFor(hwid);
+}
+
+function renderPortList() {
+  const freeOnly = document.getElementById('portFreeFilter').value === 'free';
+  const mode = document.querySelector('input[name="bind_mode"]:checked')?.value || 'single';
+  const singleMode = mode === 'single';
+
+  const ports = freeOnly ? _allPorts.filter(p => !p.is_bound && !p.is_cabled) : _allPorts;
+  if (!ports.length) {
+    document.getElementById('portList').innerHTML =
+      '<span class="text-muted small">No ports match the filter.</span>';
+    return;
+  }
+
+  const hwid = document.getElementById('pickHwInstance').value;
+  document.getElementById('portList').innerHTML = ports.map(p => {
+    const checked = _selectedPorts.has(p.port_id);
+    const disabled = !checked && singleMode && _selectedPorts.size > 0;
+    let badge = '';
+    if (p.is_bound) badge = `<span class="badge bg-warning text-dark ms-1 small">in use</span>`;
+    else if (p.is_cabled) badge = `<span class="badge bg-light text-muted border ms-1 small">cabled</span>`;
+    return `<div class="form-check">
+      <input class="form-check-input" type="checkbox"
+             id="port_${p.port_id}"
+             value="${p.port_id}"
+             data-hwid="${hwid}"
+             ${checked ? 'checked' : ''}
+             ${disabled || p.is_bound ? 'disabled' : ''}
+             onchange="togglePort('${p.port_id}','${hwid}',this.checked)">
+      <label class="form-check-label small" for="port_${p.port_id}">
+        <code>${p.name}</code>
+        <span class="text-muted">${p.port_type}</span>
+        ${badge}
+      </label>
+    </div>`;
+  }).join('');
+}
+
+function togglePort(portId, hwid, checked) {
+  if (checked) {
+    _selectedPorts.add(portId);
+  } else {
+    _selectedPorts.delete(portId);
+  }
+  const mode = document.querySelector('input[name="bind_mode"]:checked')?.value || 'single';
+  if (mode === 'single' && _selectedPorts.size > 1) {
+    // In single mode, keep only the last checked
+    _selectedPorts = new Set([portId]);
+  }
+  renderPortList();
+}
+
+function previewRule() {
+  const rule = buildRule();
+  document.getElementById('ruleJsonInput').value = JSON.stringify(rule);
+  const el = document.getElementById('rulePreview');
+  el.innerHTML = '<span class="text-muted">Loading…</span>';
+  fetch(`/api/projects/${PID}/rules/preview`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rule, exclude_nid: NID}),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (!data.total_ports) {
+      el.innerHTML = '<span class="text-warning">⚠ No ports matched.</span>';
+      return;
+    }
+    el.innerHTML = `<strong>${data.total_ports} port(s) across ${data.buckets.length} bucket(s):</strong><ul class="mb-0 mt-1">` +
+      data.buckets.map(b =>
+        `<li>${b.label} → ${b.count} port(s)${b.warn ? ' <span class="text-warning">⚠ unracked</span>' : ''}</li>`
+      ).join('') + '</ul>';
+  })
+  .catch(() => { el.innerHTML = '<span class="text-danger">Preview unavailable.</span>'; });
+}
+
+function buildRule() {
+  return {
+    port_types:  [...document.querySelectorAll('.rule-port-type:checked')].map(c => c.value),
+    categories:  [...document.querySelectorAll('.rule-category:checked')].map(c => c.value),
+    name_regex:  document.getElementById('ruleNameRegex').value || '.*',
+    group_by:    [...document.querySelectorAll('.rule-group:checked')].map(c => c.value),
+  };
+}
+
+function prepareSubmit() {
+  const mode = document.querySelector('input[name="bind_mode"]:checked')?.value || 'single';
+  if (mode !== 'auto-rule') {
+    const hwid = document.getElementById('pickHwInstance').value;
+    const ports = [..._selectedPorts].map(portId => ({
+      hw_instance_id: hwid,
+      port_id: portId,
+      role: 'primary',
+    }));
+    document.getElementById('portsJsonInput').value = JSON.stringify(ports);
+  } else {
+    document.getElementById('ruleJsonInput').value = JSON.stringify(buildRule());
+  }
+}
+</script>
+{% endblock %}
