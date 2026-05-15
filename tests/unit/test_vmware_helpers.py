@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 """
 pytestmark = pytest.mark.unit
 
@@ -16,7 +17,7 @@ from vmware import (
     network_vmware_ips,
     _find_next_available,
     allocate_ip, release_ip,
-    VMWARE_SUBNETS_KEY, _alloc_key, _net_ips_key,
+    VMWARE_SUBNETS_KEY, _net_ips_key,
 )
 
 
@@ -96,7 +97,7 @@ class TestEnableDisable:
         enable_network(nid2)
         nets = enabled_networks()
         cidrs = [n['cidr'] for n in nets]
-        assert cidrs == sorted(cidrs, key=lambda c: ipaddress.ip_network(c))
+        assert cidrs == sorted(cidrs, key=ipaddress.ip_network)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -150,7 +151,7 @@ class TestAllocCRUD:
                 'vm_name': '', 'datacenter': '', 'cluster': '', 'allocated_at': '',
             })
         ips = [a['ip'] for a in network_vmware_ips(nid)]
-        assert ips == sorted(ips, key=lambda i: ipaddress.ip_address(i))
+        assert ips == sorted(ips, key=ipaddress.ip_address)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -170,7 +171,7 @@ class TestFindNextAvailable:
         """Test it skips IPs already allocated in IPAM."""
         pid = _make_project()
         nid = _make_network(pid, '10.0.1.0/24')
-        from ipam import save_ip, net_ips_key
+        from ipam import save_ip
         save_ip({'ip': '10.0.1.1', 'hostname': '', 'description': '',
                  'status': 'allocated', 'network_id': nid})
         assert _find_next_available(nid) == '10.0.1.2'
