@@ -354,8 +354,9 @@ class TestE2EBOM:
         pid  = _create_project(page, base, name='BoM Add Line')
         tmpl = _make_server_template()
         goto(page, base, f'/projects/{pid}/bom')
-        page.click('button:has-text("Add Line")')
-        # A row should appear
+        # Use onclick attribute selector to avoid matching the project-picker dropdown
+        # (whose button text contains the project name "BoM Add Line")
+        page.click('button[onclick="addLine()"]')
         rows = page.locator('#bomList .border-bottom')
         assert rows.count() >= 1
 
@@ -515,7 +516,7 @@ class TestE2EInventory:
         if page.locator('table').count() > 0:
             expect(page.locator('table').first).not_to_contain_text(inst['asset_tag'])
         else:
-            expect(page.locator('body')).to_contain_text('No instances')
+            expect(page.locator('body')).to_contain_text('No hardware instances yet')
 
     def test_instance_status_badges(self, page_base):
         """Verify status badges in inventory list."""
@@ -1084,16 +1085,17 @@ class TestE2EValidation:
         page, base = page_base
         pid = _create_project(page, base, name='Nav Validate')
         goto(page, base, f'/projects/{pid}/hw/validate')
-        expect(page.locator('a:has-text("Racks")')).to_be_visible()
-        expect(page.locator('a:has-text("Cables")')).to_be_visible()
-        expect(page.locator('a:has-text("Inventory")')).to_be_visible()
+        expect(page.locator('a:has-text("Racks")').first).to_be_visible()
+        expect(page.locator('a:has-text("Cables")').first).to_be_visible()
+        expect(page.locator('a:has-text("Inventory")').first).to_be_visible()
 
     def test_validate_link_from_project_detail(self, page_base):
         """Verify the validate link from project detail page."""
         page, base = page_base
         pid = _create_project(page, base, name='Validate Link')
         goto(page, base, f'/projects/{pid}')
-        page.click('a:has-text("Validate")')
+        # Use the btn-outline-warning link in the HW card (nav-strip tab may be scrolled off)
+        page.locator('a.btn-outline-warning:has-text("Validate")').click()
         expect(page).to_have_url(re.compile(r'validate'))
 
 
@@ -1166,4 +1168,4 @@ class TestE2EFullWorkflow:
         pid = _create_project(page, base, name='Detail Links E2E')
         goto(page, base, f'/projects/{pid}')
         for label in ('BoM', 'Inventory', 'Racks', 'Cables', 'Validate'):
-            expect(page.locator(f'a:has-text("{label}")')).to_be_visible()
+            expect(page.locator(f'a:has-text("{label}")').first).to_be_visible()

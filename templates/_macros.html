@@ -13,13 +13,13 @@
 
 
 {# ── Delete confirmation trigger ── #}
-{# Populates the shared #deleteModal in base.html via data-* attributes. #}
+{# Calls openDeleteModal() defined in base.html; data-* attrs carry the values. #}
 {% macro confirm_delete(url, label, impact_url='') %}
 <button type="button" class="btn btn-sm btn-outline-danger"
-        data-bs-toggle="modal" data-bs-target="#deleteModal"
         data-delete-url="{{ url }}"
         data-delete-label="{{ label }}"
-        data-delete-impact="{{ impact_url }}">Del</button>
+        data-delete-impact="{{ impact_url }}"
+        onclick="openDeleteModal(this.dataset.deleteUrl, this.dataset.deleteLabel, this.dataset.deleteImpact)">Del</button>
 {% endmacro %}
 
 

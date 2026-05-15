@@ -41,8 +41,8 @@ def _patch_redis(_fake_redis_client):
     Monkeypatch the module-level `r` in every blueprint before the session
     starts.  Session-scoped so it runs once; the same fake client is reused.
     """
-    import db, ipam, ne, hw
-    for mod in (db, ipam, ne, hw):
+    import db, ipam, ne, hw, hw_logic
+    for mod in (db, ipam, ne, hw, hw_logic):
         mod.r = _fake_redis_client
     yield
     # Nothing to tear down — the fake server is discarded at process exit.
@@ -127,4 +127,26 @@ def goto(page, base: str, path: str):
 def page_base(page, live_server):
     """Playwright page + base URL tuple used by all E2E test classes."""
     return page, live_server
+
+
+@pytest.fixture
+def page_base_mobile(browser, live_server):
+    """Mobile-viewport (390×844) Playwright page + base URL."""
+    ctx = browser.new_context(viewport={'width': 390, 'height': 844})
+    pg  = ctx.new_page()
+    yield pg, live_server
+    ctx.close()
+
+
+# ── Modal helper ──────────────────────────────────────────────────────────────
+
+def confirm_modal_delete(page, trigger_selector: str, *, timeout: int = 3000):
+    """
+    Click a confirm_delete trigger, wait for #deleteModal to open,
+    then click the Delete button inside the modal.
+    """
+    page.locator(trigger_selector).click()      # calls openDeleteModal() → shows modal
+    page.locator('#deleteModal').wait_for(state='visible', timeout=timeout)
+    page.locator('#deleteModalForm button[type="submit"]').click()
+    page.wait_for_load_state('networkidle')
 

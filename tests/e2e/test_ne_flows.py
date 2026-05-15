@@ -178,19 +178,20 @@ class TestE2ESites:
             expect(preview.first).to_contain_text('10')
 
     def test_delete_site(self, page_base):
-        """Test site deletion."""
+        """Test site deletion via Bootstrap confirm modal."""
         page, base = page_base
         pid = _create_project(page, base, name='Delete Site')
         goto(page, base, f'/projects/{pid}/sites/add')
         page.fill('input[name="name"]', 'TO-DELETE')
-        page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
         page.click('button[type="submit"]')
-        # Navigate to sites list and delete
         goto(page, base, f'/projects/{pid}/sites')
-        page.on('dialog', lambda d: d.accept())
-        page.click('tr:has-text("TO-DELETE") button:has-text("Del")')
-        # Wait for removal
-        expect(page.locator('td, h6, h4, code')).not_to_contain_text('TO-DELETE')
+        # Del button triggers Bootstrap modal
+        page.locator('tr:has-text("TO-DELETE") [data-delete-url]').click()
+        page.locator('#deleteModal').wait_for(state='visible')
+        page.locator('#deleteModalForm button[type="submit"]').click()
+        page.wait_for_load_state('networkidle')
+        page.reload()
+        expect(page.locator('table tbody, .text-center.py-5')).not_to_contain_text('TO-DELETE')
 
 
 # ══════════════════════════════════════════════════════════════════════════════

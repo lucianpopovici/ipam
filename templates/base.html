@@ -194,39 +194,33 @@ function addLabel(label, inputId) {
   if (!existing.includes(label)) { existing.push(label); inp.value = existing.join(', '); }
 }
 
-/* ── Impact-aware delete modal (shared across all pages) ── */
-const _deleteModal = document.getElementById('deleteModal');
-if (_deleteModal) {
-  _deleteModal.addEventListener('show.bs.modal', function (e) {
-    const btn = e.relatedTarget;
-    const label     = btn?.dataset.deleteLabel || '';
-    const url       = btn?.dataset.deleteUrl   || '';
-    const impactUrl = btn?.dataset.deleteImpact|| '';
-    _deleteModal.querySelector('#deleteModalLabel').textContent = label;
-    _deleteModal.querySelector('#deleteModalForm').action = url;
-    const impactEl = _deleteModal.querySelector('#deleteModalImpact');
-    impactEl.innerHTML = '';
-    if (impactUrl) {
-      impactEl.innerHTML = '<span class="text-muted small">Loading…</span>';
-      fetch(impactUrl)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.cascades?.length) {
-            impactEl.innerHTML = '<span class="text-muted small">No cascading effects.</span>';
-            return;
-          }
-          const shown = data.cascades.slice(0, 5);
-          const more  = data.cascades.length - shown.length;
-          impactEl.innerHTML = shown.map(c =>
-            `<div class="d-flex gap-2 align-items-center my-1">
-               <span class="badge bg-${c.kind === 'delete' ? 'danger' : 'warning'} text-dark">${c.kind}</span>
-               <span class="small">${c.count} — ${c.what}</span>
-             </div>`
-          ).join('') + (more ? `<div class="small text-muted mt-1">…and ${more} more</div>` : '');
-        })
-        .catch(() => { impactEl.innerHTML = '<span class="text-muted small">Impact info unavailable.</span>'; });
-    }
-  });
+/* ── Impact-aware delete modal ── */
+function openDeleteModal(url, label, impactUrl) {
+  document.getElementById('deleteModalLabel').textContent = label || '';
+  document.getElementById('deleteModalForm').action = url || '';
+  const impactEl = document.getElementById('deleteModalImpact');
+  impactEl.innerHTML = '';
+  if (impactUrl) {
+    impactEl.innerHTML = '<span class="text-muted small">Loading…</span>';
+    fetch(impactUrl)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.cascades?.length) {
+          impactEl.innerHTML = '<span class="text-muted small">No cascading effects.</span>';
+          return;
+        }
+        const shown = data.cascades.slice(0, 5);
+        const more  = data.cascades.length - shown.length;
+        impactEl.innerHTML = shown.map(c =>
+          `<div class="d-flex gap-2 align-items-center my-1">
+             <span class="badge bg-${c.kind === 'delete' ? 'danger' : 'warning'} text-dark">${c.kind}</span>
+             <span class="small">${c.count} — ${c.what}</span>
+           </div>`
+        ).join('') + (more ? `<div class="small text-muted mt-1">…and ${more} more</div>` : '');
+      })
+      .catch(() => { impactEl.innerHTML = '<span class="text-muted small">Impact info unavailable.</span>'; });
+  }
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteModal')).show();
 }
 
 /* ── Job progress polling ── */

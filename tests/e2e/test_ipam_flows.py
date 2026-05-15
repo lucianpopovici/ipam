@@ -72,32 +72,32 @@ class TestE2EProjectLifecycle:
         expect(page.locator('body')).to_contain_text('Homepage Project')
 
     def test_delete_project(self, page_base):
-        """Test project deletion."""
+        """Test project deletion via Bootstrap confirm modal."""
         page, base = page_base
-        # Create
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'Delete Me')
         page.fill('input[name="supernet"]', '10.20.0.0/16')
         page.click('button[type="submit"]')
-        # Get project URL
-        url = page.url
-        pid = url.rstrip('/').split('/')[-1]
-        # Go to index to delete
+        pid = page.url.rstrip('/').split('/')[-1]
         goto(page, base, '/')
-        # Delete
-        page.on('dialog', lambda dialog: dialog.accept())
-        page.click(f'form[action*="{pid}/delete"] button')
-        # Wait for navigation and ensure we are not on the project page anymore
+        # Del button triggers Bootstrap modal (not browser confirm)
+        page.locator(f'[data-delete-url*="{pid}/delete"]').click()
+        page.locator('#deleteModal').wait_for(state='visible')
+        page.locator('#deleteModalForm button[type="submit"]').click()
         page.wait_for_url(lambda u: f'/projects/{pid}' not in u)
 
     def test_invalid_supernet_shows_error(self, page_base):
-        """Test invalid supernet shows error."""
+        """Invalid supernet re-renders form with inline is-invalid error (no redirect)."""
         page, base = page_base
         goto(page, base, '/projects/add')
         page.fill('input[name="name"]', 'Bad Project')
         page.fill('input[name="supernet"]', 'not-a-cidr')
         page.click('button[type="submit"]')
-        expect(page.locator('.alert')).to_contain_text('Invalid')
+        # Form re-renders in place with inline feedback — no flash alert
+        expect(page).to_have_url(re.compile(r'/projects/add'))
+        expect(page.locator('input[name="supernet"]')).to_have_class(re.compile('is-invalid'))
+        # Submitted name should be preserved
+        expect(page.locator('input[name="name"]')).to_have_value('Bad Project')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
