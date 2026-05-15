@@ -182,17 +182,42 @@ class TestE2EConnectors:
         assert matrix.count() > 0
 
     def test_toggle_compat_cell(self, page_base):
-        """Verify toggling a compatibility cell."""
+        """Click a cell to toggle compatibility off, then on — verify round-trip."""
         page, base = page_base
         _seed_connectors(base)
         goto(page, base, '/admin/hw/connectors')
-        # Click the RJ45 ↔ RJ45 cell (should be compatible = ✅)
-        # Find the first td in the matrix body and click it
-        first_cell = page.locator('table tbody tr:first-child td:nth-child(2)')
-        if first_cell.count() > 0:
-            first_cell.click()
-            # Page should reload (form submit) without error
-            expect(page).to_have_url(re.compile(r'/admin/hw/connectors'))
+
+        # Pick a non-self cell that is currently compatible.
+        # SFP+ ↔ SFP28 are compatible in the default matrix.
+        cell = page.locator("td[onclick*=\"'SFP+','SFP28'\"]").first
+        expect(cell).to_have_attribute('data-compat', '1')
+
+        # Click 1: enabled → disabled
+        cell.click()
+        expect(page).to_have_url(re.compile(r'/admin/hw/connectors'))
+        cell_after = page.locator("td[onclick*=\"'SFP+','SFP28'\"]").first
+        expect(cell_after).to_have_attribute('data-compat', '0')
+
+        # Click 2: disabled → enabled (round-trip)
+        cell_after.click()
+        expect(page).to_have_url(re.compile(r'/admin/hw/connectors'))
+        cell_final = page.locator("td[onclick*=\"'SFP+','SFP28'\"]").first
+        expect(cell_final).to_have_attribute('data-compat', '1')
+
+    def test_self_compat_cannot_be_disabled(self, page_base):
+        """RJ45 ↔ RJ45 (self-compat) must refuse the disable click."""
+        page, base = page_base
+        _seed_connectors(base)
+        goto(page, base, '/admin/hw/connectors')
+
+        cell = page.locator("td[onclick*=\"'RJ45','RJ45'\"]").first
+        expect(cell).to_have_attribute('data-compat', '1')
+        cell.click()
+        # After the guard fires, the cell should remain compatible
+        cell_after = page.locator("td[onclick*=\"'RJ45','RJ45'\"]").first
+        expect(cell_after).to_have_attribute('data-compat', '1')
+        # And a warning flash should be visible
+        expect(page.locator('.alert')).to_contain_text('self-compatibility')
 
 
 # ══════════════════════════════════════════════════════════════════════════════

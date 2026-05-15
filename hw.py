@@ -55,8 +55,12 @@ def hw_connectors():
             conn_b = request.form.get('conn_b', '')
             val = request.form.get('compatible') == '1'
             if conn_a and conn_b:
-                set_compat(conn_a, conn_b, val)
-                flash(f'Compatibility {conn_a} ↔ {conn_b} updated.', 'success')
+                if conn_a == conn_b and not val:
+                    flash(f'Cannot disable self-compatibility ({conn_a} ↔ {conn_a}).',
+                          'warning')
+                else:
+                    set_compat(conn_a, conn_b, val)
+                    flash(f'Compatibility {conn_a} ↔ {conn_b} updated.', 'success')
         return redirect(url_for('hw.hw_connectors'))
     return render_template('hw/connectors.html',
                            connectors=all_connectors(),

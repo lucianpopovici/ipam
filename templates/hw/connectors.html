@@ -61,6 +61,7 @@
               {% for cb in connectors %}
               {% set compat = cb in matrix[ca] %}
               <td class="p-0" style="cursor:pointer"
+                  data-compat="{{ '1' if compat else '0' }}"
                   onclick="toggleCompat('{{ ca }}','{{ cb }}',this)"
                   title="{{ ca }} ↔ {{ cb }}">
                 <div class="d-flex align-items-center justify-content-center"
@@ -87,7 +88,7 @@
 
 <script>
 function toggleCompat(a, b, cell){
-  const isCompat = cell.querySelector('div').style.background.includes('d1e7dd');
+  const isCompat = cell.dataset.compat === '1';
   document.getElementById('compatA').value   = a;
   document.getElementById('compatB').value   = b;
   document.getElementById('compatVal').value = isCompat ? '0' : '1';
