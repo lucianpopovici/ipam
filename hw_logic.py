@@ -578,7 +578,7 @@ def trace_cable_path(cable_id: str) -> list:
     """
     path = []
     seen_cables = {cable_id}
-    
+
     initial_cable = get_cable(cable_id)
     if not initial_cable:
         return []
@@ -588,10 +588,10 @@ def trace_cable_path(cable_id: str) -> list:
     side_a = _trace_direction(cable_id, 'end_a', seen_cables)
     # Direction B
     side_b = _trace_direction(cable_id, 'end_b', seen_cables)
-    
+
     # Path is side_a (reversed) + cable + side_b
     path = list(reversed(side_a))
-    
+
     cable_tmpl = get_hw_template(initial_cable.get('template_id'))
     path.append({
         'type': 'cable',
@@ -599,7 +599,7 @@ def trace_cable_path(cable_id: str) -> list:
         'asset_tag': initial_cable.get('asset_tag', 'UNTYPED'),
         'template_name': cable_tmpl['name'] if cable_tmpl else 'Generic Cable'
     })
-    
+
     path.extend(side_b)
     return path
 
@@ -608,20 +608,20 @@ def _trace_direction(start_cable_id, start_end, _seen_cables) -> list:
     """Helper to follow connections from one end of a cable."""
     current_cable = get_cable(start_cable_id)
     segment = []
-    
+
     while current_cable:
         end = current_cable.get(start_end, {})
         iid = end.get('instance_id')
         port_id = end.get('port_id')
-        
+
         if not iid or not port_id:
             break
-            
+
         inst = get_hw_instance(iid)
         port = _get_port(iid, port_id)
         if not inst or not port:
             break
-            
+
         segment.append({
             'type': 'device',
             'id': iid,
@@ -629,23 +629,23 @@ def _trace_direction(start_cable_id, start_end, _seen_cables) -> list:
             'port_name': port.get('name', port_id),
             'port_id': port_id
         })
-        
-        # Look for another cable on this device but on a different port? 
+
+        # Look for another cable on this device but on a different port?
         # Actually, standard "tracing" in networking usually means following the SAME physical medium.
         # But if it's a patch panel, we might want to "jump" to the corresponding internal port.
-        # For this IPAM, we'll implement "simple" tracing: only follow if the port itself 
-        # is connected to another cable (which shouldn't happen in a valid config, 
+        # For this IPAM, we'll implement "simple" tracing: only follow if the port itself
+        # is connected to another cable (which shouldn't happen in a valid config,
         # as ports are 1:1 with cables).
-        
-        # However, some "devices" are passive (patch panels). 
+
+        # However, some "devices" are passive (patch panels).
         # If the device is a 'patch-panel' category (we don't have this yet, but we have 'other'),
         # we might want to jump.
-        
+
         # Let's check if this port is connected to ANY OTHER cable.
         # (This would be an error in validation, but let's see)
         # Standard tracing ends at the device port — no cross-connect implemented yet.
         break
-        
+
     return segment
 
 

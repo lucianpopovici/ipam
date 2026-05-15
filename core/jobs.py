@@ -24,6 +24,7 @@ def _key(job_id: str) -> str:
 
 
 def create_job() -> str:
+    """Create a new job record in Redis and return its ID."""
     from db import new_id
     job_id = new_id()
     db.r.setex(_key(job_id), _JOB_TTL, json.dumps({
@@ -33,8 +34,9 @@ def create_job() -> str:
     return job_id
 
 
-def update_job(job_id: str, done: int, total: int,
+def update_job(job_id: str, done: int, total: int, *,
                message: str = '', status: str = 'running', result=None):
+    """Update job progress and status in Redis."""
     db.r.setex(_key(job_id), _JOB_TTL, json.dumps({
         'status': status, 'progress': done, 'total': total,
         'message': message, 'result': result,
@@ -42,6 +44,7 @@ def update_job(job_id: str, done: int, total: int,
 
 
 def get_job(job_id: str) -> dict | None:
+    """Retrieve job data from Redis."""
     raw = db.r.get(_key(job_id))
     return json.loads(raw) if raw else None
 
@@ -56,7 +59,7 @@ def run_job(app, job_id: str, fn, *args, **kwargs):
             try:
                 fn(job_id, *args, **kwargs)
             except Exception as exc:  # noqa: BLE001
-                update_job(job_id, 0, 0, str(exc), status='error')
+                update_job(job_id, 0, 0, message=str(exc), status='error')
 
     t = threading.Thread(target=_wrapper, daemon=True)
     t.start()

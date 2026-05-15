@@ -16,6 +16,7 @@ api_v1_bp = Blueprint("api_v1", "api_v1", url_prefix="/api/v1", description="Sta
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 class SubnetSchema(Schema):
+    """Schema for Subnet data."""
     id = fields.Str(dump_only=True)
     name = fields.Str()
     cidr = fields.Str()
@@ -24,6 +25,7 @@ class SubnetSchema(Schema):
     project_id = fields.Str()
 
 class IPRecordSchema(Schema):
+    """Schema for IP record details."""
     ip = fields.Str(required=True)
     hostname = fields.Str()
     description = fields.Str()
@@ -31,6 +33,7 @@ class IPRecordSchema(Schema):
     network_id = fields.Str()
 
 class IPRequestSchema(Schema):
+    """Schema for requesting a new IP."""
     hostname = fields.Str(load_default="")
     description = fields.Str(load_default="API requested")
     ttl = fields.Int(load_default=None) # TTL in seconds
@@ -39,6 +42,7 @@ class IPRequestSchema(Schema):
 
 @api_v1_bp.route("/subnets")
 class Subnets(MethodView):
+    """Operations on subnets."""
     @api_v1_bp.response(200, SubnetSchema(many=True))
     def get(self):
         """List all subnets."""
@@ -46,6 +50,7 @@ class Subnets(MethodView):
 
 @api_v1_bp.route("/subnets/<path:prefix>/request-ip")
 class SubnetRequestIP(MethodView):
+    """Request the next available IP in a subnet."""
     @api_v1_bp.arguments(IPRequestSchema)
     @api_v1_bp.response(201, IPRecordSchema)
     def post(self, args, prefix):
@@ -57,11 +62,11 @@ class SubnetRequestIP(MethodView):
         net = find_network_by_cidr(cidr)
         if not net:
             abort(404, message=f"Subnet {cidr} not found")
-        
+
         ip_str = find_next_free_ip(net['id'])
         if not ip_str:
             abort(409, message="No available addresses in this subnet")
-            
+
         addr_data = {
             'ip': ip_str,
             'hostname': args['hostname'],
@@ -69,14 +74,15 @@ class SubnetRequestIP(MethodView):
             'status': 'allocated',
             'network_id': net['id']
         }
-        
+
         if claim_ip_atomic(addr_data, net['cidr'], ttl=args.get('ttl')):
             return addr_data
-        
+
         abort(409, message="IP was snatched during allocation attempt")
 
 @api_v1_bp.route("/ips/<path:ip_str>")
 class IPRecord(MethodView):
+    """Operations on individual IP records."""
     @api_v1_bp.response(200, IPRecordSchema)
     def get(self, ip_str):
         """Get IP address details."""

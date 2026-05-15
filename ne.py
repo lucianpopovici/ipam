@@ -2,13 +2,13 @@
 Network Element (NE) blueprint
 Covers: schemas, NE types, sites, PODs, and subnet requirement generation.
 """
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
-from auth import editor_required
 import json
 import re
 import uuid
 import pathlib
 import yaml
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, abort
+from auth import editor_required
 from db import r   # shared Redis connection
 from core import relations
 from core.forms import form_errors
@@ -139,7 +139,8 @@ def save_ne_type(ne):
 def delete_ne_type(tid):
     """Delete an NE type and remove from indices."""
     ne = get_ne_type(tid)
-    if not ne: return
+    if not ne:
+        return
     if ne.get('scope') == 'project' and ne.get('project_id'):
         r.srem(_proj_netypes_key(ne['project_id']), tid)
     else:
@@ -177,7 +178,8 @@ def save_site(site):
 def delete_site(sid):
     """Delete a site and its associations."""
     site = get_site(sid)
-    if not site: return
+    if not site:
+        return
     r.srem(_proj_sites_key(site['project_id']), sid)
     relations.clear_entity('pod_of_site', sid)
     r.delete(_site_key(sid))
@@ -210,7 +212,8 @@ def save_pod(pod):
 def delete_pod(pod_id):
     """Delete a POD and its associations."""
     pod = get_pod(pod_id)
-    if not pod: return
+    if not pod:
+        return
     r.srem(_proj_pods_key(pod['project_id']), pod_id)
     relations.clear_entity('pod_of_site', pod_id)
     r.delete(_pod_slots_key(pod_id))
@@ -396,8 +399,11 @@ def mark_pushed(pid: str, req_key: str):
 # iface_bindings: {iface_id: {bind_mode, ports[], rule?, lag_id?, rule_materialized_at?}}
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _ne_inst_key(nid):      return f'ne:instance:{nid}'
-def _proj_ne_insts_key(pid): return f'project:{pid}:ne_instances'
+def _ne_inst_key(nid):
+    return f'ne:instance:{nid}'
+
+def _proj_ne_insts_key(pid):
+    return f'project:{pid}:ne_instances'
 
 
 def get_ne_instance(nid):
@@ -504,7 +510,8 @@ def parse_labels(form_value: str) -> list:
     for l in form_value.split(','):
         l = l.strip()
         if l and l not in seen:
-            seen.add(l); result.append(l)
+            seen.add(l)
+            result.append(l)
     return result
 
 def collect_params(schema: list, form) -> dict:
@@ -552,7 +559,8 @@ def project_schemas(pid):
     """Manage project-specific schemas."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     if request.method == 'POST':
         entity     = request.form.get('entity')
         fields_raw = request.form.get('fields_json', '[]')
@@ -643,7 +651,8 @@ def edit_ne_type(tid):
     """Edit an existing NE type."""
     from ipam import get_project
     ne = get_ne_type(tid)
-    if not ne: abort(404)
+    if not ne:
+        abort(404)
     pid          = ne.get('project_id') or None
     proj         = get_project(pid) if pid else None
     ne_schema    = get_schema('ne', pid)
@@ -688,7 +697,8 @@ def edit_ne_type(tid):
 def delete_ne_type_route(tid):
     """Delete an NE type."""
     ne = get_ne_type(tid)
-    if not ne: abort(404)
+    if not ne:
+        abort(404)
     pid = ne.get('project_id') or None
     delete_ne_type(tid)
     flash(f'NE Type "{ne["name"]}" deleted.', 'info')
@@ -701,7 +711,8 @@ def list_project_ne_types(pid):
     """List NE types available to a project (global + local)."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     return render_template('ne/ne_types_list.html',
                            proj=proj,
                            global_types=global_ne_types(),
@@ -717,7 +728,8 @@ def list_sites(pid):
     """List all sites in a project."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     sites  = project_sites(pid)
     schema = get_schema('site', pid)
     # Annotate each site with its assigned pods
@@ -732,7 +744,8 @@ def add_site(pid):
     """Add a new site to a project."""
     from ipam import get_project
     proj   = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     schema = get_schema('site', pid)
     if request.method == 'POST':
         name   = request.form.get('name','').strip()
@@ -761,7 +774,8 @@ def bulk_add_sites(pid):
     """Bulk create sites from a numeric pattern (e.g. 'site[01-05]')."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     schema = get_schema('site', pid)
     if request.method == 'POST':
         pattern = request.form.get('pattern','').strip()
@@ -796,7 +810,8 @@ def edit_site(pid, sid):
     from ipam import get_project
     proj = get_project(pid)
     site = get_site(sid)
-    if not proj or not site: abort(404)
+    if not proj or not site:
+        abort(404)
     schema = get_schema('site', pid)
     if request.method == 'POST':
         site['name']        = request.form.get('name', site['name']).strip()
@@ -814,7 +829,8 @@ def edit_site(pid, sid):
 def delete_site_route(pid, sid):
     """Delete a site."""
     site = get_site(sid)
-    if not site: abort(404)
+    if not site:
+        abort(404)
     delete_site(sid)
     flash(f'Site "{site["name"]}" deleted.', 'info')
     return redirect(url_for('ne.list_sites', pid=pid))
@@ -848,7 +864,8 @@ def site_detail(pid, sid):
     from ipam import get_project
     proj = get_project(pid)
     site = get_site(sid)
-    if not proj or not site: abort(404)
+    if not proj or not site:
+        abort(404)
     schema       = get_schema('site', pid)
     assigned     = site_pods(sid)
     assigned_ids = {p['id'] for p in assigned}
@@ -867,7 +884,8 @@ def list_pods(pid):
     """List all PODs in a project."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     pods   = project_pods(pid)
     schema = get_schema('pod', pid)
     for pod in pods:
@@ -883,7 +901,8 @@ def add_pod(pid):
     """Create a new POD in a project."""
     from ipam import get_project
     proj   = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     schema = get_schema('pod', pid)
     if request.method == 'POST':
         name   = request.form.get('name','').strip()
@@ -913,7 +932,8 @@ def edit_pod(pid, pod_id):
     from ipam import get_project
     proj = get_project(pid)
     pod  = get_pod(pod_id)
-    if not proj or not pod: abort(404)
+    if not proj or not pod:
+        abort(404)
     schema = get_schema('pod', pid)
     if request.method == 'POST':
         pod['name']        = request.form.get('name', pod['name']).strip()
@@ -931,7 +951,8 @@ def edit_pod(pid, pod_id):
 def delete_pod_route(pid, pod_id):
     """Delete a POD."""
     pod = get_pod(pod_id)
-    if not pod: abort(404)
+    if not pod:
+        abort(404)
     delete_pod(pod_id)
     flash(f'POD "{pod["name"]}" deleted.', 'info')
     return redirect(url_for('ne.list_pods', pid=pid))
@@ -943,7 +964,8 @@ def pod_detail(pid, pod_id):
     from ipam import get_project
     proj = get_project(pid)
     pod  = get_pod(pod_id)
-    if not proj or not pod: abort(404)
+    if not proj or not pod:
+        abort(404)
     schema       = get_schema('pod', pid)
     slots        = get_pod_slots(pod_id)
     # Enrich slots with NE type info
@@ -967,7 +989,8 @@ def pod_detail(pid, pod_id):
 def update_pod_slots(pid, pod_id):  # pylint: disable=unused-argument
     """Replace the NE slot list for a POD (posted as JSON)."""
     pod = get_pod(pod_id)
-    if not pod: abort(404)
+    if not pod:
+        abort(404)
     try:
         slots = request.get_json(force=True)
         if not isinstance(slots, list):
@@ -1005,7 +1028,8 @@ def topology_page(pid):
     """Render the topology visualization page."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     return render_template('topology.html', proj=proj)
 
 
@@ -1015,7 +1039,8 @@ def topology_data(pid):
     from ipam import get_project
     from hw_logic import project_instances, project_cables
     proj = get_project(pid)
-    if not proj: return jsonify({'error': 'Project not found'}), 404
+    if not proj:
+        return jsonify({'error': 'Project not found'}), 404
 
     nodes = []
     edges = []
@@ -1046,8 +1071,8 @@ def topology_data(pid):
             if netype:
                 nodes.append({
                     'data': {
-                        'id': f"pod_{p['id']}_slot_{idx}", 
-                        'label': f"{netype['name']} Slot", 
+                        'id': f"pod_{p['id']}_slot_{idx}",
+                        'label': f"{netype['name']} Slot",
                         'type': 'ne_slot',
                         'parent': f"pod_{p['id']}"
                     }
@@ -1060,20 +1085,20 @@ def topology_data(pid):
         cat = tmpl.get('category')
         nodes.append({
             'data': {
-                'id': f"inst_{inst['id']}", 
-                'label': inst.get('asset_tag', inst['id']), 
+                'id': f"inst_{inst['id']}",
+                'label': inst.get('asset_tag', inst['id']),
                 'type': 'device',
                 'category': cat
             }
         })
-        
+
         # If it's in a rack, make the rack a parent or just link them
         loc = inst.get('location', {})
         if loc.get('rack_id'):
             edges.append({
                 'data': {
-                    'id': f"e_r_i_{loc['rack_id']}_{inst['id']}", 
-                    'source': f"inst_{loc['rack_id']}", 
+                    'id': f"e_r_i_{loc['rack_id']}_{inst['id']}",
+                    'source': f"inst_{loc['rack_id']}",
                     'target': f"inst_{inst['id']}",
                     'type': 'rack_containment'
                 }
@@ -1087,8 +1112,8 @@ def topology_data(pid):
         if end_a.get('instance_id') and end_b.get('instance_id'):
             edges.append({
                 'data': {
-                    'id': f"cable_{c['id']}", 
-                    'source': f"inst_{end_a['instance_id']}", 
+                    'id': f"cable_{c['id']}",
+                    'source': f"inst_{end_a['instance_id']}",
                     'target': f"inst_{end_b['instance_id']}",
                     'label': c.get('asset_tag', ''),
                     'type': 'cable'
@@ -1107,7 +1132,8 @@ def requirements(pid):
     """Calculate and display subnet requirements for all sites/pods in the project."""
     from ipam import get_project
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     reqs = compute_requirements(pid)
     save_requirements(pid, reqs)
     # Summary stats
@@ -1129,13 +1155,14 @@ def push_requirements(pid):
     from ipam import (get_project, save_network as _save_net,
                       carve_next_subnet, add_labels_to_network, project_nets_key, new_id as _new_id)
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
 
     if request.is_json:
         data = request.get_json()
     else:
         data = request.form
-    
+
     reqs     = load_requirements(pid)
     push_all = data.get('all') in (True, 'true', 'on')
     keys     = set(data.getlist('keys') if hasattr(data, 'getlist') else data.get('keys', []))
@@ -1181,7 +1208,8 @@ def push_requirements(pid):
 def site_impact(sid):
     """Return cascade effects of deleting a site."""
     site = get_site(sid)
-    if not site: abort(404)
+    if not site:
+        abort(404)
     pods = site_pods(sid)
     cascades = []
     if pods:
@@ -1195,7 +1223,8 @@ def site_impact(sid):
 def pod_impact(pod_id):
     """Return cascade effects of deleting a POD."""
     pod = get_pod(pod_id)
-    if not pod: abort(404)
+    if not pod:
+        abort(404)
     sites_ = pod_sites(pod_id)
     slots  = get_pod_slots(pod_id)
     cascades = []
@@ -1214,7 +1243,8 @@ def pod_impact(pod_id):
 def ne_type_impact(tid):
     """Return cascade effects of deleting an NE type."""
     ne = get_ne_type(tid)
-    if not ne: abort(404)
+    if not ne:
+        abort(404)
     pid = ne.get('project_id') or None
     slot_count = 0
     if pid:

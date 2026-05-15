@@ -23,16 +23,19 @@ def _rev(rel_name, b_id):
 
 
 def relate(rel_name, a_id, b_id):
+    """Link entity A to entity B in a named relation."""
     db.r.sadd(_fwd(rel_name, a_id), b_id)
     db.r.sadd(_rev(rel_name, b_id), a_id)
 
 
 def unrelate(rel_name, a_id, b_id):
+    """Unlink entity A from entity B in a named relation."""
     db.r.srem(_fwd(rel_name, a_id), b_id)
     db.r.srem(_rev(rel_name, b_id), a_id)
 
 
 def related(rel_name, entity_id, direction='fwd') -> set:
+    """Return all entities related to entity_id in specified direction."""
     key = _fwd(rel_name, entity_id) if direction == 'fwd' else _rev(rel_name, entity_id)
     return db.r.smembers(key)
 

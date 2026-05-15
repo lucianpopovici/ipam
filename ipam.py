@@ -490,18 +490,18 @@ def network_addresses(net_id):
     net = get_network(net_id)
     if not net:
         return []
-    
+
     raw_ips = r.smembers(net_ips_key(net_id))
     valid_addrs = []
     expired_ips = []
-    
+
     for ip_str in raw_ips:
         addr = get_ip(ip_str)
         if addr:
             valid_addrs.append(addr)
         else:
             expired_ips.append(ip_str)
-    
+
     # Lazy cleanup of expired TTL reservations
     if expired_ips:
         bkey = net_bitmap_key(net_id)
@@ -513,7 +513,7 @@ def network_addresses(net_id):
                 r.setbit(bkey, offset, 0)
             except (ValueError, TypeError):
                 pass # Should not happen if data is consistent
-                
+
     return sorted(valid_addrs, key=lambda a: ipaddress.ip_address(a['ip']))
 
 def project_networks(pid):
@@ -687,7 +687,7 @@ def dashboard():
             slots = get_rack_slots(r_inst['id'])
             tmpl = r_inst.get('template')
             rack_u = int(tmpl['u_size']) if tmpl else 42
-            
+
             used_u = 0
             total_power = 0.0
             total_weight = 0.0
@@ -700,7 +700,7 @@ def dashboard():
                         used_u += u_size
                         total_power += float(t.get('power_w', 0) or 0)
                         total_weight += float(t.get('weight_kg', 0) or 0)
-            
+
             all_racks.append({
                 'asset_tag': r_inst.get('asset_tag') or r_inst['id'],
                 'used_u': used_u,
@@ -714,7 +714,7 @@ def dashboard():
 
     total_u_capacity = sum(r['total_u'] for r in all_racks)
     total_u_used = sum(r['used_u'] for r in all_racks)
-    
+
     total_power_capacity = sum(r['max_power_w'] for r in all_racks)
     total_power_used = sum(r['power_w'] for r in all_racks)
 
@@ -1107,7 +1107,7 @@ def _handle_manual_subnet(proj, pid):
     cidr = request.form.get('cidr', '').strip()
     if not validate_ip_interface(cidr):
         return None, f'Invalid CIDR: {cidr}'
-    
+
     try:
         subnet_obj = ipaddress.ip_network(cidr, strict=False)
         if not subnet_obj.subnet_of(ipaddress.ip_network(proj['supernet'], strict=False)):
@@ -1329,7 +1329,7 @@ def edit_ip(ip_str):
         if not validate_ip_interface(ip_str):
             flash(f'Invalid IP address record: {ip_str}', 'danger')
             return redirect(url_for('ipam.network_detail', net_id=addr['network_id']))
-            
+
         addr['hostname']    = request.form.get('hostname', '')
         addr['description'] = request.form.get('description', '')
         addr['status']      = request.form.get('status', 'allocated')
@@ -1351,7 +1351,7 @@ def delete_ip(ip_str):
     if net:
         offset = get_ip_offset(net['cidr'], ip_str)
         r.setbit(net_bitmap_key(net_id), offset, 0)
-    
+
     r.delete(ip_key(ip_str))
     r.srem(net_ips_key(net_id), ip_str)
     publish_ip_update('release', addr)
@@ -1367,14 +1367,14 @@ def find_next_free_ip(net_id: str) -> str:
     net = get_network(net_id)
     if not net:
         return None
-    
+
     bkey = net_bitmap_key(net_id)
     if not r.exists(bkey):
         sync_net_bitmap(net_id)
 
     offset = r.bitpos(bkey, 0)
     net_obj = ipaddress.ip_network(net['cidr'], strict=False)
-    
+
     if offset < 0 or offset >= net_obj.num_addresses:
         # Subnet seems full. Trigger lazy cleanup of expired TTLs and retry.
         network_addresses(net_id)
@@ -1384,7 +1384,7 @@ def find_next_free_ip(net_id: str) -> str:
 
     ip_str = get_ip_at_offset(net['cidr'], offset)
     pending = {s['ip'] for s in net.get('pending_slots', [])}
-    
+
     if ip_str in pending:
         # Fallback to BITPOS with bit-offset if pending slots interfere
         for _ in range(100):
@@ -1495,7 +1495,7 @@ def _redisearch_ips(q):
                 TextField("$.description", as_name="description"),
             )
             r.ft("idx:ip").create_index(schema, definition=IndexDefinition(prefix=["ip:"], index_type=IndexType.JSON))
-        
+
         # Search
         # ft().search returns a Result object
         search_res = r.ft("idx:ip").search(q)
@@ -1569,18 +1569,21 @@ def search():
 
 @ipam_bp.route('/api/validate/cidr')
 def api_validate_cidr():
+    """Validate a CIDR string via API."""
     val = request.args.get('v', '').strip()
     return jsonify({'ok': True} if validate_cidr(val) else {'ok': False, 'error': 'Invalid CIDR'})
 
 
 @ipam_bp.route('/api/validate/ip-interface')
 def api_validate_ip_interface():
+    """Validate an IP interface string via API."""
     val = request.args.get('v', '').strip()
     return jsonify({'ok': True} if validate_ip_interface(val) else {'ok': False, 'error': 'Invalid IP/prefix'})
 
 
 @ipam_bp.route('/api/validate/prefix-in-supernet')
 def api_validate_prefix_in_supernet():
+    """Validate if a prefix is within a supernet via API."""
     val      = request.args.get('v', '').strip()
     supernet = request.args.get('supernet', '').strip()
     if not validate_cidr(val):
@@ -1602,9 +1605,11 @@ def api_validate_prefix_in_supernet():
 
 @ipam_bp.route('/api/jobs/<job_id>')
 def api_get_job(job_id):
+    """Get job status and result via API."""
     from core.jobs import get_job
     job = get_job(job_id)
-    if not job: abort(404)
+    if not job:
+        abort(404)
     return jsonify(job)
 
 
@@ -1614,8 +1619,10 @@ def api_get_job(job_id):
 
 @ipam_bp.route('/api/projects/<pid>/impact')
 def project_impact(pid):
+    """Calculate the impact of deleting a project."""
     proj = get_project(pid)
-    if not proj: abort(404)
+    if not proj:
+        abort(404)
     nets = project_networks(pid)
     cascades = []
     if nets:
@@ -1629,6 +1636,7 @@ def project_impact(pid):
 @ipam_bp.route('/projects/<pid>/subnets/bulk-delete', methods=['POST'])
 @editor_required
 def bulk_delete_subnets(pid):
+    """Bulk delete subnets from a project."""
     ids = (request.get_json(silent=True, force=True) or {}).get('ids', [])
     for nid in ids:
         net = get_network(nid)

@@ -968,14 +968,16 @@ class TestE2ECablePlant:
                        'breakout_fan_out': 1, 'notes': ''}],
             'scope': 'global', 'project_id': '',
         }
-        save_hw_template(srv_t); save_hw_template(sw_t)
+        save_hw_template(srv_t)
+save_hw_template(sw_t)
         srv  = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                 'asset_tag': 'SRV-BADGE', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         sw   = {'id': new_id(), 'template_id': sw_t['id'],  'project_id': pid,
                 'asset_tag': 'SW-BADGE',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
-        save_hw_instance(srv); save_hw_instance(sw)
+        save_hw_instance(srv)
+save_hw_instance(sw)
         save_cable({
             'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'MISMATCH-CAB', 'label': '', 'length_m': '',
@@ -1047,14 +1049,16 @@ class TestE2EValidation:
                        'breakout_fan_out': 1, 'notes': ''}],
             'scope': 'global', 'project_id': '',
         }
-        save_hw_template(srv_t); save_hw_template(sw_t)
+        save_hw_template(srv_t)
+save_hw_template(sw_t)
         srv = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                'asset_tag': 'SRV-V', 'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
         sw  = {'id': new_id(), 'template_id': sw_t['id'],  'project_id': pid,
                'asset_tag': 'SW-V',  'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
-        save_hw_instance(srv); save_hw_instance(sw)
+        save_hw_instance(srv)
+save_hw_instance(sw)
         save_cable({
             'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'BAD-CAB-V', 'label': '', 'length_m': '',
@@ -1085,14 +1089,16 @@ class TestE2EValidation:
             'cable_type': '', 'description': '', 'ports': [],
             'scope': 'global', 'project_id': '',
         }
-        save_hw_template(ocp_rack_t); save_hw_template(srv_19_t)
+        save_hw_template(ocp_rack_t)
+save_hw_template(srv_19_t)
         rack = {'id': new_id(), 'template_id': ocp_rack_t['id'], 'project_id': pid,
                 'asset_tag': 'OCP-RACK-V', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         srv  = {'id': new_id(), 'template_id': srv_19_t['id'],   'project_id': pid,
                 'asset_tag': 'STD-SRV-V',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
-        save_hw_instance(rack); save_hw_instance(srv)
+        save_hw_instance(rack)
+save_hw_instance(srv)
         save_rack_slots(rack['id'], [{'u_pos': 1, 'instance_id': srv['id']}])
         goto(page, base, f'/projects/{pid}/hw/validate')
         expect(page.locator('body')).to_contain_text('FORM_FACTOR_MISMATCH')

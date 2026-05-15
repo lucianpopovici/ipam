@@ -263,13 +263,13 @@ def generate_all_from_bom(pid):
             total_items = len(bom_snap)
             created_total = 0
             for i, item in enumerate(bom_snap):
-                update_job(job_id, i, total_items, f'Processing item {i + 1}/{total_items}…')
+                update_job(job_id, i, total_items, message=f'Processing item {i + 1}/{total_items}…')
                 try:
                     created_total += len(generate_instances_from_bom_line(pid, item))
                 except ValueError:
                     pass
             update_job(job_id, total_items, total_items,
-                       f'{created_total} instance(s) generated', status='done',
+                       message=f'{created_total} instance(s) generated', status='done',
                        result={'created': created_total})
 
         run_job(app, job_id, _work, pid, bom_snap)

@@ -200,7 +200,8 @@ class TestHWTemplateHelpers:
         pid = new_id()
         g   = self._tmpl(name='Global')
         p   = self._tmpl(name='Proj', scope='project', pid=pid)
-        save_hw_template(g); save_hw_template(p)
+        save_hw_template(g)
+    save_hw_template(p)
         flat = all_hw_templates_for_project(pid)
         ids  = {t['id'] for t in flat}
         assert g['id'] in ids
@@ -252,7 +253,7 @@ class TestBomHelpers:
     def test_empty_bom(self):
         """Test retrieving BoM for a project with no items."""
         pid, _ = self._setup()
-        assert get_bom(pid) == []
+        assert not get_bom(pid)
 
     def test_save_and_get_bom(self):
         """Test saving and retrieving BoM items."""
@@ -288,7 +289,7 @@ class TestBomHelpers:
         save_bom(pid, [{'id': new_id(), 'template_id': tmpl['id'], 'qty': 1,
                         'tag_prefix': 'a', 'tag_start': 1, 'tag_pad': 3, 'description': ''}])
         save_bom(pid, [])
-        assert get_bom(pid) == []
+        assert not get_bom(pid)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -420,7 +421,7 @@ class TestRackPlacement:
         dev_inst,  _ = self._make_device_instance(pid)
         issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=10)
         errors = [i for i in issues if i['severity'] == 'error']
-        assert errors == []
+        assert not errors
         slots = get_rack_slots(rack_inst['id'])
         assert any(s['instance_id'] == dev_inst['id'] for s in slots)
 
@@ -481,7 +482,7 @@ class TestRackPlacement:
         dev_inst,  _ = self._make_device_instance(pid, ff='19"')
         issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
         ff_errs = [i for i in issues if i['code'] == 'FORM_FACTOR_MISMATCH']
-        assert ff_errs == []
+        assert not ff_errs
 
     def test_replace_existing_placement(self):
         """Verify that re-placing a device moves it from its old position."""
@@ -568,7 +569,8 @@ class TestCableHelpers:
         """Verify cables are isolated between projects."""
         p1 = new_id(); p2 = new_id()
         c1 = self._make_cable(p1); c2 = self._make_cable(p2)
-        save_cable(c1); save_cable(c2)
+        save_cable(c1)
+    save_cable(c2)
         assert not any(x['id'] == c2['id'] for x in project_cables(p1))
 
     def test_used_ports_detected(self):
@@ -689,7 +691,7 @@ class TestValidationEngine:
         self._cable(pid, dac_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0')
         issues = validate_project(pid)
         errors = [i for i in issues if i['severity'] == 'error']
-        assert errors == []
+        assert not errors
 
     def test_connector_mismatch_detected(self):
         """Verify detection of mismatched connectors between cable and port."""
@@ -844,7 +846,7 @@ class TestValidationEngine:
         """Verify that an empty project has no validation issues."""
         pid    = self._make_project()
         issues = validate_project(pid)
-        assert issues == []
+        assert not issues
 
     def test_power_overflow_detected(self):
         """Verify detection of rack power overflow."""

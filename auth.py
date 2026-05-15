@@ -11,20 +11,24 @@ from db import r
 auth_bp = Blueprint('auth', __name__)
 
 class User(UserMixin):
+    """User class for Flask-Login."""
     def __init__(self, username, role='viewer'):
         self.id = username
         self.role = role
 
 class AnonymousUser(AnonymousUserMixin):
+    """Anonymous user class with default roles."""
     @property
     def role(self):
+        """Get the role of the anonymous user."""
         from flask import current_app
         if current_app and current_app.config.get('TESTING'):
             return 'editor'
         return 'viewer'
-    
+
     @property
     def id(self):
+        """Get the ID of the anonymous user."""
         from flask import current_app
         if current_app and current_app.config.get('TESTING'):
             return 'e2e-admin'
@@ -32,6 +36,7 @@ class AnonymousUser(AnonymousUserMixin):
 
     @property
     def is_authenticated(self):
+        """Check if the user is authenticated."""
         from flask import current_app
         if current_app and current_app.config.get('TESTING'):
             return True
@@ -78,10 +83,11 @@ def editor_required(f):
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
+    """Handle user login."""
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
+
         user_data_raw = r.get(f"user:{username}")
         if user_data_raw:
             user_data = json.loads(user_data_raw)
@@ -90,12 +96,13 @@ def login():
                 login_user(user)
                 next_page = request.args.get('next')
                 return redirect(next_page or url_for('ipam.dashboard'))
-        
+
         flash('Invalid username or password')
-    
+
     return render_template('auth/login.html')
 
 @auth_bp.route('/logout')
 def logout():
+    """Handle user logout."""
     logout_user()
     return redirect(url_for('auth.login'))

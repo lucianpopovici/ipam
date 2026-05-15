@@ -188,7 +188,8 @@ class TestHWTemplateRoutes:
     def test_edit_hw_template(self, client):
         """Verify editing a hardware template."""
         seed_connectors()
-        t = _server_tmpl(); save_hw_template(t)
+        t = _server_tmpl()
+save_hw_template(t)
         resp = client.post(f'/hw/templates/{t["id"]}/edit', data={
             'name': 'Renamed', 'vendor': 'HP', 'model': 'DL380',
             'category': 'server', 'form_factor': '19"', 'u_size': '2',
@@ -200,7 +201,8 @@ class TestHWTemplateRoutes:
 
     def test_delete_hw_template(self, client):
         """Verify deleting a hardware template."""
-        t = _server_tmpl(); save_hw_template(t)
+        t = _server_tmpl()
+save_hw_template(t)
         resp = client.post(f'/hw/templates/{t["id"]}/delete', follow_redirects=False)
         assert resp.status_code == 302
         assert get_hw_template(t['id']) is None
@@ -259,7 +261,8 @@ class TestBOMRoutes:
     def test_save_bom(self, client):
         """Verify saving a BOM."""
         pid = _create_project(client)
-        t   = _server_tmpl(); save_hw_template(t)
+        t   = _server_tmpl()
+save_hw_template(t)
         bom = json.dumps([{
             'id': new_id(), 'template_id': t['id'],
             'qty': 3, 'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3,
@@ -290,7 +293,8 @@ class TestBOMRoutes:
     def test_generate_from_bom_line(self, client):
         """Verify generating instances from a BOM line."""
         pid = _create_project(client)
-        t   = _server_tmpl(); save_hw_template(t)
+        t   = _server_tmpl()
+save_hw_template(t)
         item_id = new_id()
         save_bom(pid, [{
             'id': item_id, 'template_id': t['id'],
@@ -307,7 +311,8 @@ class TestBOMRoutes:
         """Verify generating all instances from BOM."""
         pid = _create_project(client)
         t1  = _server_tmpl(); t2 = _rack_tmpl()
-        save_hw_template(t1); save_hw_template(t2)
+        save_hw_template(t1)
+save_hw_template(t2)
         save_bom(pid, [
             {'id': new_id(), 'template_id': t1['id'], 'qty': 3,
              'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2, 'description': ''},
@@ -342,7 +347,8 @@ class TestInventoryRoutes:
     def test_inventory_category_filter(self, client):
         """Verify inventory category filtering."""
         pid = _create_project(client)
-        t   = _server_tmpl(); save_hw_template(t)
+        t   = _server_tmpl()
+save_hw_template(t)
         _make_instance(pid, t)
         resp = client.get(f'/projects/{pid}/hw/inventory?category=server')
         assert resp.status_code == 200
@@ -356,7 +362,8 @@ class TestInventoryRoutes:
     def test_add_instance_manually(self, client):
         """Verify adding an instance manually."""
         pid = _create_project(client)
-        t   = _server_tmpl(); save_hw_template(t)
+        t   = _server_tmpl()
+save_hw_template(t)
         resp = client.post(f'/projects/{pid}/hw/instances/add', data={
             'template_id': t['id'], 'asset_tag': 'MANUAL-001',
             'serial': 'SN123', 'status': 'in-stock',
@@ -368,7 +375,8 @@ class TestInventoryRoutes:
     def test_edit_instance(self, client):
         """Verify editing an instance."""
         pid  = _create_project(client)
-        t    = _server_tmpl(); save_hw_template(t)
+        t    = _server_tmpl()
+save_hw_template(t)
         inst = _make_instance(pid, t)
         resp = client.post(f'/projects/{pid}/hw/instances/{inst["id"]}/edit', data={
             'asset_tag': 'UPDATED-TAG', 'serial': 'SN-NEW', 'status': 'deployed',
@@ -381,7 +389,8 @@ class TestInventoryRoutes:
     def test_delete_instance(self, client):
         """Verify deleting an instance."""
         pid  = _create_project(client)
-        t    = _server_tmpl(); save_hw_template(t)
+        t    = _server_tmpl()
+save_hw_template(t)
         inst = _make_instance(pid, t)
         resp = client.post(f'/projects/{pid}/hw/instances/{inst["id"]}/delete',
                            follow_redirects=False)
@@ -408,7 +417,8 @@ class TestRackRoutes:
         """Helper to set up a rack and a device instance."""
         pid   = _create_project(client)
         rt    = _rack_tmpl();   save_hw_template(rt)
-        dt    = _server_tmpl(); save_hw_template(dt)
+        dt    = _server_tmpl()
+save_hw_template(dt)
         rack  = _make_instance(pid, rt)
         dev   = _make_instance(pid, dt)
         return pid, rack, dev
@@ -465,7 +475,8 @@ class TestRackRoutes:
         """Verify overlapping placement is rejected."""
         pid   = _create_project(client)
         rt    = _rack_tmpl();   save_hw_template(rt)
-        dt    = _server_tmpl(); save_hw_template(dt)
+        dt    = _server_tmpl()
+save_hw_template(dt)
         rack  = _make_instance(pid, rt)
         dev1  = _make_instance(pid, dt)
         dev2  = _make_instance(pid, dt)
@@ -520,8 +531,10 @@ class TestCableRoutes:
     def test_add_cable(self, client):
         """Verify adding a cable."""
         pid  = _create_project(client)
-        ct   = _cable_tmpl(); save_hw_template(ct)
-        dt   = _server_tmpl(); save_hw_template(dt)
+        ct   = _cable_tmpl()
+save_hw_template(ct)
+        dt   = _server_tmpl()
+save_hw_template(dt)
         dev1 = _make_instance(pid, dt)
         dev2 = _make_instance(pid, dt)
         resp = client.post(f'/projects/{pid}/hw/cables/add', data={
@@ -543,8 +556,10 @@ class TestCableRoutes:
     def test_edit_cable(self, client):
         """Verify editing a cable."""
         pid  = _create_project(client)
-        ct   = _cable_tmpl(); save_hw_template(ct)
-        dt   = _server_tmpl(); save_hw_template(dt)
+        ct   = _cable_tmpl()
+save_hw_template(ct)
+        dt   = _server_tmpl()
+save_hw_template(dt)
         dev1 = _make_instance(pid, dt)
         dev2 = _make_instance(pid, dt)
         c = {
@@ -588,7 +603,8 @@ class TestCableRoutes:
     def test_instance_ports_api(self, client):
         """Verify instance ports API."""
         pid  = _create_project(client)
-        dt   = _server_tmpl(); save_hw_template(dt)
+        dt   = _server_tmpl()
+save_hw_template(dt)
         inst = _make_instance(pid, dt)
         resp = client.get(f'/api/projects/{pid}/hw/instance-ports/{inst["id"]}')
         assert resp.status_code == 200
@@ -601,7 +617,8 @@ class TestCableRoutes:
     def test_instance_ports_api_marks_used(self, client):
         """Verify instance ports API marks ports in use."""
         pid  = _create_project(client)
-        dt   = _server_tmpl(); save_hw_template(dt)
+        dt   = _server_tmpl()
+save_hw_template(dt)
         dev1 = _make_instance(pid, dt)
         dev2 = _make_instance(pid, dt)
         c = {
@@ -622,7 +639,7 @@ class TestCableRoutes:
         pid  = _create_project(client)
         resp = client.get(f'/api/projects/{pid}/hw/instance-ports/no-such-id')
         assert resp.status_code == 200
-        assert json.loads(resp.data) == []
+        assert not json.loads(resp.data)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -676,10 +693,12 @@ class TestValidationRoutes:
                        'breakout_fan_out': 1, 'notes': ''}],
             'scope': 'global', 'project_id': '',
         }
-        save_hw_template(srv_t); save_hw_template(sw_t)
+        save_hw_template(srv_t)
+save_hw_template(sw_t)
         srv  = _make_instance(pid, srv_t)
         sw   = _make_instance(pid, sw_t)
-        ct   = _cable_tmpl(); save_hw_template(ct)
+        ct   = _cable_tmpl()
+save_hw_template(ct)
         c = {
             'id': new_id(), 'template_id': ct['id'], 'project_id': pid,
             'asset_tag': 'BAD-CAB', 'label': '', 'length_m': '',

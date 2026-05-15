@@ -200,7 +200,8 @@ class TestNETypeHelpers:
         pid = new_id()
         g   = self._ne(name='Global')
         p   = self._ne(name='Project', scope='project', pid=pid)
-        save_ne_type(g); save_ne_type(p)
+        save_ne_type(g)
+save_ne_type(p)
         av  = available_ne_types(pid)
         assert any(x['id'] == g['id'] for x in av['global'])
         assert any(x['id'] == p['id'] for x in av['project'])
@@ -261,7 +262,8 @@ class TestSiteHelpers:
         pid  = self._proj()
         s1   = self._site(pid, 'LON-DC1')
         s2   = self._site(pid, 'AMS-DC1')
-        save_site(s1); save_site(s2)
+        save_site(s1)
+save_site(s2)
         names = [s['name'] for s in project_sites(pid)]
         assert 'LON-DC1' in names
         assert 'AMS-DC1' in names
@@ -337,7 +339,8 @@ class TestPodHelpers:
         pid = self._proj()
         p1  = self._pod(pid, 'P1')
         p2  = self._pod(pid, 'P2')
-        save_pod(p1); save_pod(p2)
+        save_pod(p1)
+save_pod(p2)
         names = [p['name'] for p in project_pods(pid)]
         assert 'P1' in names and 'P2' in names
 
@@ -539,7 +542,7 @@ class TestComputeRequirements:
         """Verify empty requirements for project with no sites."""
         pid = new_id()
         save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
-        assert compute_requirements(pid) == []
+        assert not compute_requirements(pid)
 
     def test_site_with_no_pods_returns_empty(self):
         """Verify empty requirements for site with no PODs."""
@@ -548,7 +551,7 @@ class TestComputeRequirements:
         site = {'id': new_id(), 'name': 'S', 'project_id': pid,
                 'description': '', 'labels': [], 'params': {}}
         save_site(site)
-        assert compute_requirements(pid) == []
+        assert not compute_requirements(pid)
 
     def test_requirements_persisted(self):
         """Test saving and loading computed requirements."""

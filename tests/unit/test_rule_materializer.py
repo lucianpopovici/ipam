@@ -53,7 +53,7 @@ import rules as R
 
 @pytest.mark.unit
 def test_bucket_synthetic_labels_empty():
-    assert R.bucket_synthetic_labels(()) == []
+    assert not R.bucket_synthetic_labels(())
 
 
 @pytest.mark.unit
@@ -72,7 +72,7 @@ def test_bucket_synthetic_labels_multiple_sorted():
 @pytest.mark.unit
 def test_materialize_empty_project(_fake_r):
     ports = R.materialize_binding({'port_types': ['mgmt']}, 'pid-empty')
-    assert ports == []
+    assert not ports
 
 
 @pytest.mark.unit

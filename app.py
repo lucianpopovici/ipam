@@ -33,6 +33,7 @@ login_manager.user_loader(load_user)
 
 @app.context_processor
 def inject_nav_helpers():
+    """Inject navigation helpers into template context."""
     def is_active(*endpoints):
         ep = request.endpoint or ''
         return ep in endpoints or any(ep.startswith(p) for p in endpoints if p.endswith('.'))
@@ -40,15 +41,14 @@ def inject_nav_helpers():
 
 @app.before_request
 def attach_project_context():
+    """Attach current project and all projects to Flask global 'g' context."""
     pid = (request.view_args or {}).get('pid')
     g.current_project = get_project(pid) if pid else None
     g.all_projects = sorted(all_projects(), key=lambda p: p['name']) if g.current_project else []
 
 @app.after_request
 def add_security_headers(response):
-    """
-    Adds security headers to every response.
-    """
+    """Adds security headers to every response."""
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -56,6 +56,7 @@ def add_security_headers(response):
 
 @app.before_request
 def require_login():
+    """Require authentication for non-public endpoints."""
     if app.config.get('TESTING'):
         return None
     if request.endpoint and (request.endpoint in ('auth.login', 'static') or request.endpoint.startswith('api_v1.')):

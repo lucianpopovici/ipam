@@ -14,21 +14,21 @@ def check_project_health(pid: str) -> list:
     Each issue: {'type': str, 'severity': 'error'|'warning', 'message': str, 'context': dict}
     """
     issues = []
-    
+
     # 1. Subnet Utilization
     issues.extend(_check_subnet_utilization(pid))
-    
+
     # 2. Requirement Gaps
     issues.extend(_check_requirement_gaps(pid))
-    
+
     # 3. Hardware Validation (Power, Weight, Placement)
     # We leverage existing hw_logic validation
     hw_issues = validate_project(pid)
     issues.extend(hw_issues)
-    
+
     # 4. Cable Integrity
     issues.extend(_check_cable_integrity(pid))
-    
+
     return issues
 
 def _check_subnet_utilization(pid: str) -> list:
@@ -52,30 +52,32 @@ def _check_requirement_gaps(pid: str) -> list:
     if not reqs:
         # If no requirements cached, compute them
         reqs = compute_requirements(pid)
-        
+
     networks = project_networks(pid)
     # Map of (prefix_len, labels_tuple) -> count
     existing_nets = {}
     for net in networks:
         key = (ipaddress.ip_network(net['cidr']).prefixlen, tuple(sorted(net.get('labels', []))))
         existing_nets[key] = existing_nets.get(key, 0) + 1
-        
+
     for req in reqs:
         if req.get('pushed'):
             continue
-            
+
         key = (req['prefix_len'], tuple(sorted(req['labels'])))
         needed = req['count']
         found = existing_nets.get(key, 0)
-        
+
         if found < needed:
+            msg = (f"Requirement gap: Need {needed}x /{req['prefix_len']} "
+                   f"with labels {req['labels']}, but only found {found}.")
             issues.append({
                 'type': 'requirement',
                 'severity': 'warning',
-                'message': f"Requirement gap: Need {needed}x /{req['prefix_len']} with labels {req['labels']}, but only found {found}.",
+                'message': msg,
                 'context': {'req_key': req['key']}
             })
-            
+
     return issues
 
 def _check_cable_integrity(pid: str) -> list:
@@ -84,7 +86,7 @@ def _check_cable_integrity(pid: str) -> list:
     for c in cables:
         end_a = c.get('end_a', {})
         end_b = c.get('end_b', {})
-        
+
         if not end_a.get('instance_id') or not end_b.get('instance_id'):
             issues.append({
                 'type': 'cable',
@@ -92,6 +94,6 @@ def _check_cable_integrity(pid: str) -> list:
                 'message': f"Cable {c.get('asset_tag', c['id'])} is only partially connected.",
                 'context': {'cable_id': c['id']}
             })
-            
+
         # Mismatched connectors check is already in hw_logic.validate_project
     return issues
