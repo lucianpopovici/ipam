@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ customer.name }}{% endblock %}
+{% block content %}
+
+{{ breadcrumbs([
+  {'label': 'Customers', 'url': url_for('customer.customers_list')},
+  {'label': customer.name}
+]) }}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">{{ customer.name }}</h4>
+    <small class="text-muted"><code>{{ customer.id }}</code> · slug: <code>{{ customer.slug }}</code></small>
+  </div>
+  <a href="{{ url_for('customer.edit_customer', cid=customer.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Contact</h6>
+        <div>{{ customer.primary_contact.name or '—' }}</div>
+        <div class="text-muted small">{{ customer.primary_contact.email or '' }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Billing</h6>
+        <div>{{ customer.billing_ref or '—' }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="card-subtitle mb-2 text-muted">Branding</h6>
+        <div class="d-flex align-items-center gap-2">
+          <div style="width:24px;height:24px;border-radius:4px;background:{{ customer.branding.primary_color }};border:1px solid #ccc"></div>
+          <code class="small">{{ customer.branding.primary_color }}</code>
+        </div>
+        {% if customer.branding.footer_line %}
+        <div class="small text-muted mt-1">{{ customer.branding.footer_line }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Template Sets ── #}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5>Template Sets</h5>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Upload New Template Set</span>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('customer.upload_template_set', cid=customer.id) }}" enctype="multipart/form-data">
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">
+          <label class="form-label">Tarball (.tar / .tar.gz)</label>
+          <input type="file" name="tarball" class="form-control form-control-sm" accept=".tar,.tar.gz,.tgz">
+        </div>
+        <div class="col-auto">
+          <label class="form-label">Label</label>
+          <input type="text" name="label" class="form-control form-control-sm" placeholder="v1 (2026)">
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-sm btn-primary">Upload &amp; Activate</button>
+        </div>
+      </div>
+      <div class="form-text mt-1">
+        Archive must contain at minimum <code>design.html</code> at the root level.
+        Configs go in <code>configs/</code>.
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if template_sets %}
+<div class="table-responsive mb-4">
+  <table class="table table-sm table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th>ID</th>
+        <th>Uploaded</th>
+        <th>Files</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ts in template_sets %}
+      <tr>
+        <td>{{ ts.name }}</td>
+        <td><code class="small">{{ ts.id }}</code></td>
+        <td class="small text-muted">{{ ts.uploaded_at[:10] if ts.uploaded_at else '—' }}</td>
+        <td class="small text-muted">{{ ts.files|length }} file(s)</td>
+        <td>
+          {% if ts.id == customer.template_set_id %}
+            <span class="badge bg-success">Active</span>
+          {% else %}
+            <span class="badge bg-secondary">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          {% if ts.id != customer.template_set_id %}
+          <form method="post" action="{{ url_for('customer.activate_template_set', cid=customer.id, tsid=ts.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-primary">Activate</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">No template sets uploaded yet. Upload a tarball above to get started.</p>
+{% endif %}
+
+{# ── Projects ── #}
+<h5>Projects</h5>
+{% if projects %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover">
+    <thead class="table-light"><tr><th>Name</th><th>ID</th><th></th></tr></thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td><a href="{{ url_for('ipam.project_detail', pid=p.id) }}">{{ p.name }}</a></td>
+        <td class="small text-muted"><code>{{ p.id }}</code></td>
+        <td class="text-end"><a href="{{ url_for('documents.project_artifacts', pid=p.id) }}" class="btn btn-sm btn-outline-secondary">Artifacts</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="text-muted">No projects assigned to this customer yet. Edit a project to assign it.</p>
+{% endif %}
+
+{% endblock %}
