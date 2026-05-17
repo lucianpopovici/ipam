@@ -5,9 +5,12 @@ Install deps:
     pip install fakeredis pytest pytest-asyncio pytest-playwright
     playwright install chromium
 """
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+# pylint: disable=wrong-import-position
 import pytest
 import fakeredis
 import db                      # the shared db module
@@ -26,7 +29,11 @@ def fake_redis(monkeypatch):
     fake_r = fakeredis.FakeRedis(server=server, decode_responses=True)
 
     # Patch the module-level `r` in every blueprint module
-    import ipam, ne, hw_logic, vmware, auth
+    import ipam
+    import ne
+    import hw_logic
+    import vmware
+    import auth
     for mod in (db, ipam, ne, hw_logic, vmware, auth):
         monkeypatch.setattr(mod, 'r', fake_r)
 
@@ -104,9 +111,12 @@ def seeded_hw_template(fake_redis):
         'cable_type':  '',
         'description': '',
         'ports': [
-            {'id': 'p1', 'name': 'eth0',  'port_type': 'data',  'connector': 'RJ45',   'speed_gbps': 1,   'count': 4, 'breakout_fan_out': 1, 'notes': ''},
-            {'id': 'p2', 'name': 'sfp0',  'port_type': 'data',  'connector': 'SFP28',  'speed_gbps': 25,  'count': 2, 'breakout_fan_out': 1, 'notes': ''},
-            {'id': 'p3', 'name': 'psu0',  'port_type': 'power', 'connector': 'IEC-C14','speed_gbps': 0,   'count': 2, 'breakout_fan_out': 1, 'notes': ''},
+            {'id': 'p1', 'name': 'eth0', 'port_type': 'data', 'connector': 'RJ45',
+             'speed_gbps': 1, 'count': 4, 'breakout_fan_out': 1, 'notes': ''},
+            {'id': 'p2', 'name': 'sfp0', 'port_type': 'data', 'connector': 'SFP28',
+             'speed_gbps': 25, 'count': 2, 'breakout_fan_out': 1, 'notes': ''},
+            {'id': 'p3', 'name': 'psu0', 'port_type': 'power', 'connector': 'IEC-C14',
+             'speed_gbps': 0, 'count': 2, 'breakout_fan_out': 1, 'notes': ''},
         ],
         'scope':      'global',
         'project_id': '',
@@ -143,4 +153,3 @@ def seeded_cable_template(fake_redis):
     }
     save_hw_template(tmpl)
     return tmpl
-

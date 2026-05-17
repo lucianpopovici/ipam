@@ -64,7 +64,8 @@ NE_INSTS_INDEX  = 'ne:instances:index'
 ENTITY_TYPES   = tuple(_cfg.get('entity_types',   ('site', 'pod', 'ne', 'interface')))
 NE_KINDS       = tuple(_cfg.get('ne_kinds',        ('CNF', 'VNF', 'PNF', 'VM', 'Container')))
 SHARING_LEVELS = tuple(_cfg.get('sharing_levels',  ('project', 'site', 'pod', 'ne', 'interface')))
-FIELD_TYPES    = tuple(_cfg.get('field_types',     ('text', 'number', 'textarea', 'dropdown', 'multi-select', 'checkbox')))
+FIELD_TYPES    = tuple(_cfg.get(
+    'field_types', ('text', 'number', 'textarea', 'dropdown', 'multi-select', 'checkbox')))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Schema helpers
@@ -333,7 +334,8 @@ def compute_requirements(pid: str) -> list:
                         elif sharing == 'pod':
                             key = f'site:{site["id"]}|pod:{pod["id"]}|iface:{iface["id"]}|v:{ip_ver}'
                         elif sharing == 'ne':
-                            key = f'site:{site["id"]}|pod:{pod["id"]}|slot:{slot["ne_type_id"]}|iface:{iface["id"]}|v:{ip_ver}'
+                            key = (f'site:{site["id"]}|pod:{pod["id"]}'
+                                   f'|slot:{slot["ne_type_id"]}|iface:{iface["id"]}|v:{ip_ver}')
                         else:  # interface — one per NE instance
                             key = None  # never deduped
 

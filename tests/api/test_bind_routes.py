@@ -14,7 +14,10 @@ import fakeredis
 @pytest.fixture()
 def client(monkeypatch):
     fake_r = fakeredis.FakeRedis(decode_responses=True)
-    import db, ipam, ne, hw_logic
+    import db
+    import ipam
+    import ne
+    import hw_logic
     for mod in (db, ipam, ne, hw_logic):
         monkeypatch.setattr(mod, 'r', fake_r)
     from hw import seed_connectors
@@ -31,9 +34,9 @@ def client(monkeypatch):
 
 @pytest.fixture()
 def project(client):
-    resp = client.post('/projects/add',
-                       data={'name': 'Test', 'supernet': '10.0.0.0/8'},
-                       follow_redirects=True)
+    client.post('/projects/add',
+                data={'name': 'Test', 'supernet': '10.0.0.0/8'},
+                follow_redirects=True)
     # Get PID from redirect URL
     import db as db_mod
     pid = db_mod.r.smembers('projects:index').pop()

@@ -4,9 +4,8 @@ pytestmark = pytest.mark.e2e
 
 End-to-end tests for NE management flows using Playwright.
 """
-import pytest
-import time
 import re
+import time
 from playwright.sync_api import Page, expect
 
 
@@ -110,7 +109,10 @@ class TestE2ENETypes:
                 }
             }
         """)
-        page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
+        page.evaluate(
+            "document.querySelector('input[name=\"params_json\"]') && "
+            "(document.querySelector('input[name=\"params_json\"]').value = '{}')"
+        )
         page.click('button[type="submit"]')
         # Check ne type appears
         goto(page, base, '/ne-types')
@@ -144,7 +146,10 @@ class TestE2ESites:
         goto(page, base, f'/projects/{pid}/sites/add')
         page.fill('input[name="name"]', 'LON-DC1')
         page.fill('input[name="description"]', 'London datacenter')
-        page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
+        page.evaluate(
+            "document.querySelector('input[name=\"params_json\"]') && "
+            "(document.querySelector('input[name=\"params_json\"]').value = '{}')"
+        )
         page.click('button[type="submit"]')
         goto(page, base, f'/projects/{pid}/sites')
         expect(page.locator('body')).to_contain_text('LON-DC1')
@@ -155,7 +160,10 @@ class TestE2ESites:
         pid = _create_project(page, base, name='Bulk Sites')
         goto(page, base, f'/projects/{pid}/sites/bulk')
         page.fill('input[name="pattern"]', 'ran{0001..0005}')
-        page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
+        page.evaluate(
+            "document.querySelector('input[name=\"params_json\"]') && "
+            "(document.querySelector('input[name=\"params_json\"]').value = '{}')"
+        )
         page.click('button[type="submit"]')
         goto(page, base, f'/projects/{pid}/sites')
         expect(page.locator('body')).to_contain_text('ran0001')
@@ -207,7 +215,10 @@ class TestE2EPODs:
         pid = _create_project(page, base, name='POD E2E')
         goto(page, base, f'/projects/{pid}/pods/add')
         page.fill('input[name="name"]', 'CORE-POD-1')
-        page.evaluate("document.querySelector('input[name=\"params_json\"]') && (document.querySelector('input[name=\"params_json\"]').value = '{}')")
+        page.evaluate(
+            "document.querySelector('input[name=\"params_json\"]') && "
+            "(document.querySelector('input[name=\"params_json\"]').value = '{}')"
+        )
         page.click('button[type="submit"]')
         goto(page, base, f'/projects/{pid}/pods')
         expect(page.locator('body')).to_contain_text('CORE-POD-1')
@@ -217,8 +228,6 @@ class TestE2EPODs:
         page, base = page_base
         from db import new_id
         from ne import save_site, save_pod
-        from ipam import save_project
-
         pid = _create_project(page, base, name='Assign Test')
 
         # Create site and pod via API
@@ -241,7 +250,6 @@ class TestE2EPODs:
         page, base = page_base
         from db import new_id
         from ne import save_pod
-        from ipam import save_project
 
         pid = _create_project(page, base, name='Slot Builder')
         pod_id = new_id()

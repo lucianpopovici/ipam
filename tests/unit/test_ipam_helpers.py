@@ -4,35 +4,12 @@ pytestmark = pytest.mark.unit
 Unit tests for ipam.py helper functions.
 All Redis I/O is intercepted by the fake_redis fixture in conftest.py.
 """
-import pytest
-from db import parse_labels, new_id
 from ipam import (
-    carve_next_subnet,
-    pool_by_label_set,
-    resolve_template_rules,
-    _validate_rules,
-    project_pool_summary,
-    global_pool_summary,
-    get_project, save_project,
-    get_network, save_network,
-    get_ip, save_ip,
-    add_labels_to_network, get_network_labels,
-    remove_labels_from_network,
-    label_scope,
-    add_global_label, remove_global_label,
-    add_project_label, remove_project_label,
-    available_labels_for_project,
-    get_template, save_template, delete_template,
-    global_templates, project_templates,
-    available_templates_for_project, template_scope,
-    set_pending_slots, confirm_slot, confirm_all_slots,
-    dismiss_slot, dismiss_all_slots,
-    net_stats, project_networks, used_subnets_in_project,
-    project_nets_key,
     claim_ip_atomic,
     find_next_free_ip,
+    get_ip,
+    save_network,
 )
-from db import r as _r
 
 def test_claim_ip_atomic_success(fake_redis):
     """Test successful atomic IP claim and bitmap update."""
@@ -63,15 +40,15 @@ def test_find_next_free_ip_with_bitmap(fake_redis):
     """Test that find_next_free_ip correctly identifies available IPs using bitmaps."""
     net = {'id': 'net1', 'cidr': '192.168.1.0/24'}
     save_network(net)
-    
+
     # Manually mark .1 and .2 as used
     claim_ip_atomic({'ip': '192.168.1.1', 'network_id': 'net1'}, '192.168.1.0/24')
     claim_ip_atomic({'ip': '192.168.1.2', 'network_id': 'net1'}, '192.168.1.0/24')
-    
+
     # 192.168.1.3 should be the next one (ignoring 0 which is network addr)
     # Actually, sync_net_bitmap marks 0 and 255 as used for /24.
     from ipam import sync_net_bitmap
     sync_net_bitmap('net1')
-    
+
     next_ip = find_next_free_ip('net1')
     assert next_ip == '192.168.1.3'

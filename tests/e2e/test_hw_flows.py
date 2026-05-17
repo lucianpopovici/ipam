@@ -11,10 +11,9 @@ Covers:
   - Cable plant (add cable, dynamic port dropdown, edit, delete)
   - Validation page (clean project, mismatch detection)
 """
-import pytest
-import time
-import json
 import re
+import time
+import pytest
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.e2e
@@ -317,7 +316,10 @@ class TestE2EHWTemplates:
         tmpl = _make_server_template()
         goto(page, base, f'/hw/templates/{tmpl["id"]}/edit')
         page.fill('input[name="name"]', 'Renamed-Server')
-        page.evaluate("document.getElementById('portsJson') && (document.getElementById('portsJson').value = JSON.stringify([]))")
+        page.evaluate(
+            "document.getElementById('portsJson') && "
+            "(document.getElementById('portsJson').value = JSON.stringify([]))"
+        )
         page.click('button[type="submit"]')
         goto(page, base, '/hw/templates')
         expect(page.locator('body')).to_contain_text('Renamed-Server')
@@ -377,7 +379,7 @@ class TestE2EBOM:
         """Verify adding a BOM line."""
         page, base = page_base
         pid  = _create_project(page, base, name='BoM Add Line')
-        tmpl = _make_server_template()
+        _make_server_template()
         goto(page, base, f'/projects/{pid}/bom')
         # Use onclick attribute selector to avoid matching the project-picker dropdown
         # (whose button text contains the project name "BoM Add Line")
@@ -457,7 +459,7 @@ class TestE2EBOM:
         """Verify template dropdown is populated in BOM editor."""
         page, base = page_base
         pid  = _create_project(page, base, name='BoM Dropdown')
-        tmpl = _make_server_template()
+        _make_server_template()
         goto(page, base, f'/projects/{pid}/bom')
         page.click('button:has-text("Add Line")')
         # The template select should contain our template
@@ -588,7 +590,7 @@ class TestE2ERackVisual:
     def test_rack_detail_loads(self, page_base):
         """Verify rack detail page loads."""
         page, base = page_base
-        pid, rack, dev = self._setup_rack(page, base)
+        pid, rack, _ = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
         expect(page).to_have_url(re.compile(rack['id']))
         expect(page.locator('body')).to_contain_text(rack['asset_tag'])
@@ -596,7 +598,7 @@ class TestE2ERackVisual:
     def test_rack_shows_u_slots(self, page_base):
         """Verify U slots are shown in rack diagram."""
         page, base = page_base
-        pid, rack, dev = self._setup_rack(page, base)
+        pid, rack, _ = self._setup_rack(page, base)
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
         # Should show numbered U slots in the visual table
         u_labels = page.locator('#rackTable td:first-child')
@@ -623,7 +625,9 @@ class TestE2ERackVisual:
         goto(page, base, f'/projects/{pid}/hw/racks/{rack["id"]}')
         expect(page.locator('body')).to_contain_text(dev['asset_tag'])
         # Check that it's in the 'Placed Devices' table with U5 or just 5
-        placed_table = page.locator('div.card', has=page.locator('div.card-header:has-text("Placed Devices")')).locator('table')
+        placed_table = page.locator(
+            'div.card', has=page.locator('div.card-header:has-text("Placed Devices")')
+        ).locator('table')
         expect(placed_table).to_contain_text('5')
 
     def test_remove_device_from_rack(self, page_base):
@@ -781,7 +785,7 @@ class TestE2ERackTable:
         rck_t = _make_rack_template()
         srv_t = _make_server_template()
         rack  = _make_instance(pid, rck_t)
-        dev   = _make_instance(pid, srv_t)
+        _make_instance(pid, srv_t)
         goto(page, base, f'/projects/{pid}/hw/rack-table')
         page.click('button:has-text("Add Row")')
         # Rack dropdown should contain our rack
@@ -854,7 +858,7 @@ class TestE2ECablePlant:
     def test_dynamic_port_dropdown_loads(self, page_base):
         """Verify port dropdown populates after selecting a device."""
         page, base = page_base
-        pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Dynamic')
+        pid, dev1, _, _ = self._setup(page, base, 'Cable Dynamic')
         goto(page, base, f'/projects/{pid}/hw/cables/add')
         page.select_option('select[name="end_a_instance"]', dev1['id'])
         time.sleep(0.5)
@@ -923,7 +927,7 @@ class TestE2ECablePlant:
     def test_delete_cable(self, page_base):
         """Verify deleting a cable via UI."""
         page, base = page_base
-        pid, dev1, dev2, cab_t = self._setup(page, base, 'Cable Delete E2E')
+        pid, *_ = self._setup(page, base, 'Cable Delete E2E')
         from db import new_id
         from hw import save_cable
         cable_id = new_id()
@@ -969,7 +973,7 @@ class TestE2ECablePlant:
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(srv_t)
-save_hw_template(sw_t)
+        save_hw_template(sw_t)
         srv  = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                 'asset_tag': 'SRV-BADGE', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
@@ -977,7 +981,7 @@ save_hw_template(sw_t)
                 'asset_tag': 'SW-BADGE',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(srv)
-save_hw_instance(sw)
+        save_hw_instance(sw)
         save_cable({
             'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'MISMATCH-CAB', 'label': '', 'length_m': '',
@@ -1050,7 +1054,7 @@ class TestE2EValidation:
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(srv_t)
-save_hw_template(sw_t)
+        save_hw_template(sw_t)
         srv = {'id': new_id(), 'template_id': srv_t['id'], 'project_id': pid,
                'asset_tag': 'SRV-V', 'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
@@ -1058,7 +1062,7 @@ save_hw_template(sw_t)
                'asset_tag': 'SW-V',  'serial': '', 'status': 'deployed',
                'location': {}, 'port_overrides': {}}
         save_hw_instance(srv)
-save_hw_instance(sw)
+        save_hw_instance(sw)
         save_cable({
             'id': new_id(), 'template_id': None, 'project_id': pid,
             'asset_tag': 'BAD-CAB-V', 'label': '', 'length_m': '',
@@ -1090,7 +1094,7 @@ save_hw_instance(sw)
             'scope': 'global', 'project_id': '',
         }
         save_hw_template(ocp_rack_t)
-save_hw_template(srv_19_t)
+        save_hw_template(srv_19_t)
         rack = {'id': new_id(), 'template_id': ocp_rack_t['id'], 'project_id': pid,
                 'asset_tag': 'OCP-RACK-V', 'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
@@ -1098,7 +1102,7 @@ save_hw_template(srv_19_t)
                 'asset_tag': 'STD-SRV-V',  'serial': '', 'status': 'deployed',
                 'location': {}, 'port_overrides': {}}
         save_hw_instance(rack)
-save_hw_instance(srv)
+        save_hw_instance(srv)
         save_rack_slots(rack['id'], [{'u_pos': 1, 'instance_id': srv['id']}])
         goto(page, base, f'/projects/{pid}/hw/validate')
         expect(page.locator('body')).to_contain_text('FORM_FACTOR_MISMATCH')

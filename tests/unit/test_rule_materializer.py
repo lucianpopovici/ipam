@@ -48,7 +48,7 @@ def _make_instance(fk, iid, pid, tid, asset_tag=None, rack_id=None, location=Non
 
 # ── rules helpers ──────────────────────────────────────────────────────────────
 
-import rules as R
+import rules as R  # pylint: disable=wrong-import-position
 
 
 @pytest.mark.unit

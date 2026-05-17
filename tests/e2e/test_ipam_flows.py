@@ -17,9 +17,6 @@ Prerequisites:
     playwright install chromium
 """
 import re
-import pytest
-import threading
-import time
 from playwright.sync_api import Page, expect
 
 
@@ -192,7 +189,7 @@ class TestE2EIPAllocation:
     def test_allocate_ip(self, page_base):
         """Test IP allocation."""
         page, base = page_base
-        pid, nid = self._setup_subnet(page, base)
+        _, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
         page.fill('input[name="ip"]', '10.0.0.5')
         page.fill('input[name="hostname"]', 'web-01')
@@ -204,7 +201,7 @@ class TestE2EIPAllocation:
     def test_next_available_button(self, page_base):
         """Test next available button."""
         page, base = page_base
-        pid, nid = self._setup_subnet(page, base)
+        _, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
         # Click "Next Available" button if present
         btn = page.locator('button:has-text("Next Available"), a:has-text("Next Available")')
@@ -216,7 +213,7 @@ class TestE2EIPAllocation:
     def test_duplicate_ip_shows_warning(self, page_base):
         """Test duplicate IP warning."""
         page, base = page_base
-        pid, nid = self._setup_subnet(page, base)
+        _, nid = self._setup_subnet(page, base)
         for _ in range(2):
             goto(page, base, f'/networks/{nid}/ip/add')
             page.fill('input[name="ip"]', '10.0.0.7')
@@ -226,7 +223,7 @@ class TestE2EIPAllocation:
     def test_edit_ip(self, page_base):
         """Test IP edit."""
         page, base = page_base
-        pid, nid = self._setup_subnet(page, base)
+        _, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
         page.fill('input[name="ip"]', '10.0.0.8')
         page.fill('input[name="hostname"]', 'original')
@@ -240,7 +237,7 @@ class TestE2EIPAllocation:
     def test_delete_ip(self, page_base):
         """Test IP deletion."""
         page, base = page_base
-        pid, nid = self._setup_subnet(page, base)
+        _, nid = self._setup_subnet(page, base)
         goto(page, base, f'/networks/{nid}/ip/add')
         page.fill('input[name="ip"]', '10.0.0.9')
         page.click('button[type="submit"]')
@@ -353,7 +350,7 @@ class TestE2ESubnetTemplates:
         }
         save_template(tmpl)
 
-        pid, nid = self._setup(page, base)
+        _, nid = self._setup(page, base)
         goto(page, base, f'/networks/{nid}/template')
         page.check(f'input[name="template_id"][value="{tmpl["id"]}"]')
         page.click('button[type="submit"]')
@@ -364,9 +361,8 @@ class TestE2ESubnetTemplates:
     def test_confirm_pending_slot(self, page_base):
         """Test pending slot confirmation."""
         page, base = page_base
-        from db import new_id
+        from db import new_id, r
         from ipam import save_template, set_pending_slots, save_project
-        from db import new_id as _nid, r
         from ipam import save_network, project_nets_key
 
         # Create project + subnet directly

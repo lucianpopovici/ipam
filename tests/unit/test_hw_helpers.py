@@ -1,8 +1,5 @@
 """Unit tests for hardware helper functions in hw_logic.py."""
 import pytest
-
-pytestmark = pytest.mark.unit
-
 from hw_logic import (
     seed_connectors, all_connectors, add_connector, remove_connector,
     set_compat, connectors_compatible, full_compat_matrix,
@@ -20,6 +17,8 @@ from hw_logic import (
 )
 from db import new_id
 from ipam import save_project
+
+pytestmark = pytest.mark.unit
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -73,7 +72,8 @@ class TestConnectorHelpers:
     def test_set_compat_symmetric(self):
         """Test setting compatibility is symmetric."""
         seed_connectors()
-        add_connector('C1'); add_connector('C2')
+        add_connector('C1')
+        add_connector('C2')
         set_compat('C1', 'C2', True)
         assert connectors_compatible('C1', 'C2')
         assert connectors_compatible('C2', 'C1')
@@ -81,7 +81,8 @@ class TestConnectorHelpers:
     def test_unset_compat_symmetric(self):
         """Test unsetting compatibility is symmetric."""
         seed_connectors()
-        add_connector('D1'); add_connector('D2')
+        add_connector('D1')
+        add_connector('D2')
         set_compat('D1', 'D2', True)
         set_compat('D1', 'D2', False)
         assert not connectors_compatible('D1', 'D2')
@@ -201,7 +202,7 @@ class TestHWTemplateHelpers:
         g   = self._tmpl(name='Global')
         p   = self._tmpl(name='Proj', scope='project', pid=pid)
         save_hw_template(g)
-    save_hw_template(p)
+        save_hw_template(p)
         flat = all_hw_templates_for_project(pid)
         ids  = {t['id'] for t in flat}
         assert g['id'] in ids
@@ -567,10 +568,12 @@ class TestCableHelpers:
 
     def test_cables_isolated_between_projects(self):
         """Verify cables are isolated between projects."""
-        p1 = new_id(); p2 = new_id()
-        c1 = self._make_cable(p1); c2 = self._make_cable(p2)
+        p1 = new_id()
+        p2 = new_id()
+        c1 = self._make_cable(p1)
+        c2 = self._make_cable(p2)
         save_cable(c1)
-    save_cable(c2)
+        save_cable(c2)
         assert not any(x['id'] == c2['id'] for x in project_cables(p1))
 
     def test_used_ports_detected(self):

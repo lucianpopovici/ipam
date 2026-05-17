@@ -4,12 +4,13 @@ Unit tests for NE instance model helpers and the port-bound index.
 import pytest
 import fakeredis
 import db
+import hw_logic
+import ne
 
 
 @pytest.fixture(autouse=True)
 def _fake_r(monkeypatch):
     fake = fakeredis.FakeRedis(decode_responses=True)
-    import hw_logic, ne
     monkeypatch.setattr(db, 'r', fake)
     monkeypatch.setattr(hw_logic, 'r', fake)
     monkeypatch.setattr(ne, 'r', fake)
@@ -24,10 +25,6 @@ def _inst(nid='ne-001', pid='proj-1', **kw):
     }
     base.update(kw)
     return base
-
-
-import ne
-import hw_logic
 
 
 # ── Port-bound index helpers ───────────────────────────────────────────────────
@@ -46,7 +43,7 @@ def test_set_get_clear_port_bound():
 
 @pytest.mark.unit
 def test_hw_instance_bindings_empty():
-    assert hw_logic.hw_instance_bindings('iid-x') == []
+    assert not hw_logic.hw_instance_bindings('iid-x')
 
 
 @pytest.mark.unit
@@ -154,7 +151,7 @@ def test_collect_excluded_ports_skips_target():
     ne.save_ne_instance(inst_b)
 
     # Exclude ports of others when editing ne-b
-    excluded = ne._collect_excluded_ports('proj-1', 'ne-b')
+    excluded = ne._collect_excluded_ports('proj-1', 'ne-b')  # pylint: disable=protected-access
     assert ('hw-1', 'eth0') in excluded   # from ne-a
     assert ('hw-1', 'eth1') not in excluded  # ne-b's own ports are not excluded
 

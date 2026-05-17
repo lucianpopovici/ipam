@@ -9,9 +9,12 @@ disable=
     too-many-locals,
     too-many-branches,
     too-many-statements,
+    too-many-lines,
     fixme,
     import-outside-toplevel,
     broad-except,
+    redefined-outer-name,
+    contextmanager-generator-missing-cleanup,
 
 [FORMAT]
 max-line-length=120

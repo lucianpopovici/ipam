@@ -41,7 +41,11 @@ def _patch_redis(_fake_redis_client):
     Monkeypatch the module-level `r` in every blueprint before the session
     starts.  Session-scoped so it runs once; the same fake client is reused.
     """
-    import db, ipam, ne, hw, hw_logic
+    import db
+    import ipam
+    import ne
+    import hw
+    import hw_logic
     for mod in (db, ipam, ne, hw, hw_logic):
         mod.r = _fake_redis_client
     yield
@@ -87,7 +91,8 @@ def live_server(_patch_redis):
     while time.time() < deadline:
         try:
             import urllib.request
-            urllib.request.urlopen(base_url, timeout=1)
+            with urllib.request.urlopen(base_url, timeout=1):
+                pass
             break
         except Exception:
             time.sleep(0.1)
@@ -149,4 +154,3 @@ def confirm_modal_delete(page, trigger_selector: str, *, timeout: int = 3000):
     page.locator('#deleteModal').wait_for(state='visible', timeout=timeout)
     page.locator('#deleteModalForm button[type="submit"]').click()
     page.wait_for_load_state('networkidle')
-

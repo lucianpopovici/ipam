@@ -18,7 +18,7 @@ def test_v1_request_ip_success(client, seeded_subnet):
     """Verify requesting an IP via v1 API."""
     cidr = seeded_subnet['cidr'] # e.g. 10.0.1.0/24
     prefix_path = cidr.replace("/", "_")
-    
+
     resp = client.post(f'/api/v1/subnets/{prefix_path}/request-ip', json={
         'hostname': 'api-host',
         'description': 'Requested via API'
@@ -40,7 +40,7 @@ def test_v1_get_ip(client, seeded_subnet):
     # First allocate one
     prefix_path = seeded_subnet['cidr'].replace("/", "_")
     client.post(f'/api/v1/subnets/{prefix_path}/request-ip', json={'hostname': 'test-ip'})
-    
+
     resp = client.get('/api/v1/ips/10.0.1.1')
     assert resp.status_code == 200
     data = json.loads(resp.data)
@@ -68,11 +68,11 @@ def test_real_time_publish(client, seeded_subnet, fake_redis):
     pubsub.subscribe('ipam:updates')
     # Consume subscription message
     pubsub.get_message()
-    
+
     cidr = seeded_subnet['cidr']
     prefix_path = cidr.replace("/", "_")
     client.post(f'/api/v1/subnets/{prefix_path}/request-ip', json={'hostname': 'rt-test'})
-    
+
     msg = pubsub.get_message()
     assert msg is not None
     assert msg['type'] == 'message'

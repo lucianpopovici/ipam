@@ -4,13 +4,12 @@ Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
 """
 import json
 import pytest
-
-pytestmark = pytest.mark.api
-
 import ipam as _ipam
 from db import new_id
 from ipam import save_project, save_network, project_nets_key
 from vmware import enable_network
+
+pytestmark = pytest.mark.api
 
 
 # ══════════════════════════════════════════════════════════════════════════════
