@@ -148,11 +148,15 @@ def preview_config(pid, ne_id):
 @documents_bp.route('/projects/<pid>/generate', methods=['POST'])
 @editor_required
 def generate_artifact(pid):
-    """Generate a PDF, config bundle, or combined artifact."""
-    _get_project_or_404(pid)
-    artifact_type = request.form.get('type', 'pdf')  # pdf | bundle | combined
+    """Generate a PDF, config bundle, combined, or checklist-combined artifact."""
+    proj = _get_project_or_404(pid)
+    artifact_type = request.form.get('type', 'pdf')  # pdf | bundle | combined | checklist-combined
     label         = request.form.get('label', '')
     uid, name, email = _current_user_info()
+
+    # checklist-combined: design PDF + pre + post checklists in one document
+    if artifact_type == 'checklist-combined':
+        return _generate_checklist_combined(pid, proj, label, uid, name, email)
 
     try:
         context = build_context(pid, uid, name, email)
@@ -220,6 +224,88 @@ def generate_artifact(pid):
             return redirect(url_for('documents.artifact_detail', aid=artifacts_created[0]['id']))
 
     return redirect(url_for('documents.project_artifacts', pid=pid))
+
+
+def _generate_checklist_combined(pid, proj, label, uid, name, email):
+    """
+    Build a combined PDF: network design body + pre/post checklists for `label`.
+    Falls back to HTML if WeasyPrint is absent.
+    """
+    import re as _re
+    import datetime
+
+    from checks_logic import project_checklists
+
+    # Look up matching checklists for the deployment label
+    all_cls    = project_checklists(pid)
+    pre_cl     = next((c for c in all_cls
+                       if c.get('deployment_label') == label and c.get('phase') == 'pre'), None)
+    post_cl    = next((c for c in all_cls
+                       if c.get('deployment_label') == label and c.get('phase') == 'post'), None)
+
+    if not pre_cl and not post_cl:
+        flash(f'No checklists found for deployment label "{label}".', 'warning')
+        return redirect(url_for('checks.project_checklists_list', pid=pid))
+
+    # Build design context and search paths
+    try:
+        context = build_context(pid, uid, name, email)
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('documents.project_artifacts', pid=pid))
+
+    search_paths = get_template_search_paths(context)
+
+    def _body(html: str) -> str:
+        m = _re.search(r'<body[^>]*>(.*?)</body>', html, _re.DOTALL | _re.IGNORECASE)
+        return m.group(1).strip() if m else ''
+
+    # Render design section (optional — gracefully absent if no design.html exists)
+    design_body = ''
+    try:
+        design_html, _ = render_template_to_string('design.html', context, search_paths)
+        design_body = _body(design_html)
+    except (FileNotFoundError, KeyError):
+        pass  # no design template; combined still includes checklists
+
+    now_iso   = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    proj_name = proj.get('name', pid)
+    tmpl_ctx  = {
+        'project':         proj,
+        'deployment_label': label,
+        'generated_at':    now_iso,
+        'design_body':     design_body,
+        'pre_checklist':   pre_cl,
+        'post_checklist':  post_cl,
+    }
+
+    default_dir = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), 'var', 'ipam', 'template-sets', 'default')
+    )
+    try:
+        html, _ = render_template_to_string('combined.html', tmpl_ctx, [default_dir])
+    except (FileNotFoundError, SyntaxError, RuntimeError) as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('checks.project_checklists_list', pid=pid))
+
+    label_slug   = label.lower().replace(' ', '-')
+    proj_slug    = proj_name.lower().replace(' ', '-')
+    base_name    = f'{proj_slug}-{label_slug}-combined'
+    context_snap = {'project': proj, 'pre_checklist': pre_cl, 'post_checklist': post_cl}
+
+    try:
+        from document_generation.pdf import html_to_pdf
+        file_bytes = html_to_pdf(html)
+        filename   = f'{base_name}.pdf'
+    except ImportError:
+        flash('WeasyPrint not available — saving HTML artifact instead.', 'warning')
+        file_bytes = html.encode('utf-8')
+        filename   = f'{base_name}.html'
+
+    art = save_artifact(pid, 'combined', filename, file_bytes, context_snap,
+                        label=label, generated_by=uid)
+    flash('Combined deployment package generated.', 'success')
+    return redirect(url_for('documents.artifact_detail', aid=art['id']))
 
 
 # ── Artifact list ─────────────────────────────────────────────────────────────

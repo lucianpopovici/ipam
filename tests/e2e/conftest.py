@@ -46,7 +46,9 @@ def _patch_redis(_fake_redis_client):
     import ne
     import hw
     import hw_logic
-    for mod in (db, ipam, ne, hw, hw_logic):
+    import checks
+    import checks_logic
+    for mod in (db, ipam, ne, hw, hw_logic, checks, checks_logic):
         mod.r = _fake_redis_client
     yield
     # Nothing to tear down — the fake server is discarded at process exit.
