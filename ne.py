@@ -1411,9 +1411,12 @@ def ne_instance_detail(pid, nid):
     # HW instances in project for the bind modal
     hw_instances = hw_logic.project_instances(pid)
 
+    from core.derivations import evaluate_all
+    derived = evaluate_all('ne_instance', inst)
+
     return render_template('ne/ne_instance_detail.html', proj=proj, inst=inst,
                            ne_type=ne_type, ifaces=ifaces, bindings=bindings,
-                           hw_instances=hw_instances)
+                           hw_instances=hw_instances, derived=derived)
 
 
 # ── Binding routes ─────────────────────────────────────────────────────────────
@@ -1617,6 +1620,230 @@ def api_rules_preview(pid):
     excluded = _collect_excluded_ports(pid, exclude_nid) if exclude_nid else set()
     summary = rules_mod.preview_binding(rule, pid, excluded)
     return jsonify(summary)
+
+
+@ne_bp.route('/ne-instances/<nid>/bindings/bulk', methods=['POST'])
+@editor_required
+def bulk_bind_ifaces(nid):
+    """Workflow B: bind multiple NE ifaces to HW ports in a single form submit."""
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+
+    try:
+        pairs = json.loads(request.form.get('pairs_json', '[]'))
+    except (json.JSONDecodeError, ValueError):
+        flash('Invalid binding data.', 'danger')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    if not pairs:
+        flash('No bindings specified.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    ne_type = get_ne_type(inst.get('ne_type_id', '')) or abort(404)
+    iface_map = {i['id']: i for i in ne_type.get('interfaces', [])}
+    bind_mode = request.form.get('bind_mode', 'single')
+
+    excluded = _collect_excluded_ports(pid, nid)
+    conflicts = [
+        f"{p.get('hw_instance_id','')}/{p.get('port_id','')}"
+        for p in pairs
+        if (p.get('hw_instance_id', ''), p.get('port_id', '')) in excluded
+    ]
+    if conflicts:
+        flash(f'Port(s) already bound by another NE: {", ".join(conflicts[:3])}', 'danger')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    iface_bindings = dict(inst.get('iface_bindings', {}))
+    saved = 0
+    for pair in pairs:
+        iface_id = pair.get('iface_id', '')
+        hw_iid   = pair.get('hw_instance_id', '')
+        port_id  = pair.get('port_id', '')
+        if iface_id not in iface_map or not hw_iid or not port_id:
+            continue
+        iface_bindings[iface_id] = {
+            'bind_mode': bind_mode,
+            'ports': [{'hw_instance_id': hw_iid, 'port_id': port_id,
+                       'role': 'primary', 'bucket': []}],
+        }
+        saved += 1
+
+    save_ne_instance({**inst, 'iface_bindings': iface_bindings})
+    flash(f'Bulk bound {saved} interface(s).', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+@ne_bp.route('/ne-instances/<nid>/bindings/autoresolve', methods=['POST'])
+@editor_required
+def autoresolve_bindings(nid):
+    """Workflow C: apply the auto-resolved iface-to-port pairs chosen by the user."""
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+
+    try:
+        pairs = json.loads(request.form.get('pairs_json', '[]'))
+    except (json.JSONDecodeError, ValueError):
+        flash('Invalid binding data.', 'danger')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    if not pairs:
+        flash('No iface-to-port matches to apply.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    ne_type = get_ne_type(inst.get('ne_type_id', '')) or abort(404)
+    iface_map = {i['id']: i for i in ne_type.get('interfaces', [])}
+
+    iface_bindings = dict(inst.get('iface_bindings', {}))
+    saved = 0
+    for pair in pairs:
+        iface_id = pair.get('iface_id', '')
+        hw_iid   = pair.get('hw_instance_id', '')
+        port_id  = pair.get('port_id', '')
+        if iface_id not in iface_map or not hw_iid or not port_id:
+            continue
+        iface_bindings[iface_id] = {
+            'bind_mode': 'single',
+            'ports': [{'hw_instance_id': hw_iid, 'port_id': port_id,
+                       'role': 'primary', 'bucket': []}],
+        }
+        saved += 1
+
+    save_ne_instance({**inst, 'iface_bindings': iface_bindings})
+    flash(f'Auto-resolved {saved} interface binding(s).', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+@ne_bp.route('/projects/<pid>/rematerialize-rules', methods=['POST'])
+@editor_required
+def rematerialize_all_rules(pid):
+    """
+    Refresh every auto-rule binding across all NE instances in the project.
+    Useful after bulk HW import or template port changes.
+    """
+    import datetime
+    import rules as rules_mod
+    from ipam import get_project
+
+    proj = get_project(pid) or abort(404)
+    instances = project_ne_instances(pid)
+
+    updated_ne = 0
+    updated_bindings = 0
+
+    for inst in instances:
+        bindings = inst.get('iface_bindings', {})
+        changed  = False
+        new_bindings = dict(bindings)
+
+        for iface_id, binding in bindings.items():
+            if binding.get('bind_mode') != 'auto-rule':
+                continue
+            rule = binding.get('rule') or {}
+            excluded = _collect_excluded_ports(pid, inst['id'])
+            fresh_ports = rules_mod.materialize_binding(rule, pid, excluded)
+            new_bindings[iface_id] = {
+                **binding,
+                'ports':                fresh_ports,
+                'rule_materialized_at': datetime.datetime.now(
+                    datetime.timezone.utc).isoformat(),
+            }
+            updated_bindings += 1
+            changed = True
+
+        if changed:
+            save_ne_instance({**inst, 'iface_bindings': new_bindings})
+            updated_ne += 1
+
+    flash(
+        f'Re-evaluated auto-rule bindings across {updated_ne} NE instance(s) '
+        f'({updated_bindings} binding(s) refreshed).',
+        'success',
+    )
+    return redirect(url_for('ne.list_ne_instances', pid=proj['id']))
+
+
+@ne_bp.route('/api/ne-instances/<nid>/autoresolve-preview')
+def api_autoresolve_preview(nid):
+    """
+    Workflow C preview: compute name-based iface→port matches without saving.
+    Query param: hw_instance_id=<hwid>
+    Returns: {matches: [{iface_id, iface_name, hw_instance_id, port_id, port_name, match_type}],
+              unmatched: [{iface_id, iface_name}]}
+    """
+    import hw_logic as hw_logic_mod
+    inst = get_ne_instance(nid)
+    if not inst:
+        abort(404)
+    hwid = request.args.get('hw_instance_id', '')
+    if not hwid:
+        return jsonify({'error': 'hw_instance_id required'}), 400
+
+    ne_type = get_ne_type(inst.get('ne_type_id', ''))
+    if not ne_type:
+        return jsonify({'matches': [], 'unmatched': []})
+
+    hw_inst = hw_logic_mod.get_hw_instance(hwid)
+    if not hw_inst:
+        return jsonify({'error': 'HW instance not found'}), 404
+
+    tmpl = hw_logic_mod.get_hw_template(hw_inst.get('template_id', ''))
+    ports = []
+    if tmpl:
+        for port in tmpl.get('ports', []):
+            count = int(port.get('count', 1))
+            for n in range(count):
+                pname = port['name'] if count == 1 else f"{port['name']}-{n}"
+                ports.append({
+                    'port_id':   port['id'],
+                    'name':      pname,
+                    'port_type': port.get('port_type', ''),
+                    'notes':     port.get('notes', ''),
+                    'is_bound':  bool(hw_logic_mod.get_port_bound(hwid, port['id'])),
+                })
+
+    already_bound = set(inst.get('iface_bindings', {}).keys())
+    ifaces = [i for i in ne_type.get('interfaces', []) if i['id'] not in already_bound]
+
+    used_port_ids: set = set()
+    matches   = []
+    unmatched = []
+
+    for iface in ifaces:
+        iname = iface['name'].lower()
+        ilabels = set(iface.get('labels', []))
+        best = None
+        best_score = 0
+
+        for port in ports:
+            if port['is_bound'] or port['port_id'] in used_port_ids:
+                continue
+            pname_lower = port['name'].lower()
+            notes_lower = port['notes'].lower()
+            score = 0
+            if iname == pname_lower:
+                score = 3
+            elif iname in pname_lower or iname in notes_lower:
+                score = 2
+            if score > 0 and port['port_type'] and port['port_type'] in ilabels:
+                score += 1
+            if score > best_score:
+                best_score = score
+                best = port
+
+        if best:
+            used_port_ids.add(best['port_id'])
+            matches.append({
+                'iface_id':       iface['id'],
+                'iface_name':     iface['name'],
+                'hw_instance_id': hwid,
+                'port_id':        best['port_id'],
+                'port_name':      best['name'],
+                'match_type':     'exact' if best_score >= 3 else 'substring',
+            })
+        else:
+            unmatched.append({'iface_id': iface['id'], 'iface_name': iface['name']})
+
+    return jsonify({'matches': matches, 'unmatched': unmatched})
 
 
 @ne_bp.route('/api/ne-instances/<nid>/impact')

@@ -1,0 +1,52 @@
+# Declarative computed fields — evaluated read-time, never stored.
+#
+# Structure
+# ─────────
+# <entity_type>:          e.g. ne_instance, site, pod
+#   <field_name>:         name of the derived field (shown in UI, accessible in templates)
+#     description: "..."  human-readable explanation
+#     template: "..."     Jinja2 expression; variables = entity fields + resolved names below
+#     resolve:            optional — additional variables fetched before rendering
+#       <var_name>:       name to inject into the template context
+#         field: <f>      ID field on the entity whose value is the lookup key
+#         entity: <pfx>   Redis key prefix; entity loaded from "{pfx}:{id}"
+#         fallback: ""    value to use when the lookup fails (default: empty string)
+#
+# Resolve path resolution (open question resolved here):
+#   Each resolve entry does a *single* Redis lookup: r.get("{entity}:{entity[field]}").
+#   For multi-hop traversals (e.g. ne_instance → pod → site), chain entries: resolve
+#   the intermediate first, then reference it in the template. The engine resolves
+#   entries in declaration order.
+#
+# M:N note: when a resolve traverses a many-to-many relation (e.g. pod ↔ site),
+#   use the relation store directly in the template via the `related()` Jinja helper
+#   rather than a resolve entry. Document the fan-out explicitly in the description.
+#
+# Custom Jinja filters available:
+#   pad(n)   — zero-pad a number to n digits: {{ 3 | pad(2) }} → "03"
+#   slugify  — lowercase + replace spaces with hyphens
+
+ne_instance:
+  hostname:
+    description: >
+      Derived hostname: NE-type kind (lower) + hyphen + instance name (lower).
+      Example: pnf-pe-lon-01.
+      To include site context, add a site resolve entry once site assignment
+      is propagated to the NE instance record.
+    template: "{{ ne_type.kind | lower }}-{{ name | lower }}"
+    resolve:
+      ne_type:
+        field: ne_type_id
+        entity: ne_type
+        fallback: {}
+
+  display_label:
+    description: >
+      Short display label combining kind badge and name.
+      Useful in lists and topology views.
+    template: "[{{ ne_type.kind }}] {{ name }}"
+    resolve:
+      ne_type:
+        field: ne_type_id
+        entity: ne_type
+        fallback: {}

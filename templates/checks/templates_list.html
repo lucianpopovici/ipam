@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
+{% block title %}Check Templates{% endblock %}
+{% block content %}
+{{ breadcrumbs([{'label': 'Check Templates'}]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">✓ Check Templates</h4>
+  <a href="{{ url_for('checks.add_check_template') }}" class="btn btn-sm btn-primary">+ New template</a>
+</div>
+
+{# ── Filter bar ── #}
+<form method="get" class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <select name="phase" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">All phases</option>
+      {% for p in phase_values %}
+      <option value="{{ p }}" {% if phase_filter == p %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <select name="attached_to" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">All attachment points</option>
+      {% for a in attached_to_values %}
+      <option value="{{ a }}" {% if attached_filter == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% if phase_filter or attached_filter %}
+  <div class="col-auto">
+    <a href="{{ url_for('checks.list_check_templates') }}" class="btn btn-sm btn-outline-secondary">✕ Clear</a>
+  </div>
+  {% endif %}
+</form>
+
+{% if not templates %}
+{{ empty_state(
+  icon='✓',
+  title='No check templates yet',
+  body='Check templates define the structured instructions engineers follow before and after a deployment. Create a global template or seed the default library.',
+  primary_action={'label': '+ New template', 'url': url_for('checks.add_check_template')}
+) }}
+{% else %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-sm align-middle mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Name</th>
+        <th style="width:7%">Phase</th>
+        <th style="width:12%">Attached to</th>
+        <th style="width:9%">Severity</th>
+        <th style="width:7%">Scope</th>
+        <th style="width:8%">Tags</th>
+        <th style="width:16%">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tmpl in templates %}
+      <tr>
+        <td>
+          <strong>{{ tmpl.name }}</strong>
+          {% if tmpl.description %}<br><small class="text-muted">{{ tmpl.description[:80] }}{% if tmpl.description|length > 80 %}…{% endif %}</small>{% endif %}
+        </td>
+        <td><span class="badge {% if tmpl.phase == 'pre' %}bg-info text-dark{% else %}bg-success{% endif %}">{{ tmpl.phase }}</span></td>
+        <td><code class="small">{{ tmpl.attached_to }}</code></td>
+        <td>
+          <span class="badge {% if tmpl.severity == 'critical' %}bg-danger{% elif tmpl.severity == 'advisory' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+            {{ tmpl.severity }}
+          </span>
+        </td>
+        <td><span class="badge bg-light text-dark border">{{ tmpl.scope }}</span></td>
+        <td><small class="text-muted">{{ tmpl.tags | join(', ') if tmpl.tags else '—' }}</small></td>
+        <td>
+          <div class="d-flex gap-1 flex-wrap">
+            <button class="btn btn-xs btn-outline-secondary"
+                    onclick="previewTemplate('{{ tmpl.id }}')"
+                    title="Preview materialization count">Preview</button>
+            <a href="{{ url_for('checks.edit_check_template', ctid=tmpl.id) }}"
+               class="btn btn-xs btn-outline-primary">Edit</a>
+            {{ confirm_delete(url_for('checks.delete_check_template_route', ctid=tmpl.id), tmpl.name) }}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+<p class="text-muted small mt-2">{{ templates|length }} template(s)</p>
+{% endif %}
+
+{# ── Preview modal ── #}
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Template preview</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Pick a project</label>
+          <select id="previewProject" class="form-select form-select-sm">
+            <option value="">— select —</option>
+            {% for p in all_projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="previewResult" class="text-muted small">Select a project above.</div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let _previewCtid = '';
+function previewTemplate(ctid) {
+  _previewCtid = ctid;
+  document.getElementById('previewResult').textContent = 'Select a project above.';
+  document.getElementById('previewProject').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('previewModal')).show();
+}
+document.getElementById('previewProject').addEventListener('change', function() {
+  const pid = this.value;
+  if (!pid || !_previewCtid) return;
+  document.getElementById('previewResult').textContent = 'Computing…';
+  fetch(`/admin/checks/templates/${_previewCtid}/preview`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project_id: pid}),
+  })
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('previewResult').textContent =
+      `Would produce ${d.subjects} check(s) against current inventory.`;
+  })
+  .catch(() => {
+    document.getElementById('previewResult').textContent = 'Error fetching preview.';
+  });
+});
+</script>
+{% endblock %}

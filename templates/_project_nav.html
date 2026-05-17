@@ -22,6 +22,10 @@
 {% set in_cables   = ep in ['hw.cable_list','hw.add_cable','hw.edit_cable','hw.cable_trace'] %}
 {% set in_hwtmpls  = ep in ['hw.project_hw_templates_route','hw.add_hw_template','hw.edit_hw_template'] %}
 {% set in_validate = ep in ['hw.hw_validate','hw.api_hw_validate'] %}
+{% set in_checks   = ep in ['checks.project_checklists_list','checks.create_checklist',
+                             'checks.checklist_detail','checks.update_checklist',
+                             'checks.transition_cl','checks.signoff_checklist',
+                             'checks.supersede_checklist','checks.generate_checklist_pdf'] %}
 {% set in_docs     = ep in ['documents.project_artifacts','documents.generate_artifact',
                              'documents.preview_design','documents.preview_config',
                              'documents.artifact_detail','documents.download_artifact',
@@ -64,6 +68,7 @@
     <a class="pnav-link{% if in_cables  %} pnav-active{% endif %}" href="{{ url_for('hw.cable_list',                 pid=pid) }}">Cables</a>
     <a class="pnav-link{% if in_hwtmpls %} pnav-active{% endif %}" href="{{ url_for('hw.project_hw_templates_route', pid=pid) }}">HW Templates</a>
     <a class="pnav-link{% if in_validate%} pnav-active{% endif %}" href="{{ url_for('hw.hw_validate',                pid=pid) }}">Validate</a>
+    <a class="pnav-link{% if in_checks  %} pnav-active{% endif %}" href="{{ url_for('checks.project_checklists_list', pid=pid) }}">Checklists</a>
     <a class="pnav-link{% if in_docs    %} pnav-active{% endif %}" href="{{ url_for('documents.project_artifacts',    pid=pid) }}">Artifacts</a>
   </div>
 </div>

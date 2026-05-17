@@ -69,6 +69,40 @@
     </div>
 </div>
 
+<!-- Pending Checklists -->
+{% if pending_checklists %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card border-warning shadow-sm">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">✓ Checklists with Pending Checks</h5>
+                <span class="badge bg-dark text-warning">{{ pending_checklists | length }} checklist(s)</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr><th>Project</th><th>Deployment label</th><th>Phase</th><th>Pending</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    {% for item in pending_checklists %}
+                    <tr>
+                        <td>{{ item.project_name }}</td>
+                        <td>{{ item.deployment_label }}</td>
+                        <td><span class="badge {% if item.phase=='pre' %}bg-info text-dark{% else %}bg-success{% endif %}">{{ item.phase }}</span></td>
+                        <td><span class="badge bg-warning text-dark">{{ item.pending }}</span></td>
+                        <td><a href="{{ url_for('checks.checklist_detail', cid=item.cid) }}" class="btn btn-xs btn-outline-secondary">Open</a></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Health Alerts -->
 <div class="row mb-4 mt-4">
     <div class="col-12">

@@ -13,6 +13,7 @@ from auth import auth_bp, load_user, create_default_admin, AnonymousUser
 from api_v1 import api_v1_bp
 from customer import customer_bp
 from documents import documents_bp
+from checks import checks_bp
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-local-use-only')
@@ -85,6 +86,7 @@ app.register_blueprint(vmware_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(customer_bp)
 app.register_blueprint(documents_bp)
+app.register_blueprint(checks_bp)
 api.register_blueprint(api_v1_bp)
 
 with app.app_context():

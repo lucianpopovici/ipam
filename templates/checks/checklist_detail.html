@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ cl.deployment_label }} – Checklist{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects',    'url': url_for('ipam.index')},
+  {'label': proj.name,     'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Checklists',  'url': url_for('checks.project_checklists_list', pid=proj.id)},
+  {'label': cl.deployment_label}
+]) }}
+
+{# ── Header ── #}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="mb-1">
+      {% set smap = {'draft':'secondary','in-progress':'primary','completed':'info text-dark','signed-off':'success','archived':'dark'} %}
+      <span class="badge bg-{{ smap.get(cl.status,'secondary') }} me-2">{{ cl.status }}</span>
+      {{ cl.deployment_label }}
+      <small class="text-muted fs-6">· {{ cl.phase }}-deployment</small>
+    </h4>
+    <div class="text-muted small">
+      Created {{ cl.generated_at[:10] if cl.generated_at else '?' }}
+      {% if cl.generated_by %}by {{ cl.generated_by }}{% endif %}
+      {% if cl.signed_off_at %} · Signed off {{ cl.signed_off_at[:10] }} by {{ cl.signed_off_by }}{% endif %}
+      {% if cl.supersedes_checklist_id %} · Supersedes <a href="{{ url_for('checks.checklist_detail', cid=cl.supersedes_checklist_id) }}">previous checklist</a>{% endif %}
+    </div>
+  </div>
+
+  {# ── Action buttons ── #}
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    {% if cl.status not in ('signed-off','archived') %}
+    <form method="post" action="{{ url_for('checks.generate_checklist_pdf', cid=cl.id) }}" class="d-inline">
+      <button class="btn btn-sm btn-outline-secondary">⬇ Generate PDF</button>
+    </form>
+    {% endif %}
+    {% if can_signoff and cl.status == 'completed' %}
+    <form method="post" action="{{ url_for('checks.signoff_checklist', cid=cl.id) }}"
+          onsubmit="return confirm('Sign off this checklist? The record will become read-only.')">
+      <button class="btn btn-sm btn-success">✓ Sign off</button>
+    </form>
+    {% endif %}
+    {% if cl.status in ('signed-off','archived') %}
+    <form method="post" action="{{ url_for('checks.supersede_checklist', cid=cl.id) }}"
+          onsubmit="return confirm('Create a new checklist superseding this one?')">
+      <button class="btn btn-sm btn-outline-primary">↺ Supersede</button>
+    </form>
+    {% endif %}
+    {% if allowed_transitions %}
+    <div class="dropdown">
+      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+        Move to…
+      </button>
+      <ul class="dropdown-menu">
+        {% for t in allowed_transitions %}
+        <li>
+          <form method="post" action="{{ url_for('checks.transition_cl', cid=cl.id) }}">
+            <input type="hidden" name="to_status" value="{{ t }}">
+            <button class="dropdown-item">{{ t }}</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Summary row ── #}
+<div class="d-flex gap-3 mb-3 flex-wrap">
+  <span class="badge bg-secondary fs-6">{{ counts.total }} total</span>
+  <span class="badge bg-warning text-dark fs-6">{{ counts.pending }} pending</span>
+  <span class="badge bg-success fs-6">{{ counts.pass }} pass</span>
+  <span class="badge bg-danger fs-6">{{ counts.fail }} fail</span>
+  <span class="badge bg-light text-dark border fs-6">{{ counts.skip }} skip / {{ counts['n/a'] }} n/a</span>
+</div>
+
+{# ── Filter bar ── #}
+<form method="get" class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+  <select name="status" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    <option value="">All statuses</option>
+    {% for s in check_status_values %}
+    <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  <select name="severity" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    <option value="">All severities</option>
+    {% for s in severity_values %}
+    <option value="{{ s }}" {% if severity_filter == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select>
+  {% if status_filter or severity_filter %}
+  <a href="{{ url_for('checks.checklist_detail', cid=cl.id) }}" class="btn btn-sm btn-outline-secondary">✕ Clear</a>
+  {% endif %}
+</form>
+
+{# ── Checks table ── #}
+{% set locked = cl.status in ('signed-off','archived') %}
+{% if not checks %}
+<div class="text-muted small p-3 border rounded">No checks match the current filter.</div>
+{% else %}
+<form method="post" action="{{ url_for('checks.update_checklist', cid=cl.id) }}">
+  <div class="card shadow-sm mb-3">
+    <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th style="width:3%">Sev</th>
+          <th>Check / Expected / Hint</th>
+          <th style="width:13%">Status</th>
+          <th style="width:25%">Notes</th>
+          <th style="width:21%">Reported by (customer)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for check in checks %}
+        {% include 'checks/_check_row.html' %}
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% if not locked %}
+  <div class="d-flex gap-2 mb-3">
+    <button type="submit" class="btn btn-primary">Save results</button>
+    <button type="button" class="btn btn-outline-secondary"
+            onclick="bulkSet('pass')">Mark all visible → Pass</button>
+    <button type="button" class="btn btn-outline-secondary"
+            onclick="bulkSet('n/a')">Mark all visible → N/A</button>
+  </div>
+  {% endif %}
+</form>
+{% endif %}
+
+{% if cl.status == 'signed-off' %}
+<div class="alert alert-success mt-3">
+  <strong>Signed off</strong> on {{ cl.signed_off_at[:10] }} by {{ cl.signed_off_by }}.
+  This checklist is now read-only.
+</div>
+{% endif %}
+
+<script>
+function bulkSet(value) {
+  document.querySelectorAll('select[name^="status_"]').forEach(s => s.value = value);
+}
+</script>
+{% endblock %}

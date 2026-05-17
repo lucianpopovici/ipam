@@ -817,6 +817,9 @@ def validate_project(pid: str) -> list:
                                  f'Rack {rack["asset_tag"]} weight exceeded: {total_weight}kg > {max_weight}kg',
                                  {'rack': rack['id']}))
 
+    # ── NE binding validation ─────────────────────────────────────────────────
+    _check_ne_bindings(pid, issues)
+
     # Cache results
     r.set(_validation_key(pid), json.dumps(issues))
     return issues
@@ -849,3 +852,201 @@ def load_validation(pid: str) -> list:
     """Load cached hardware validation results from Redis."""
     raw = r.get(_validation_key(pid))
     return json.loads(raw) if raw else []
+
+
+# ── NE binding validation helpers ─────────────────────────────────────────────
+
+def _project_ne_instances_raw(pid: str) -> list:
+    """Load NE instances for a project directly from Redis (no ne.py import)."""
+    ids = r.smembers(f'project:{pid}:ne_instances')
+    result = []
+    for nid in ids:
+        raw = r.get(f'ne_inst:{nid}')
+        if raw:
+            try:
+                result.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
+    return sorted(result, key=lambda x: x.get('name', ''))
+
+
+def _ne_type_iface_map(ne_type_id: str) -> dict:
+    """Return {iface_id: iface_dict} for an NE type, without importing ne.py."""
+    if not ne_type_id:
+        return {}
+    raw = r.get(f'ne_type:{ne_type_id}')
+    if not raw:
+        return {}
+    try:
+        ne_type = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return {i['id']: i for i in ne_type.get('interfaces', [])}
+
+
+def _build_tmpl_port_map(iid: str, cache: dict) -> dict:
+    """Return {port_id: port_dict} for a HW instance's template, with caching."""
+    if iid not in cache:
+        inst = get_hw_instance(iid)
+        tmpl = get_hw_template(inst['template_id']) if inst and inst.get('template_id') else None
+        cache[iid] = {p['id']: p for p in tmpl.get('ports', [])} if tmpl else {}
+    return cache[iid]
+
+
+def _check_ne_bindings(pid: str, issues: list) -> None:
+    """
+    Append NE-HW binding validation issues to *issues*.
+
+    Checks emitted:
+      error   — NE_PORT_DOUBLE_BOUND, NE_PORT_NOT_FOUND
+      warning — NE_PORT_TYPE_MISMATCH, NE_LAG_SINGLE_PORT, NE_LAG_SPEED_MISMATCH,
+                NE_RULE_NO_MATCH, NE_RULE_UNRACKED_PORT, NE_RULE_STALE
+      info    — NE_LAG_MIXED_HOSTS, NE_RULE_EXPLICIT_OVERLAP
+    """
+    import rules as rules_mod  # local import — rules.py imports hw_logic, avoid circular
+
+    ne_instances = _project_ne_instances_raw(pid)
+    tmpl_port_cache: dict = {}
+
+    # ── Pass 1: collect all explicitly bound (iid, port_id) across the project
+    # Maps (iid, port_id) → (owner_nid, owner_ne_name, owner_iface_id)
+    explicit_seen: dict[tuple, tuple] = {}
+
+    for ne_inst in ne_instances:
+        ne_name = ne_inst.get('name', ne_inst['id'])
+        for iface_id, binding in ne_inst.get('iface_bindings', {}).items():
+            if binding.get('bind_mode') not in ('single', 'lag', 'active-passive'):
+                continue
+            for p in binding.get('ports', []):
+                key = (p['hw_instance_id'], p['port_id'])
+                if key in explicit_seen:
+                    prev_nid, prev_ne, prev_iface = explicit_seen[key]
+                    hw_inst = get_hw_instance(p['hw_instance_id'])
+                    hw_tag = hw_inst['asset_tag'] if hw_inst else p['hw_instance_id']
+                    issues.append(_issue('error', 'NE_PORT_DOUBLE_BOUND',
+                        f'Port {hw_tag}/{p["port_id"]} is bound by both '
+                        f'{prev_ne}/{prev_iface} and {ne_name}/{iface_id}',
+                        {'hw_instance': p['hw_instance_id'], 'port': p['port_id'],
+                         'ne_instance': ne_inst['id']}))
+                else:
+                    explicit_seen[key] = (ne_inst['id'], ne_name, iface_id)
+
+    # ── Pass 2: per-binding checks
+    for ne_inst in ne_instances:
+        ne_name = ne_inst.get('name', ne_inst['id'])
+        iface_map = _ne_type_iface_map(ne_inst.get('ne_type_id', ''))
+
+        # Explicit ports owned by OTHER NE instances (used for auto-rule exclusion)
+        other_excl = {k for k, (owner_nid, _, _) in explicit_seen.items()
+                      if owner_nid != ne_inst['id']}
+
+        for iface_id, binding in ne_inst.get('iface_bindings', {}).items():
+            iface = iface_map.get(iface_id, {})
+            iface_name = iface.get('name', iface_id)
+            iface_labels = set(iface.get('labels', []))
+            bind_mode = binding.get('bind_mode', 'single')
+            ports = binding.get('ports', [])
+            ctx = {'ne_instance': ne_inst['id'], 'iface': iface_id}
+
+            if bind_mode == 'auto-rule':
+                rule = binding.get('rule') or {}
+
+                # NE_RULE_NO_MATCH
+                if not ports:
+                    issues.append(_issue('warning', 'NE_RULE_NO_MATCH',
+                        f'{ne_name} / {iface_name}: auto-rule binding matched zero ports',
+                        ctx))
+
+                # NE_RULE_UNRACKED_PORT — only relevant when rule groups by rack
+                if 'rack' in rule.get('group_by', []):
+                    for p in ports:
+                        hw_inst = get_hw_instance(p['hw_instance_id'])
+                        if hw_inst and not hw_inst.get('location', {}).get('rack_id'):
+                            issues.append(_issue('warning', 'NE_RULE_UNRACKED_PORT',
+                                f'{ne_name} / {iface_name}: auto-rule matched unracked device '
+                                f'{hw_inst.get("asset_tag", p["hw_instance_id"])}',
+                                {**ctx, 'hw_instance': p['hw_instance_id']}))
+
+                # NE_RULE_STALE and NE_RULE_EXPLICIT_OVERLAP
+                if rule and binding.get('rule_materialized_at'):
+                    # What a re-materialize would produce today (respecting other explicit bindings)
+                    fresh = rules_mod.materialize_binding(rule, pid, other_excl)
+                    fresh_keys = {(p['hw_instance_id'], p['port_id']) for p in fresh}
+                    stored_keys = {(p['hw_instance_id'], p['port_id']) for p in ports}
+
+                    if fresh_keys != stored_keys:
+                        issues.append(_issue('warning', 'NE_RULE_STALE',
+                            f'{ne_name} / {iface_name}: auto-rule results are outdated '
+                            f'— click ↺ Re-evaluate to refresh',
+                            ctx))
+
+                    # Ports the rule would match without any exclusions
+                    full = rules_mod.materialize_binding(rule, pid, set())
+                    full_keys = {(p['hw_instance_id'], p['port_id']) for p in full}
+                    # Ports present in the full run but excluded by other explicit bindings
+                    for key in sorted(full_keys - fresh_keys):
+                        if key in explicit_seen:
+                            iid, port_id = key
+                            _, owner_ne, owner_iface = explicit_seen[key]
+                            hw_inst = get_hw_instance(iid)
+                            hw_tag = hw_inst['asset_tag'] if hw_inst else iid
+                            issues.append(_issue('info', 'NE_RULE_EXPLICIT_OVERLAP',
+                                f'{ne_name} / {iface_name}: auto-rule would match '
+                                f'{hw_tag}/{port_id} but it is explicitly bound by '
+                                f'{owner_ne}/{owner_iface}',
+                                {**ctx, 'hw_instance': iid, 'port': port_id}))
+
+            else:
+                # ── Explicit-mode checks (single / lag / active-passive)
+
+                # NE_PORT_NOT_FOUND
+                for p in ports:
+                    port_map = _build_tmpl_port_map(p['hw_instance_id'], tmpl_port_cache)
+                    if port_map and p['port_id'] not in port_map:
+                        hw_inst = get_hw_instance(p['hw_instance_id'])
+                        hw_tag = hw_inst['asset_tag'] if hw_inst else p['hw_instance_id']
+                        issues.append(_issue('error', 'NE_PORT_NOT_FOUND',
+                            f'{ne_name} / {iface_name}: port {hw_tag}/{p["port_id"]} '
+                            f'not found in HW template',
+                            {**ctx, 'hw_instance': p['hw_instance_id'], 'port': p['port_id']}))
+
+                # NE_PORT_TYPE_MISMATCH
+                for p in ports:
+                    port_map = _build_tmpl_port_map(p['hw_instance_id'], tmpl_port_cache)
+                    port_def = port_map.get(p['port_id'])
+                    if port_def:
+                        port_type = port_def.get('port_type', '')
+                        mismatch = (('mgmt' in iface_labels and port_type == 'data') or
+                                    ('data' in iface_labels and port_type == 'mgmt'))
+                        if mismatch:
+                            hw_inst = get_hw_instance(p['hw_instance_id'])
+                            hw_tag = hw_inst['asset_tag'] if hw_inst else p['hw_instance_id']
+                            issues.append(_issue('warning', 'NE_PORT_TYPE_MISMATCH',
+                                f'{ne_name} / {iface_name} (labels: {sorted(iface_labels)}): '
+                                f'bound to {port_type} port {hw_tag}/{port_def["name"]}',
+                                {**ctx, 'hw_instance': p['hw_instance_id'], 'port': p['port_id']}))
+
+                # LAG-specific checks
+                if bind_mode == 'lag':
+                    if len(ports) == 1:
+                        issues.append(_issue('warning', 'NE_LAG_SINGLE_PORT',
+                            f'{ne_name} / {iface_name}: LAG binding has only one member port',
+                            ctx))
+
+                    speeds = []
+                    for p in ports:
+                        port_map = _build_tmpl_port_map(p['hw_instance_id'], tmpl_port_cache)
+                        port_def = port_map.get(p['port_id'])
+                        if port_def and port_def.get('speed_gbps'):
+                            speeds.append(port_def['speed_gbps'])
+                    if len(set(speeds)) > 1:
+                        issues.append(_issue('warning', 'NE_LAG_SPEED_MISMATCH',
+                            f'{ne_name} / {iface_name}: LAG members have mixed speeds '
+                            f'({", ".join(str(s) + "G" for s in sorted(set(speeds)))})',
+                            ctx))
+
+                    if len({p['hw_instance_id'] for p in ports}) > 1:
+                        issues.append(_issue('info', 'NE_LAG_MIXED_HOSTS',
+                            f'{ne_name} / {iface_name}: LAG spans '
+                            f'{len({p["hw_instance_id"] for p in ports})} HW instances (MC-LAG)',
+                            ctx))

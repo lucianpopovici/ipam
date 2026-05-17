@@ -1,0 +1,54 @@
+{# Renders one check row inside the checklist detail table.
+   Expects: check (dict), locked (bool), check_status_values (list) #}
+{% set sev_cls = {'critical':'danger','advisory':'secondary'}.get(check.severity, 'warning') %}
+<tr class="{% if check.status == 'fail' %}table-danger bg-opacity-10{% elif check.status == 'pass' %}table-success bg-opacity-10{% elif check.status in ('skip','n/a') %}table-secondary bg-opacity-10{% endif %}">
+  <td style="width:3%">
+    <span class="badge bg-{{ sev_cls }} small">{{ check.severity[0].upper() }}</span>
+  </td>
+  <td style="width:38%">
+    <div class="small fw-semibold">{{ check.action_text }}</div>
+    {% if check.expected_text %}
+    <div class="small text-muted mt-1"><em>Expected:</em> {{ check.expected_text }}</div>
+    {% endif %}
+    {% if check.vendor_hint_text %}
+    <code class="small text-muted d-block mt-1">{{ check.vendor_hint_text }}</code>
+    {% endif %}
+    {% if check.subject and check.subject.get('ne_instance_id') %}
+    <div class="small text-muted">NE: <code>{{ check.subject.ne_instance_id }}</code>
+      {% if check.subject.get('iface_id') %}/ <code>{{ check.subject.iface_id }}</code>{% endif %}
+    </div>
+    {% endif %}
+  </td>
+  <td style="width:13%">
+    {% if locked %}
+    <span class="badge {% if check.status == 'pass' %}bg-success{% elif check.status == 'fail' %}bg-danger{% elif check.status in ('skip','n/a') %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+      {{ check.status }}
+    </span>
+    {% else %}
+    <select name="status_{{ check.id }}" class="form-select form-select-sm">
+      {% for s in check_status_values %}
+      <option value="{{ s }}" {% if check.status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </td>
+  <td style="width:25%">
+    {% if locked %}
+    <span class="small">{{ check.notes or '—' }}</span>
+    {% else %}
+    <textarea name="notes_{{ check.id }}" class="form-control form-control-sm" rows="2">{{ check.notes or '' }}</textarea>
+    {% endif %}
+  </td>
+  <td style="width:21%">
+    {% if locked %}
+    <span class="small text-muted">{{ check.reported_by_external or '—' }}</span>
+    {% else %}
+    <input name="reported_by_{{ check.id }}" class="form-control form-control-sm"
+           value="{{ check.reported_by_external or '' }}"
+           placeholder="Customer contact…">
+    {% endif %}
+    {% if check.recorded_by %}
+    <small class="text-muted d-block mt-1">Recorded by {{ check.recorded_by }}{% if check.recorded_at %} · {{ check.recorded_at[:10] }}{% endif %}</small>
+    {% endif %}
+  </td>
+</tr>

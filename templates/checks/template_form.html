@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ 'Edit' if tmpl else 'New' }} Check Template{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Check Templates', 'url': url_for('checks.list_check_templates')},
+  {'label': ('Edit: ' + tmpl.name) if tmpl else 'New template'}
+]) }}
+
+<h4 class="mb-3">{{ 'Edit check template' if tmpl else 'New check template' }}</h4>
+
+<form method="post" class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+    <input name="name" class="form-control {% if errors.name %}is-invalid{% endif %}"
+           value="{{ form_values.name or (tmpl.name if tmpl else '') }}" required>
+    {% if errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Phase <span class="text-danger">*</span></label>
+    <select name="phase" class="form-select {% if errors.phase %}is-invalid{% endif %}">
+      {% for p in phase_values %}
+      <option value="{{ p }}"
+        {% if (form_values.phase or (tmpl.phase if tmpl else '')) == p %}selected{% endif %}>
+        {{ p }}
+      </option>
+      {% endfor %}
+    </select>
+    {% if errors.phase %}<div class="invalid-feedback">{{ errors.phase }}</div>{% endif %}
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label fw-semibold">Severity <span class="text-danger">*</span></label>
+    <select name="severity" class="form-select {% if errors.severity %}is-invalid{% endif %}">
+      {% for s in severity_values %}
+      <option value="{{ s }}"
+        {% if (form_values.severity or (tmpl.severity if tmpl else 'standard')) == s %}selected{% endif %}>
+        {{ s }}
+      </option>
+      {% endfor %}
+    </select>
+    {% if errors.severity %}<div class="invalid-feedback">{{ errors.severity }}</div>{% endif %}
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label fw-semibold">Attachment point <span class="text-danger">*</span></label>
+    <select name="attached_to" class="form-select {% if errors.attached_to %}is-invalid{% endif %}">
+      {% for a in attached_to_values %}
+      <option value="{{ a }}"
+        {% if (form_values.attached_to or (tmpl.attached_to if tmpl else '')) == a %}selected{% endif %}>
+        {{ a }}
+      </option>
+      {% endfor %}
+    </select>
+    {% if errors.attached_to %}<div class="invalid-feedback">{{ errors.attached_to }}</div>{% endif %}
+    <div class="form-text">Where this template materialises against.</div>
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label fw-semibold">Scope</label>
+    <select name="scope" class="form-select" onchange="toggleProjectPicker(this.value)">
+      {% for s in scope_values %}
+      <option value="{{ s }}"
+        {% if (form_values.scope or (tmpl.scope if tmpl else 'global')) == s %}selected{% endif %}>
+        {{ s }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-md-4" id="projectPickerRow"
+       style="{{ 'display:none' if (form_values.scope or (tmpl.scope if tmpl else 'global')) == 'global' else '' }}">
+    <label class="form-label fw-semibold">Project <span class="text-muted">(scope=project)</span></label>
+    <select name="project_id" class="form-select">
+      <option value="">— global —</option>
+      {% for p in all_projects %}
+      <option value="{{ p.id }}"
+        {% if (form_values.project_id or (tmpl.project_id if tmpl else '')) == p.id %}selected{% endif %}>
+        {{ p.name }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label fw-semibold">Description</label>
+    <input name="description" class="form-control"
+           value="{{ form_values.description or (tmpl.description if tmpl else '') }}">
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Action description
+      <span class="text-muted small">(Jinja2 — variables: <code>ne</code>, <code>iface</code>, <code>cable</code>, <code>hw</code>)</span>
+    </label>
+    <textarea name="action_description" class="form-control font-monospace" rows="4">{{ form_values.action_description or (tmpl.action_description if tmpl else '') }}</textarea>
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Expected result <span class="text-muted small">(Jinja2)</span></label>
+    <textarea name="expected_result" class="form-control font-monospace" rows="4">{{ form_values.expected_result or (tmpl.expected_result if tmpl else '') }}</textarea>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label fw-semibold">Vendor hints <span class="text-muted small">(JSON — key: vendor slug, value: CLI hint string)</span></label>
+    <textarea name="vendor_hints_json" id="vendorHintsJson" class="form-control font-monospace" rows="4">{{ form_values.vendor_hints_json or ((tmpl.vendor_hints | tojson(indent=2)) if tmpl and tmpl.vendor_hints else '{}') }}</textarea>
+    <div class="form-text">Example: <code>{"cisco_ios": "show interface {{ "{{" }} iface.name {{ "}}" }}"}</code></div>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label fw-semibold">Attachment filter <span class="text-muted small">(JSON — optional)</span></label>
+    <textarea name="attachment_filter_json" id="attachmentFilterJson" class="form-control font-monospace" rows="3">{{ form_values.attachment_filter_json or ((tmpl.attachment_filter | tojson(indent=2)) if tmpl and tmpl.attachment_filter else '{}') }}</textarea>
+    <div class="form-text">
+      Keys: <code>iface_labels_any</code>, <code>binding_modes_any</code>,
+      <code>ne_type_id</code>, <code>hw_template_id</code>, <code>hw_categories_any</code>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label fw-semibold">Tags <span class="text-muted">(comma-separated)</span></label>
+    <input name="tags" class="form-control"
+           value="{{ form_values.tags or ((tmpl.tags | join(', ')) if tmpl and tmpl.tags else '') }}">
+  </div>
+
+  <div class="col-12">
+    <button type="submit" class="btn btn-primary">Save template</button>
+    <a href="{{ url_for('checks.list_check_templates') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+  </div>
+</form>
+
+<script>
+function toggleProjectPicker(scope) {
+  document.getElementById('projectPickerRow').style.display = scope === 'project' ? '' : 'none';
+}
+</script>
+{% endblock %}

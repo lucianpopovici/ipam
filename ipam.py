@@ -744,6 +744,23 @@ def dashboard():
     hw_count = r.scard(HW_INST_INDEX)
     total_subnets = r.scard(NETWORKS_INDEX)
 
+    # 6. Pending checklists across all projects
+    from checks_logic import project_checklists as _proj_cls
+    pending_checklists = []
+    for proj in projects:
+        for cl in _proj_cls(proj['id']):
+            if cl.get('status') not in ('draft', 'in-progress'):
+                continue
+            n = sum(1 for c in cl.get('checks', []) if c['status'] == 'pending')
+            if n:
+                pending_checklists.append({
+                    'cid':              cl['id'],
+                    'project_name':     proj['name'],
+                    'deployment_label': cl['deployment_label'],
+                    'phase':            cl['phase'],
+                    'pending':          n,
+                })
+
     return render_template('dashboard.html',
                            ip_stats=ip_stats,
                            top_projects=top_projects,
@@ -753,7 +770,8 @@ def dashboard():
                            active_projects=len(projects),
                            total_subnets=total_subnets,
                            total_hw_instances=hw_count,
-                           health_issues=all_health_issues[:20])
+                           health_issues=all_health_issues[:20],
+                           pending_checklists=pending_checklists)
 
 @ipam_bp.route('/')
 def index():
