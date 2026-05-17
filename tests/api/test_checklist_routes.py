@@ -296,3 +296,87 @@ def test_pending_count_api(client, project):
     data = json.loads(r.data)
     assert data['pending'] == 1
     assert data['checklists'] == 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Generate-PDF route
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.api
+def test_generate_pdf_creates_artifact_and_links_checklist(client, project, monkeypatch):
+    """
+    The generate-pdf route renders the checklist HTML template, saves an
+    artifact via save_artifact, and sets checklist.artifact_id.
+    WeasyPrint is not required — the route falls back to HTML when it is absent.
+    """
+    c, fr = client
+    cl = _make_checklist(fr, project)
+
+    # Patch html_to_pdf so the test doesn't need a real WeasyPrint installation
+    import document_generation.pdf as pdf_mod
+    monkeypatch.setattr(pdf_mod, 'html_to_pdf',
+                        lambda html, **kw: html.encode('utf-8'))
+
+    r = c.post(f'/checklists/{cl["id"]}/generate-pdf', follow_redirects=True)
+    assert r.status_code == 200
+
+    # Checklist should now have an artifact_id set
+    from checks_logic import get_checklist
+    updated = get_checklist(cl['id'])
+    assert updated['artifact_id']
+
+    # The artifact should be findable in Redis
+    from document_generation.storage import get_artifact
+    art = get_artifact(updated['artifact_id'])
+    assert art is not None
+    assert art['type'] == 'checklist'
+    assert art['project_id'] == project
+
+
+@pytest.mark.api
+def test_generate_pdf_falls_back_to_html_when_weasyprint_missing(client, project, monkeypatch):
+    """When WeasyPrint raises ImportError the route saves an HTML artifact."""
+    c, fr = client
+    cl = _make_checklist(fr, project)
+
+    def _raise_import(html, **kw):
+        raise ImportError('weasyprint not installed')
+
+    import document_generation.pdf as pdf_mod
+    monkeypatch.setattr(pdf_mod, 'html_to_pdf', _raise_import)
+
+    r = c.post(f'/checklists/{cl["id"]}/generate-pdf', follow_redirects=True)
+    assert r.status_code == 200
+
+    from checks_logic import get_checklist
+    updated = get_checklist(cl['id'])
+    assert updated['artifact_id']
+
+    from document_generation.storage import get_artifact
+    art = get_artifact(updated['artifact_id'])
+    assert art['filename'].endswith('.html')
+
+
+@pytest.mark.api
+def test_generate_pdf_produces_different_artifact_per_generation(client, project, monkeypatch):
+    """Each call to generate-pdf creates a new artifact; old ones are retained."""
+    c, fr = client
+    cl = _make_checklist(fr, project)
+
+    import document_generation.pdf as pdf_mod
+    monkeypatch.setattr(pdf_mod, 'html_to_pdf',
+                        lambda html, **kw: html.encode('utf-8'))
+
+    c.post(f'/checklists/{cl["id"]}/generate-pdf', follow_redirects=True)
+    from checks_logic import get_checklist
+    aid1 = get_checklist(cl['id'])['artifact_id']
+
+    c.post(f'/checklists/{cl["id"]}/generate-pdf', follow_redirects=True)
+    aid2 = get_checklist(cl['id'])['artifact_id']
+
+    assert aid1 != aid2     # new artifact per generation
+
+    # Both artifacts should still exist in Redis
+    from document_generation.storage import get_artifact
+    assert get_artifact(aid1) is not None
+    assert get_artifact(aid2) is not None

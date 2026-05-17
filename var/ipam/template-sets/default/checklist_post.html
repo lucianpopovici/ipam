@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ project.name }} — Post-Deployment Checklist — {{ checklist.deployment_label }}</title>
+  <style>
+    body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 9.5pt; color: #222; margin: 0; }
+    h1   { font-size: 20pt; margin-bottom: 4px; }
+    h2   { font-size: 13pt; border-bottom: 2px solid #003366; padding-bottom: 4px; margin-top: 2em; color: #003366; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 8.5pt; }
+    th   { background: #e8ecf4; font-weight: bold; }
+    tr:nth-child(even) td { background: #f7f8fb; }
+    .cover { text-align: center; padding: 60px 40px 40px; }
+    .cover-sub { color: #555; font-size: 12pt; margin-bottom: 6px; }
+    .meta  { color: #666; font-size: 9pt; margin-top: 6px; }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 3px;
+             font-size: 8pt; font-weight: bold; }
+    .badge-critical  { background: #f8d7da; color: #721c24; }
+    .badge-standard  { background: #fff3cd; color: #856404; }
+    .badge-advisory  { background: #e2e3e5; color: #383d41; }
+    .badge-pending   { background: #cfe2ff; color: #084298; }
+    .badge-pass      { background: #d1e7dd; color: #0a3622; }
+    .badge-fail      { background: #f8d7da; color: #721c24; }
+    .badge-skip      { background: #e2e3e5; color: #383d41; }
+    .badge-na        { background: #e2e3e5; color: #383d41; }
+    .row-pass td     { background: #f0faf4 !important; }
+    .row-fail td     { background: #fff5f5 !important; }
+    .row-pending td  { background: #f0f6ff !important; }
+    .hint { font-family: 'DejaVu Sans Mono', monospace; font-size: 7.5pt;
+            background: #f8f9fa; border: 1px solid #dee2e6; padding: 2px 5px;
+            display: block; margin-top: 3px; }
+    .result-col { width: 10%; }
+    .notes-col  { width: 22%; }
+    .signoff    { margin-top: 40px; border-top: 2px solid #003366; padding-top: 20px; }
+    .signoff table { width: auto; min-width: 60%; }
+    .signoff td, .signoff th { border: none; padding: 3px 16px 3px 0; }
+    .sig-line   { border-top: 1px solid #999; width: 200px; margin-top: 30px; }
+    .footer     { color: #888; font-size: 7.5pt; text-align: center; margin-top: 50px; }
+    .section    { page-break-inside: avoid; }
+    @page { margin: 2cm; }
+  </style>
+</head>
+<body>
+
+{# ── Cover ── #}
+<div class="cover">
+  <h1>{{ project.name }}</h1>
+  <div class="cover-sub">Post-Deployment Verification Checklist</div>
+  <div class="meta">{{ checklist.deployment_label }}</div>
+  <div class="meta">Generated: {{ generated_at[:10] if generated_at else checklist.generated_at[:10] }}</div>
+  <div class="meta">Status: <strong>{{ checklist.status }}</strong></div>
+</div>
+
+{# ── Summary ── #}
+{% set total    = checklist.checks | length %}
+{% set pending  = checklist.checks | selectattr('status','equalto','pending') | list | length %}
+{% set passed   = checklist.checks | selectattr('status','equalto','pass')    | list | length %}
+{% set failed   = checklist.checks | selectattr('status','equalto','fail')    | list | length %}
+{% set skipped  = checklist.checks | selectattr('status','in',['skip','n/a']) | list | length %}
+{% set critical = checklist.checks | selectattr('severity','equalto','critical') | list | length %}
+{% set crit_fail = checklist.checks | selectattr('severity','equalto','critical') | selectattr('status','equalto','fail') | list | length %}
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Total checks</th><td>{{ total }}</td></tr>
+  <tr><th>Critical</th><td>{{ critical }}</td></tr>
+  <tr><th>Pass</th><td>{{ passed }}</td></tr>
+  <tr><th>Fail</th><td>{{ failed }}{% if crit_fail %} <span style="color:#900">({{ crit_fail }} critical)</span>{% endif %}</td></tr>
+  <tr><th>Skip / N/A</th><td>{{ skipped }}</td></tr>
+  <tr><th>Pending</th><td>{{ pending }}</td></tr>
+</table>
+
+{# ── Checks by severity group ── #}
+{% for sev, sev_label in [('critical','Critical'),('standard','Standard'),('advisory','Advisory')] %}
+{% set group = checklist.checks | selectattr('severity','equalto',sev) | list %}
+{% if group %}
+<h2>{{ sev_label }} Checks</h2>
+<div class="section">
+<table>
+  <thead>
+    <tr>
+      <th style="width:38%">Check / Expected result / Hint</th>
+      <th class="result-col">Result</th>
+      <th class="notes-col">Notes</th>
+      <th style="width:14%">Reported by</th>
+      <th style="width:10%">Recorded</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for check in group %}
+    <tr class="row-{{ check.status }}">
+      <td>
+        <strong>{{ check.action_text }}</strong>
+        {% if check.expected_text %}
+        <br><em style="color:#555">Expected:</em> {{ check.expected_text }}
+        {% endif %}
+        {% if check.vendor_hint_text %}
+        <span class="hint">{{ check.vendor_hint_text }}</span>
+        {% endif %}
+      </td>
+      <td><span class="badge badge-{{ check.status }}">{{ check.status }}</span></td>
+      <td style="font-size:8pt">{{ check.notes or '' }}</td>
+      <td style="font-size:8pt">{{ check.reported_by_external or '' }}</td>
+      <td style="font-size:7.5pt;color:#666">
+        {% if check.recorded_at %}{{ check.recorded_at[:10] }}<br>{{ check.recorded_by }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endfor %}
+
+{# ── Customer acceptance / sign-off ── #}
+<div class="signoff">
+  <h2>Customer Acceptance</h2>
+  {% if checklist.signed_off_at %}
+  <table>
+    <tr><th>Signed off at:</th><td>{{ checklist.signed_off_at[:10] }}</td></tr>
+    <tr><th>Signed off by:</th><td>{{ checklist.signed_off_by }}</td></tr>
+    <tr>
+      <th>Result:</th>
+      <td>
+        ✓ {{ passed }} of {{ total }} checks passed
+        {% if failed %} · ✗ {{ failed }} check(s) failed{% if crit_fail %} ({{ crit_fail }} critical){% endif %}{% endif %}
+        {% if skipped %} · {{ skipped }} skipped/n/a{% endif %}
+      </td>
+    </tr>
+  </table>
+  {% else %}
+  <p style="color:#555">Awaiting sign-off.</p>
+  <table style="margin-top:20px">
+    <tr>
+      <td style="padding-right:40px">
+        <div class="sig-line"></div>
+        <p style="font-size:8pt;color:#555">Customer Engineer &nbsp;&nbsp; Date</p>
+      </td>
+      <td>
+        <div class="sig-line"></div>
+        <p style="font-size:8pt;color:#555">Approved by (Engineering) &nbsp;&nbsp; Date</p>
+      </td>
+    </tr>
+  </table>
+  {% endif %}
+</div>
+
+<div class="footer">
+  Generated by IPAM · {{ project.name }} · {{ checklist.deployment_label }} · Post-Deployment
+</div>
+
+</body>
+</html>

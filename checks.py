@@ -358,9 +358,73 @@ def supersede_checklist(cid):
 @checks_bp.route('/checklists/<cid>/generate-pdf', methods=['POST'])
 @editor_required
 def generate_checklist_pdf(cid):
-    get_checklist(cid) or abort(404)
-    flash('PDF generation requires WeasyPrint templates (see CLAUDE-CHECKS.md).', 'warning')
-    return redirect(url_for('checks.checklist_detail', cid=cid))
+    """
+    Render a checklist to PDF (or HTML fallback) and store it as an artifact.
+    Uses checklist_pre.html / checklist_post.html from the default template set.
+    Links the new artifact_id back onto the checklist record.
+    Each generation produces a new artifact; previous ones are retained.
+    """
+    import os
+    cl   = get_checklist(cid) or abort(404)
+    proj = _get_project(cl['project_id']) or abort(404)
+    pid  = cl['project_id']
+    uid  = _actor_id()
+
+    template_name = f'checklist_{cl["phase"]}.html'
+
+    # Build the template rendering context
+    now_iso   = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    tmpl_ctx  = {
+        'checklist':    cl,
+        'project':      proj,
+        'checks':       cl.get('checks', []),
+        'generated_at': now_iso,
+    }
+
+    # Search path: default template set (same directory as design.html)
+    default_dir = os.path.normpath(
+        os.path.join(os.path.dirname(__file__),
+                     'var', 'ipam', 'template-sets', 'default')
+    )
+
+    try:
+        from document_generation.renderer import render_template_to_string
+        html, _missing = render_template_to_string(template_name, tmpl_ctx, [default_dir])
+    except (FileNotFoundError, SyntaxError, RuntimeError) as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('checks.checklist_detail', cid=cid))
+
+    # Try WeasyPrint; fall back to HTML file if not installed
+    proj_slug = proj['name'].lower().replace(' ', '-')
+    label_slug = cl['deployment_label'].lower().replace(' ', '-')
+    base_name  = f'{proj_slug}-{label_slug}-{cl["phase"]}'
+    try:
+        from document_generation.pdf import html_to_pdf
+        file_bytes = html_to_pdf(html)
+        filename   = f'{base_name}.pdf'
+        art_type   = 'checklist'
+    except ImportError:
+        flash('WeasyPrint not available — saving HTML artifact instead.', 'warning')
+        file_bytes = html.encode('utf-8')
+        filename   = f'{base_name}.html'
+        art_type   = 'checklist'
+
+    # Persist via the existing artifact pipeline
+    from document_generation.storage import save_artifact
+    context_snapshot = {'checklist': cl, 'project': proj}
+    art = save_artifact(
+        pid, art_type, filename, file_bytes,
+        context_snapshot,
+        label=f'{cl["deployment_label"]} ({cl["phase"]})',
+        generated_by=uid,
+    )
+
+    # Link the new artifact onto the checklist (multiple generations are retained in the
+    # artifact store; artifact_id always points to the most recent one)
+    save_checklist({**cl, 'artifact_id': art['id']})
+
+    flash('Checklist PDF generated successfully.', 'success')
+    return redirect(url_for('documents.artifact_detail', aid=art['id']))
 
 
 # ── Dashboard API ──────────────────────────────────────────────────────────────
