@@ -1,0 +1,8 @@
+.missing {
+  background: #ffcccc;
+  color: #900;
+  font-weight: bold;
+  padding: 2px 6px;
+  border: 1px dashed #900;
+  border-radius: 2px;
+}

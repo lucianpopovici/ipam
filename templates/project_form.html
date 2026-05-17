@@ -28,6 +28,21 @@
           <input type="text" name="description" class="form-control"
                  value="{{ form_values.description or '' }}">
         </div>
+        {% if customers is defined and customers %}
+        <div class="mb-3">
+          <label class="form-label">Customer</label>
+          <select name="customer_id" class="form-select">
+            <option value="">— None —</option>
+            {% for c in customers %}
+            <option value="{{ c.id }}"
+              {% if (form_values.customer_id or '') == c.id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Assign this project to a customer for branded PDF generation.</div>
+        </div>
+        {% endif %}
         <div class="d-flex gap-2">
           <button type="submit" class="btn btn-primary">Create Project</button>
           <a href="{{ url_for('ipam.index') }}" class="btn btn-secondary">Cancel</a>

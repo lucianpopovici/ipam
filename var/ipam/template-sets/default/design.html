@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ project.name }} — Network Design</title>
+  <style>
+    body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 10pt; color: #222; margin: 0; }
+    h1 { font-size: 22pt; margin-bottom: 4px; }
+    h2 { font-size: 14pt; border-bottom: 2px solid #003366; padding-bottom: 4px; margin-top: 2em; color: #003366; }
+    h3 { font-size: 11pt; color: #444; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 9pt; }
+    th { background: #e8ecf4; font-weight: bold; }
+    tr:nth-child(even) td { background: #f7f8fb; }
+    .cover { text-align: center; padding: 80px 40px 40px; }
+    .cover-sub { color: #666; font-size: 12pt; margin-bottom: 40px; }
+    .signoff { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 20px; }
+    .signoff table { width: auto; }
+    .signoff td, .signoff th { border: none; padding: 2px 16px 2px 0; }
+    .missing { background: #ffcccc; color: #900; font-weight: bold; padding: 2px 6px; border: 1px dashed #900; }
+    .missing-banner { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 8px 12px; margin: 1em 0; }
+    .section { page-break-inside: avoid; }
+    .footer-line { color: #666; font-size: 8pt; text-align: center; margin-top: 60px; }
+    @page { margin: 2cm; }
+  </style>
+</head>
+<body>
+
+{# ── Cover page ── #}
+<div class="cover">
+  <h1>{{ project.name }}</h1>
+  <div class="cover-sub">Network Design Document</div>
+  {% if customer and customer.name %}
+  <div style="font-size:12pt; color:#444">Prepared for: <strong>{{ customer.name }}</strong></div>
+  {% endif %}
+  <div style="margin-top:8px;color:#888;font-size:10pt">Generated: {{ generated_at[:10] }}</div>
+
+  {% if missing.fields %}
+  <div class="missing-banner" style="margin-top:20px">
+    <strong>⚠ {{ missing.fields|length }} field(s) require attention before release.</strong><br>
+    <span style="font-size:9pt">Fields shown as <span class="missing">MISSING: name</span> in this document.</span>
+  </div>
+  {% endif %}
+
+  {% if approvals %}
+  <div class="signoff">
+    <table>
+      <tr><th>Role</th><th>Name</th><th>Decision</th><th>Date</th></tr>
+      {% for ap in approvals %}
+      <tr>
+        <td>{{ ap.role | default('Approver') }}</td>
+        <td>{{ ap.name }}</td>
+        <td>{{ ap.decision }}</td>
+        <td>{{ ap.timestamp[:10] if ap.timestamp else '' }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Project Overview ── #}
+<h2>1. Project Overview</h2>
+<table>
+  <tr><th>Name</th><td>{{ project.name }}</td></tr>
+  <tr><th>ID</th><td>{{ project.id }}</td></tr>
+  {% if project.supernet %}<tr><th>Supernet</th><td>{{ project.supernet }}</td></tr>{% endif %}
+  {% if project.description %}<tr><th>Description</th><td>{{ project.description }}</td></tr>{% endif %}
+  {% if customer and customer.name %}<tr><th>Customer</th><td>{{ customer.name }}</td></tr>{% endif %}
+</table>
+
+{# ── Sites ── #}
+{% if sites %}
+<h2>2. Sites</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>ID</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for site in sites %}
+    <tr>
+      <td>{{ site.name }}</td>
+      <td><code>{{ site.id }}</code></td>
+      <td>{{ site.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── PODs ── #}
+{% if pods %}
+<h2>3. PODs</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>ID</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for pod in pods %}
+    <tr>
+      <td>{{ pod.name }}</td>
+      <td><code>{{ pod.id }}</code></td>
+      <td>{{ pod.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── IP Addressing ── #}
+{% if networks %}
+<h2>4. IP Addressing</h2>
+<table>
+  <thead>
+    <tr><th>Network Name</th><th>CIDR</th><th>VLAN</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for net in networks %}
+    <tr>
+      <td>{{ net.name }}</td>
+      <td><code>{{ net.cidr }}</code></td>
+      <td>{{ net.vlan | default('—') }}</td>
+      <td>{{ net.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── IP Allocations ── #}
+{% if ip_allocations %}
+<h2>5. IP Allocation Table</h2>
+<table>
+  <thead>
+    <tr><th>IP Address</th><th>Hostname</th><th>Status</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for ip in ip_allocations %}
+    <tr>
+      <td><code>{{ ip.ip }}</code></td>
+      <td>{{ ip.hostname | default('—') }}</td>
+      <td>{{ ip.status | default('allocated') }}</td>
+      <td>{{ ip.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── NE Types ── #}
+{% if ne_types %}
+<h2>6. Network Element Types</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>Kind</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for nt in ne_types %}
+    <tr>
+      <td>{{ nt.name }}</td>
+      <td>{{ nt.kind | default('PNF') }}</td>
+      <td>{{ nt.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── NE Instances ── #}
+{% if ne_instances %}
+<h2>7. Network Element Instances</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>Type</th><th>Mgmt IP</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for ne in ne_instances %}
+    <tr>
+      <td>{{ ne.name }}</td>
+      <td>{{ ne.ne_type_id | default('—') }}</td>
+      <td>{{ ne.params.mgmt_ip | default(ne.mgmt_ip | default('')) | required('ne[' + ne.name + '].mgmt_ip') }}</td>
+      <td>{{ ne.description | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── HW Instances ── #}
+{% if hw_instances %}
+<h2>8. Hardware Inventory</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>Category</th><th>Model</th><th>Rack / Slot</th></tr>
+  </thead>
+  <tbody>
+    {% for hw in hw_instances %}
+    {% if hw.category != 'rack' and hw.category != 'cable' %}
+    <tr>
+      <td>{{ hw.name }}</td>
+      <td>{{ hw.category | default('') }}</td>
+      <td>{{ hw.model | default('') }}</td>
+      <td>{{ hw.rack_name | default('—') }}</td>
+    </tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── Cables ── #}
+{% if cables %}
+<h2>9. Cabling</h2>
+<table>
+  <thead>
+    <tr><th>Cable ID</th><th>End A</th><th>End B</th><th>Type</th></tr>
+  </thead>
+  <tbody>
+    {% for cable in cables %}
+    <tr>
+      <td><code>{{ cable.id }}</code></td>
+      <td>{{ cable.end_a_instance | default('') }} {{ cable.end_a_port | default('') }}</td>
+      <td>{{ cable.end_b_instance | default('') }} {{ cable.end_b_port | default('') }}</td>
+      <td>{{ cable.cable_type | default('') }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── NE–HW Bindings ── #}
+{% if bindings_flat %}
+<h2>10. Port Assignment Table</h2>
+<table>
+  <thead>
+    <tr><th>NE Instance</th><th>Interface</th><th>HW Instance</th><th>Port</th><th>Connector</th></tr>
+  </thead>
+  <tbody>
+    {% for row in bindings_flat %}
+    <tr>
+      <td>{{ row.ne_instance_name }}</td>
+      <td>{{ row.iface_name }}</td>
+      <td>{{ row.hw_instance_name }}</td>
+      <td>{{ row.port_name }}</td>
+      <td>{{ row.connector }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{# ── Footer ── #}
+<div class="footer-line">
+  {% if customer and customer.branding and customer.branding.footer_line %}
+    {{ customer.branding.footer_line }}
+  {% else %}
+    Generated by IPAM — {{ generated_at[:10] }}
+  {% endif %}
+</div>
+
+</body>
+</html>

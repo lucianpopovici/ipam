@@ -29,12 +29,17 @@ def fake_redis(monkeypatch):
     fake_r = fakeredis.FakeRedis(server=server, decode_responses=True)
 
     # Patch the module-level `r` in every blueprint module
+<<<<<<< HEAD
     import ipam
     import ne
     import hw_logic
     import vmware
     import auth
     for mod in (db, ipam, ne, hw_logic, vmware, auth):
+=======
+    import ipam, ne, hw_logic, vmware, auth, customer
+    for mod in (db, ipam, ne, hw_logic, vmware, auth, customer):
+>>>>>>> refs/remotes/origin/main
         monkeypatch.setattr(mod, 'r', fake_r)
 
     yield fake_r

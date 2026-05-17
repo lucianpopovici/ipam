@@ -101,7 +101,7 @@
              {% if is_active('ipam.manage_global_labels','ipam.list_templates','ne.list_ne_types',
                              'ne.add_ne_type','ne.edit_ne_type','ne.admin_schemas',
                              'hw.hw_templates_list','hw.add_hw_template','hw.edit_hw_template',
-                             'hw.hw_connectors','vmware.') %} active{% endif %}"
+                             'hw.hw_connectors','vmware.','customer.') %} active{% endif %}"
              href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             ⚙ Admin
           </a>
@@ -123,6 +123,10 @@
                    href="{{ url_for('hw.hw_templates_list') }}">🖥 HW Templates</a></li>
             <li><a class="dropdown-item{% if is_active('hw.hw_connectors') %} active{% endif %}"
                    href="{{ url_for('hw.hw_connectors') }}">🔌 Connectors</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Customers</h6></li>
+            <li><a class="dropdown-item{% if is_active('customer.') %} active{% endif %}"
+                   href="{{ url_for('customer.customers_list') }}">🏢 Customers</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">Integrations</h6></li>
             <li><a class="dropdown-item{% if is_active('vmware.') %} active{% endif %}"
