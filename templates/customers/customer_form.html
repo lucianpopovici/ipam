@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ 'Edit' if customer else 'Add' }} Customer{% endblock %}
+{% block content %}
+
+{{ breadcrumbs([
+  {'label': 'Customers', 'url': url_for('customer.customers_list')},
+  {'label': customer.name if customer else 'Add Customer'}
+]) }}
+
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>{{ 'Edit' if customer else 'New' }} Customer</strong></div>
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input name="name" class="form-control" required
+                   value="{{ form_values.get('name', customer.name if customer else '') }}">
+          </div>
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label">Slug</label>
+              <input name="slug" class="form-control" placeholder="acme-corp"
+                     value="{{ form_values.get('slug', customer.slug if customer else '') }}">
+              <div class="form-text">URL-safe short name, auto-filled from Name if blank.</div>
+            </div>
+            <div class="col">
+              <label class="form-label">Billing Reference</label>
+              <input name="billing_ref" class="form-control" placeholder="PO-2026-001"
+                     value="{{ form_values.get('billing_ref', customer.billing_ref if customer else '') }}">
+            </div>
+          </div>
+          <h6 class="mt-4 mb-2 text-muted">Primary Contact</h6>
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label">Name</label>
+              <input name="contact_name" class="form-control"
+                     value="{{ form_values.get('contact_name', customer.primary_contact.name if customer else '') }}">
+            </div>
+            <div class="col">
+              <label class="form-label">Email</label>
+              <input name="contact_email" type="email" class="form-control"
+                     value="{{ form_values.get('contact_email', customer.primary_contact.email if customer else '') }}">
+            </div>
+          </div>
+          <h6 class="mt-4 mb-2 text-muted">Branding</h6>
+          <div class="row mb-3">
+            <div class="col-4">
+              <label class="form-label">Primary Colour</label>
+              <input name="primary_color" type="color" class="form-control form-control-color"
+                     value="{{ form_values.get('primary_color', customer.branding.primary_color if customer else '#003366') }}">
+            </div>
+            <div class="col">
+              <label class="form-label">Footer Line</label>
+              <input name="footer_line" class="form-control" placeholder="ACME Confidential — see MNDA"
+                     value="{{ form_values.get('footer_line', customer.branding.footer_line if customer else '') }}">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" class="form-control" rows="2">{{ form_values.get('notes', customer.notes if customer else '') }}</textarea>
+          </div>
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('customer.customers_list') }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">{{ 'Save Changes' if customer else 'Create Customer' }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}Preview — {{ project.name }}{% endblock %}
+{% block content %}
+
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': project.name, 'url': url_for('ipam.project_detail', pid=project.id)},
+  {'label': 'Preview'}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h5 class="mb-0">Design Preview — {{ project.name }}</h5>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('documents.preview_design', pid=project.id) }}"
+       class="btn btn-sm btn-outline-secondary{% if preview_type == 'design' %} active{% endif %}">
+       Design
+    </a>
+    <form method="post" action="{{ url_for('documents.generate_artifact', pid=project.id) }}"
+          class="d-inline">
+      <input type="hidden" name="type" value="pdf">
+      <button class="btn btn-sm btn-primary">Generate PDF</button>
+    </form>
+    <form method="post" action="{{ url_for('documents.generate_artifact', pid=project.id) }}"
+          class="d-inline">
+      <input type="hidden" name="type" value="bundle">
+      <button class="btn btn-sm btn-outline-primary">Config Bundle</button>
+    </form>
+    <a href="{{ url_for('documents.project_artifacts', pid=project.id) }}"
+       class="btn btn-sm btn-outline-secondary">Artifacts</a>
+  </div>
+</div>
+
+{% if missing %}
+<div class="alert alert-warning py-2">
+  <strong>{{ missing|length }} missing field(s)</strong> — document contains
+  <span class="missing" style="background:#ffcccc;color:#900;font-weight:bold;padding:2px 6px;border:1px dashed #900">MISSING:</span>
+  markers. Fix the data and regenerate.
+  <ul class="mb-0 mt-1 small">
+    {% for m in missing[:10] %}<li>{{ m }}</li>{% endfor %}
+    {% if missing|length > 10 %}<li>…and {{ missing|length - 10 }} more</li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
+{% if preview_html %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <div class="border rounded" style="min-height:400px;background:#fff;padding:2rem;overflow:auto">
+      {{ preview_html | safe }}
+    </div>
+  </div>
+</div>
+{% elif not error %}
+<div class="alert alert-info">No output rendered.</div>
+{% endif %}
+
+{% endblock %}

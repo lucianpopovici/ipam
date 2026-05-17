@@ -811,12 +811,19 @@ def add_project():
         )
         if errors:
             return render_template('project_form.html', errors=errors, form_values=request.form)
+        customer_id = request.form.get('customer_id', '').strip()
         proj = {'id': new_id(), 'name': name, 'supernet': supernet,
-                'description': request.form.get('description', '')}
+                'description': request.form.get('description', ''),
+                'customer_id': customer_id}
         save_project(proj)
+        # Maintain customer↔project index
+        if customer_id:
+            r.sadd(f'customer:{customer_id}:projects', proj['id'])
         flash(f'Project "{proj["name"]}" created.', 'success')
         return redirect(url_for('ipam.project_detail', pid=proj['id']))
-    return render_template('project_form.html', errors={}, form_values={})
+    from customer import all_customers
+    return render_template('project_form.html', errors={}, form_values={},
+                           customers=all_customers())
 
 
 @ipam_bp.route('/projects/<pid>')
