@@ -1,52 +1,69 @@
 # Declarative computed fields — evaluated read-time, never stored.
 #
-# Structure
-# ─────────
-# <entity_type>:          e.g. ne_instance, site, pod
-#   <field_name>:         name of the derived field (shown in UI, accessible in templates)
-#     description: "..."  human-readable explanation
-#     template: "..."     Jinja2 expression; variables = entity fields + resolved names below
-#     resolve:            optional — additional variables fetched before rendering
-#       <var_name>:       name to inject into the template context
-#         field: <f>      ID field on the entity whose value is the lookup key
-#         entity: <pfx>   Redis key prefix; entity loaded from "{pfx}:{id}"
-#         fallback: ""    value to use when the lookup fails (default: empty string)
+# Three resolve entry types
+# ─────────────────────────
+# 1. Entity lookup
+#      <var>:
+#        field: <id_field_on_entity>   # entity[field] is the lookup key
+#        entity: <redis_prefix>        # key = "{prefix}:{id}"
+#        fallback: <default>           # used when lookup misses (default: "")
 #
-# Resolve path resolution (open question resolved here):
-#   Each resolve entry does a *single* Redis lookup: r.get("{entity}:{entity[field]}").
-#   For multi-hop traversals (e.g. ne_instance → pod → site), chain entries: resolve
-#   the intermediate first, then reference it in the template. The engine resolves
-#   entries in declaration order.
+# 2. Chained lookup  (from_var must be declared before this entry)
+#      <var>:
+#        from_var: <prev_var>          # use a previously resolved dict as source
+#        field: <id_field_on_source>   # source[field] is the lookup key
+#        entity: <redis_prefix>
+#        fallback: <default>
 #
-# M:N note: when a resolve traverses a many-to-many relation (e.g. pod ↔ site),
-#   use the relation store directly in the template via the `related()` Jinja helper
-#   rather than a resolve entry. Document the fan-out explicitly in the description.
+# 3. Peer-index  (1-based position among same-type peers in same scope)
+#      <var>:
+#        computed: peer_index
+#        index_set: "project:{project_id}:ne_instances"  # {field} interpolated
+#        peer_prefix: ne_inst          # key = "{prefix}:{id}"
+#        group_by: ne_type_id          # peers must share this field value
+#        sort_by: name                 # stable ordering
 #
-# Custom Jinja filters available:
-#   pad(n)   — zero-pad a number to n digits: {{ 3 | pad(2) }} → "03"
-#   slugify  — lowercase + replace spaces with hyphens
+# Custom Jinja2 filters: pad(n), slugify
+#
+# M:N path note (CLAUDE_schema_flexibility.md):
+#   When a resolve path traverses a many-to-many relation (e.g. pod ↔ site),
+#   only one end is reachable via a chained lookup (picks one result from the
+#   relation set). For true fan-out, use the relation store directly in
+#   application code before calling evaluate().
+#
+# Site context note:
+#   The spec hostname "{{ site.name|lower }}-{{ ne.kind|lower }}-{{ index|pad(2) }}"
+#   requires ne_instance.pod_id to resolve site via the ne_in_pod relation.
+#   When an NE instance is assigned to a POD (relate('ne_in_pod', nid, pod_id)),
+#   the chained lookup below activates automatically.
 
 ne_instance:
   hostname:
     description: >
-      Derived hostname: NE-type kind (lower) + hyphen + instance name (lower).
-      Example: pnf-pe-lon-01.
-      To include site context, add a site resolve entry once site assignment
-      is propagated to the NE instance record.
-    template: "{{ ne_type.kind | lower }}-{{ name | lower }}"
+      Derived hostname matching the spec pattern: ne-kind + peer-index.
+      When ne_instance.pod_id is set (via ne_in_pod relation), the template
+      can be extended to {{ site.name|lower }}-{{ ne.kind|lower }}-{{ index|pad(2) }}.
+      Example without site: pnf-03.
+    template: "{{ ne.kind | lower }}-{{ index | pad(2) }}"
     resolve:
-      ne_type:
+      ne:                          # resolves ne_type dict as 'ne' (matches spec variable name)
         field: ne_type_id
         entity: ne_type
-        fallback: {}
+        fallback: {kind: unknown}
+      index:                       # 1-based position among peers of same NE type in project
+        computed: peer_index
+        index_set: "project:{project_id}:ne_instances"
+        peer_prefix: ne_inst
+        group_by: ne_type_id
+        sort_by: name
 
   display_label:
     description: >
       Short display label combining kind badge and name.
-      Useful in lists and topology views.
-    template: "[{{ ne_type.kind }}] {{ name }}"
+      Example: [PNF] pe-lon-01
+    template: "[{{ ne.kind }}] {{ name }}"
     resolve:
-      ne_type:
+      ne:
         field: ne_type_id
         entity: ne_type
-        fallback: {}
+        fallback: {kind: "?"}

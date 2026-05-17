@@ -1,3 +1,10 @@
 relations:
-  - { name: pod_of_site, from: pod, to: site, kind: many-to-many }
+  - { name: pod_of_site, from: pod,         to: site, kind: many-to-many }
+  - { name: ne_in_pod,   from: ne_instance, to: pod,  kind: many-to-one  }
   # New relations land here — no Python changes for storage.
+  #
+  # ne_in_pod usage: when an NE instance is assigned to a POD, call
+  #   relate('ne_in_pod', ne_instance_id, pod_id)
+  # Then site context becomes available for hostname derivations:
+  #   pod_id  = related('ne_in_pod', nid, 'fwd').pop()
+  #   site_id = related('pod_of_site', pod_id, 'fwd').pop()  (picks first site)
