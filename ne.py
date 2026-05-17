@@ -1328,15 +1328,35 @@ def add_ne_instance(pid):
             ('ne_type_id', bool(ne_type_id), 'NE type is required.'),
         )
         if not errors:
+            # Pre-populate auto-rule bindings from NE type ifaces that carry a
+            # default_bind_rule — set by the migration step or the rule modal UI.
+            iface_bindings = {}
+            ne_type_raw = r.get(f'ne_type:{ne_type_id}')
+            if ne_type_raw:
+                import json as _json
+                try:
+                    ne_type_obj = _json.loads(ne_type_raw)
+                    for iface in ne_type_obj.get('interfaces', []):
+                        rule = iface.get('default_bind_rule')
+                        if rule:
+                            iface_bindings[iface['id']] = {
+                                'bind_mode': 'auto-rule',
+                                'rule': rule,
+                                'ports': [],
+                                'rule_materialized_at': None,
+                            }
+                except _json.JSONDecodeError:
+                    pass
+
             inst = {
-                'id':           new_id(),
-                'ne_type_id':   ne_type_id,
-                'project_id':   pid,
-                'name':         name,
-                'description':  description,
-                'labels':       labels,
-                'params':       {},
-                'iface_bindings': {},
+                'id':             new_id(),
+                'ne_type_id':     ne_type_id,
+                'project_id':     pid,
+                'name':           name,
+                'description':    description,
+                'labels':         labels,
+                'params':         {},
+                'iface_bindings': iface_bindings,
             }
             save_ne_instance(inst)
             flash(f'NE instance "{name}" created.', 'success')

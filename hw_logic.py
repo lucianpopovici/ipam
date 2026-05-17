@@ -820,6 +820,9 @@ def validate_project(pid: str) -> list:
     # ── NE binding validation ─────────────────────────────────────────────────
     _check_ne_bindings(pid, issues)
 
+    # ── Checklist validation ──────────────────────────────────────────────────
+    _check_checklists(pid, issues)
+
     # Cache results
     r.set(_validation_key(pid), json.dumps(issues))
     return issues
@@ -1050,3 +1053,136 @@ def _check_ne_bindings(pid: str, issues: list) -> None:
                             f'{ne_name} / {iface_name}: LAG spans '
                             f'{len({p["hw_instance_id"] for p in ports})} HW instances (MC-LAG)',
                             ctx))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Checklist validation (CHK_ codes)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _check_checklists(pid: str, issues: list) -> None:  # pylint: disable=too-many-branches
+    """
+    Emit CHK_ validation codes by scanning check templates and checklists
+    directly from Redis.  Does NOT import checks_logic to avoid circular deps.
+    """
+    from jinja2.sandbox import SandboxedEnvironment
+    _jinja = SandboxedEnvironment(autoescape=False)
+
+    # ── Load all check templates ──────────────────────────────────────────────
+    ct_ids = r.smembers('check_templates:index')
+    templates = []
+    for ctid in ct_ids:
+        raw = r.get(f'check_template:{ctid}')
+        if raw:
+            try:
+                templates.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
+
+    # CHK_TEMPLATE_BAD_JINJA — template body has a Jinja2 syntax error
+    for ct in templates:
+        for field in ('action_description', 'expected_result'):
+            text = ct.get(field, '')
+            if not text:
+                continue
+            try:
+                _jinja.parse(text)
+            except Exception as exc:  # pylint: disable=broad-except
+                issues.append(_issue('error', 'CHK_TEMPLATE_BAD_JINJA',
+                    f'Check template "{ct.get("name","?")}" — Jinja error in {field}: {exc}',
+                    {'check_template_id': ct['id'], 'field': field}))
+
+    # CHK_TEMPLATE_NO_SUBJECT — template would match zero subjects on this project
+    ne_count    = r.scard(f'project:{pid}:ne_instances')
+    cable_count = r.scard(f'project:{pid}:hw:cables')
+    hw_count    = r.scard(f'project:{pid}:hw:instances')
+
+    for ct in templates:
+        attached_to = ct.get('attached_to', 'project')
+        if attached_to == 'project':
+            continue
+        if attached_to in ('ne_type', 'ne_iface') and ne_count == 0:
+            issues.append(_issue('warning', 'CHK_TEMPLATE_NO_SUBJECT',
+                f'Check template "{ct.get("name","?")}" targets NE instances '
+                f'but the project has none.',
+                {'check_template_id': ct['id'], 'attached_to': attached_to}))
+        elif attached_to == 'cable' and cable_count == 0:
+            issues.append(_issue('warning', 'CHK_TEMPLATE_NO_SUBJECT',
+                f'Check template "{ct.get("name","?")}" targets cables '
+                f'but the project has none.',
+                {'check_template_id': ct['id'], 'attached_to': attached_to}))
+        elif attached_to == 'hw_template' and hw_count == 0:
+            issues.append(_issue('warning', 'CHK_TEMPLATE_NO_SUBJECT',
+                f'Check template "{ct.get("name","?")}" targets HW instances '
+                f'but the project has none.',
+                {'check_template_id': ct['id'], 'attached_to': attached_to}))
+
+    # ── Load project checklists ───────────────────────────────────────────────
+    cl_ids     = r.lrange(f'project:{pid}:checklists', 0, -1)
+    checklists = []
+    for cid in cl_ids:
+        raw = r.get(f'checklist:{cid}')
+        if raw:
+            try:
+                checklists.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
+
+    for cl in checklists:
+        status = cl.get('status', '')
+        checks = cl.get('checks', [])
+        label  = cl.get('deployment_label', cl.get('id', '?'))
+
+        # CHK_LIST_INCOMPLETE — in-progress checklist with pending items
+        if status == 'in-progress':
+            pending_count = sum(1 for c in checks if c.get('status') == 'pending')
+            if pending_count:
+                issues.append(_issue('info', 'CHK_LIST_INCOMPLETE',
+                    f'Checklist "{label}" ({cl.get("phase","?")}) has '
+                    f'{pending_count} pending check(s).',
+                    {'checklist_id': cl['id'], 'pending': pending_count}))
+
+        # CHK_LIST_FAILED_CRITICAL — signed-off checklist with failed critical checks
+        if status == 'signed-off':
+            crit_fails = [c for c in checks
+                          if c.get('severity') == 'critical' and c.get('status') == 'fail']
+            if crit_fails:
+                issues.append(_issue('error', 'CHK_LIST_FAILED_CRITICAL',
+                    f'Signed-off checklist "{label}" has '
+                    f'{len(crit_fails)} failed critical check(s).',
+                    {'checklist_id': cl['id'], 'failed_critical': len(crit_fails)}))
+
+    # CHK_VENDOR_HINT_MISSING — HW vendor in project has no matching hint in template
+    hint_templates = [ct for ct in templates if ct.get('vendor_hints')]
+    if hint_templates:
+        hw_vendors: set = set()
+        for iid in r.smembers(f'project:{pid}:hw:instances'):
+            inst_raw = r.get(f'hw:instance:{iid}')
+            if not inst_raw:
+                continue
+            try:
+                inst = json.loads(inst_raw)
+            except json.JSONDecodeError:
+                continue
+            tid = inst.get('template_id', '')
+            if not tid:
+                continue
+            tmpl_raw = r.get(f'hw:template:{tid}')
+            if not tmpl_raw:
+                continue
+            try:
+                tmpl   = json.loads(tmpl_raw)
+                vendor = tmpl.get('vendor', '').lower().replace(' ', '_').strip()
+                if vendor:
+                    hw_vendors.add(vendor)
+            except json.JSONDecodeError:
+                continue
+
+        for ct in hint_templates:
+            hints        = ct.get('vendor_hints', {})
+            hint_vendors = {v.lower().replace(' ', '_') for v in hints}
+            for vendor in hw_vendors:
+                if vendor not in hint_vendors:
+                    issues.append(_issue('info', 'CHK_VENDOR_HINT_MISSING',
+                        f'Check template "{ct.get("name","?")}" has no vendor hint '
+                        f'for "{vendor}" — fallback used.',
+                        {'check_template_id': ct['id'], 'vendor': vendor}))

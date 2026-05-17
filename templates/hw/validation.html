@@ -65,6 +65,11 @@
   'NE_RULE_NO_MATCH':      'An auto-rule binding is defined but matched zero ports on current inventory.',
   'NE_RULE_UNRACKED_PORT': 'An auto-rule with group_by=rack matched a port whose HW instance has no rack placement.',
   'NE_RULE_STALE':         'HW inventory changed since the auto-rule was last materialized — click ↺ to refresh.',
+  'CHK_TEMPLATE_BAD_JINJA':  'A check template contains a Jinja2 syntax error in its action or expected-result text.',
+  'CHK_TEMPLATE_NO_SUBJECT': 'A check template is configured but would produce zero checks against this project\'s current inventory (filter too tight or no matching entities).',
+  'CHK_LIST_INCOMPLETE':     'A checklist is in-progress and has pending (unrecorded) checks.',
+  'CHK_LIST_FAILED_CRITICAL': 'A signed-off checklist contains one or more failed critical checks.',
+  'CHK_VENDOR_HINT_MISSING': 'A check template has vendor hints but none matches a vendor present in the project\'s HW inventory — the first available hint is used as fallback.',
 } %}
 
 {% for severity, label, cls in [('error','Errors','danger'),('warning','Warnings','warning'),('info','Info','info')] %}

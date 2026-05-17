@@ -420,3 +420,127 @@ class TestRequirements:
         resp = client.post(f'/projects/{pid}/requirements/push-all',
                            follow_redirects=False)
         assert resp.status_code in (200, 302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# default_bind_rule pre-population on NE instance creation
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDefaultBindRule:
+    """
+    When an NE type's interface carries a `default_bind_rule` field, creating a
+    new NE instance of that type must pre-populate an auto-rule binding for that
+    interface.
+    """
+
+    def _create_ne_type_with_rule(self, client, pid='') -> str:
+        """Create an NE type whose mgmt iface has a default_bind_rule; return tid."""
+        import ne as ne_mod
+        before = set(ne_mod.r.smembers('ne_types:index'))
+
+        ifaces = [
+            {
+                'id': 'iface-mgmt', 'name': 'mgmt', 'labels': ['mgmt'],
+                'params': {}, 'sharing': 'ne',
+                'ipv4': {'prefix_len': 29}, 'ipv6': None,
+                'default_bind_rule': {
+                    'port_types': ['mgmt'],
+                    'name_regex': '^(iLO|BMC)\\d*$',
+                    'categories': ['server'],
+                    'group_by': ['rack'],
+                },
+            },
+            {
+                'id': 'iface-data', 'name': 'eth0', 'labels': ['data'],
+                'params': {}, 'sharing': 'ne',
+                'ipv4': {'prefix_len': 30}, 'ipv6': None,
+                # no default_bind_rule on this iface
+            },
+        ]
+        client.post('/ne-types/add', data={
+            'name': 'RuleRouter', 'kind': 'PNF', 'description': '',
+            'labels': '', 'scope': 'global', 'project_id': pid,
+            'interfaces_json': json.dumps(ifaces),
+        }, follow_redirects=False)
+        # Find the newly added tid
+        after = set(ne_mod.r.smembers('ne_types:index'))
+        new_tids = after - before
+        assert new_tids, 'NE type was not created'
+        return new_tids.pop()
+
+    @pytest.mark.api
+    def test_instance_inherits_auto_rule_binding(self, client):
+        """NE instance created from a type with default_bind_rule gets a pre-populated binding."""
+        pid = _create_project(client)
+        tid = self._create_ne_type_with_rule(client, pid)
+
+        resp = client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': 'rule-inst-01', 'ne_type_id': tid, 'description': '',
+            'labels': '',
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+
+        # Load the instance from Redis via the ne module
+        import ne as ne_mod
+        nids = ne_mod.r.smembers(f'project:{pid}:ne_instances')
+        assert nids, 'No NE instances created'
+        nid = nids.pop()
+        inst = ne_mod.get_ne_instance(nid)
+        assert inst is not None
+
+        bindings = inst.get('iface_bindings', {})
+        assert 'iface-mgmt' in bindings, 'iface-mgmt should have a pre-populated binding'
+
+        b = bindings['iface-mgmt']
+        assert b['bind_mode'] == 'auto-rule'
+        assert b['rule']['port_types'] == ['mgmt']
+        assert b['ports'] == []  # not yet materialized
+
+    @pytest.mark.api
+    def test_iface_without_rule_has_no_binding(self, client):
+        """Interfaces without default_bind_rule stay unbound after instance creation."""
+        pid = _create_project(client)
+        tid = self._create_ne_type_with_rule(client, pid)
+
+        client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': 'rule-inst-02', 'ne_type_id': tid, 'description': '',
+            'labels': '',
+        }, follow_redirects=False)
+
+        import ne as ne_mod
+        nids = ne_mod.r.smembers(f'project:{pid}:ne_instances')
+        nid  = nids.pop()
+        inst = ne_mod.get_ne_instance(nid)
+
+        bindings = inst.get('iface_bindings', {})
+        assert 'iface-data' not in bindings, \
+            'iface-data has no default_bind_rule so should not appear in bindings'
+
+    @pytest.mark.api
+    def test_ne_type_without_any_rule_gives_empty_bindings(self, client):
+        """NE type with no default_bind_rule on any iface → iface_bindings is empty."""
+        import ne as ne_mod
+        pid = _create_project(client)
+        before = set(ne_mod.r.smembers('ne_types:index'))
+        ifaces = [{'id': 'if1', 'name': 'wan', 'labels': [], 'params': {},
+                   'sharing': 'ne', 'ipv4': {'prefix_len': 30}, 'ipv6': None}]
+        client.post('/ne-types/add', data={
+            'name': 'PlainRouter', 'kind': 'PNF', 'description': '',
+            'labels': '', 'scope': 'global', 'project_id': pid,
+            'interfaces_json': json.dumps(ifaces),
+        }, follow_redirects=False)
+        after = set(ne_mod.r.smembers('ne_types:index'))
+        new_tids = after - before
+        assert new_tids
+        tid = new_tids.pop()
+
+        client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': 'plain-inst-01', 'ne_type_id': tid, 'description': '',
+            'labels': '',
+        }, follow_redirects=False)
+
+        import ne as ne_mod
+        nids = ne_mod.r.smembers(f'project:{pid}:ne_instances')
+        nid  = nids.pop()
+        inst = ne_mod.get_ne_instance(nid)
+        assert inst.get('iface_bindings') == {}
