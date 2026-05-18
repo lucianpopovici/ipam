@@ -28,6 +28,10 @@ disable=
     invalid-name,
     wrong-import-position,
     wrong-import-order,
+    # Marshmallow/flask-smorest schema classes have no public methods by design
+    too-few-public-methods,
+    # View functions with multiple early returns need not be consistent
+    inconsistent-return-statements,
 
 [FORMAT]
 max-line-length=120
