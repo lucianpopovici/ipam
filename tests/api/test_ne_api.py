@@ -539,7 +539,6 @@ class TestDefaultBindRule:
             'labels': '',
         }, follow_redirects=False)
 
-        import ne as ne_mod
         nids = ne_mod.r.smembers(f'project:{pid}:ne_instances')
         nid  = nids.pop()
         inst = ne_mod.get_ne_instance(nid)

@@ -1,10 +1,7 @@
 """API tests for customer and document generation routes."""
-import pytest
-import json
-import io
-import tarfile
 import os
 import sys
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 

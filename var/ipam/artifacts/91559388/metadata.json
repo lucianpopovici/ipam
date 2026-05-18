@@ -1,0 +1,19 @@
+{
+  "id": "91559388",
+  "project_id": "baf729d0",
+  "customer_id": "",
+  "type": "checklist",
+  "filename": "testproj-test-wave-post.pdf",
+  "size_bytes": 4333,
+  "sha256": "7467ad949b8c2f55056ca24ecbb5808d7e2d79938216145bb276b26509310d08",
+  "generated_at": "2026-05-18T11:55:29.277503+00:00",
+  "generated_by": "e2e-admin",
+  "context_snapshot_path": "/home/lucian/Work/ipam/tests/../document_generation/../var/ipam/artifacts/91559388/context.json",
+  "artifact_path": "/home/lucian/Work/ipam/tests/../document_generation/../var/ipam/artifacts/91559388/testproj-test-wave-post.pdf",
+  "template_set_id": "",
+  "template_set_version": 0,
+  "approvals": [],
+  "label": "Test wave (post)",
+  "supersedes_artifact_id": "",
+  "status": "draft"
+}

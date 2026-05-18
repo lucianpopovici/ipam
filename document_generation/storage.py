@@ -44,13 +44,13 @@ def save_artifact(pid, artifact_type, filename, file_bytes,
 
     # Write context snapshot
     ctx_path = os.path.join(art_dir, 'context.json')
-    with open(ctx_path, 'w') as f:
+    with open(ctx_path, 'w', encoding='utf-8') as f:
         json.dump(context_snapshot, f, indent=2)
     os.chmod(ctx_path, 0o444)
 
     # Write artifact file
     art_path = os.path.join(art_dir, filename)
-    with open(art_path, 'wb') as f:
+    with open(art_path, 'wb') as f:  # binary — no encoding
         f.write(file_bytes)
     os.chmod(art_path, 0o444)
 
@@ -80,7 +80,7 @@ def save_artifact(pid, artifact_type, filename, file_bytes,
 
     # Write metadata JSON for offline reconstruction
     meta_path = os.path.join(art_dir, 'metadata.json')
-    with open(meta_path, 'w') as f:
+    with open(meta_path, 'w', encoding='utf-8') as f:
         json.dump(artifact, f, indent=2)
 
     # Store in Redis
@@ -123,7 +123,6 @@ def add_artifact_approval(aid, user_id, user_name, decision, comment=''):
     art = get_artifact(aid)
     if not art:
         return None
-    from datetime import datetime, timezone
     art.setdefault('approvals', []).append({
         'user_id':   user_id,
         'name':      user_name,
@@ -147,7 +146,7 @@ def load_context_snapshot(aid):
     ctx_path = art.get('context_snapshot_path', '')
     if not os.path.isfile(ctx_path):
         return None
-    with open(ctx_path) as f:
+    with open(ctx_path, encoding='utf-8') as f:
         return json.load(f)
 
 

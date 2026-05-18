@@ -1333,9 +1333,8 @@ def add_ne_instance(pid):
             iface_bindings = {}
             ne_type_raw = r.get(f'ne_type:{ne_type_id}')
             if ne_type_raw:
-                import json as _json
                 try:
-                    ne_type_obj = _json.loads(ne_type_raw)
+                    ne_type_obj = json.loads(ne_type_raw)
                     for iface in ne_type_obj.get('interfaces', []):
                         rule = iface.get('default_bind_rule')
                         if rule:
@@ -1345,7 +1344,7 @@ def add_ne_instance(pid):
                                 'ports': [],
                                 'rule_materialized_at': None,
                             }
-                except _json.JSONDecodeError:
+                except json.JSONDecodeError:
                     pass
 
             inst = {
@@ -1434,9 +1433,14 @@ def ne_instance_detail(pid, nid):
     from core.derivations import evaluate_all
     derived = evaluate_all('ne_instance', inst)
 
+    from ipam import project_networks
+    project_nets = sorted(project_networks(pid),
+                          key=lambda n: n.get('cidr', ''))
+
     return render_template('ne/ne_instance_detail.html', proj=proj, inst=inst,
                            ne_type=ne_type, ifaces=ifaces, bindings=bindings,
-                           hw_instances=hw_instances, derived=derived)
+                           hw_instances=hw_instances, derived=derived,
+                           project_nets=project_nets)
 
 
 # ── Binding routes ─────────────────────────────────────────────────────────────
@@ -1556,6 +1560,70 @@ def rematerialize_iface(nid, iface_id):
     iface_bindings = {**inst.get('iface_bindings', {}), iface_id: binding}
     save_ne_instance({**inst, 'iface_bindings': iface_bindings})
     flash(f'Auto-rule rematerialized: {len(ports)} port(s) matched.', 'success')
+    return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+
+@ne_bp.route('/ne-instances/<nid>/bindings/<iface_id>/allocate-ip', methods=['POST'])
+@editor_required
+def allocate_binding_ip(nid, iface_id):
+    """
+    Allocate the next free IP from a chosen subnet and write it into the
+    port_overrides of every port in this iface's binding.
+
+    For single-port bindings: shared_with=[].
+    For LAG / active-passive bindings: every bound port on each HW instance
+    gets the same IP with shared_with=[sibling port_ids on same device].
+
+    Form params:
+      net_id     — required; which subnet to allocate from
+      hostname   — optional; defaults to the NE instance name
+      description — optional
+    """
+    import ipaddress as _ip
+    import hw_logic as _hwl
+    from ipam import get_network, find_next_free_ip, claim_ip_atomic
+
+    inst = get_ne_instance(nid) or abort(404)
+    pid  = inst['project_id']
+    binding = inst.get('iface_bindings', {}).get(iface_id, {})
+    ports   = binding.get('ports', [])
+
+    net_id      = request.form.get('net_id', '').strip()
+    hostname    = request.form.get('hostname', '').strip() or inst['name']
+    description = request.form.get('description', '').strip()
+
+    if not net_id:
+        flash('Subnet is required.', 'danger')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+    if not ports:
+        flash('This iface has no bound ports — bind ports first.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    net = get_network(net_id)
+    if not net:
+        abort(404)
+
+    ip_str = find_next_free_ip(net_id)
+    if not ip_str:
+        flash(f'No free IPs remaining in {net["cidr"]}.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    addr = {
+        'ip':          ip_str,
+        'hostname':    hostname,
+        'description': description or f'Binding: {inst["name"]} / iface {iface_id}',
+        'status':      'allocated',
+        'network_id':  net_id,
+    }
+    if not claim_ip_atomic(addr, net['cidr']):
+        flash(f'{ip_str} was just taken by another request — retry.', 'warning')
+        return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
+
+    # Write the allocated IP to all bound port_overrides with shared_with linkage
+    _hwl.write_binding_ip_to_ports(inst, iface_id, ip_str)
+
+    n = len(ports)
+    flash(f'Allocated {ip_str} from {net["cidr"]} and written to {n} port(s).', 'success')
     return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
 
 

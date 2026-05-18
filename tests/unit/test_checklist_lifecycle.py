@@ -2,7 +2,6 @@
 Unit tests for the checklist state machine (can_transition, transition_checklist,
 auto_complete_if_ready, supersede).
 """
-import json
 import pytest
 import fakeredis
 
@@ -10,7 +9,8 @@ import fakeredis
 @pytest.fixture()
 def fake_r(monkeypatch):
     fr = fakeredis.FakeRedis(decode_responses=True)
-    import db, checks_logic
+    import db
+    import checks_logic
     monkeypatch.setattr(db, 'r', fr)
     monkeypatch.setattr(checks_logic, 'r', fr)
     return fr
@@ -180,7 +180,7 @@ def test_signoff_blocked_when_pending_checks(fake_r):
     from checks_logic import can_transition
     cl = _cl('completed', checks=[_check('pending')])
     # completed with a pending check is an invalid state, but ensure signoff is blocked
-    ok, err = can_transition(cl, 'signed-off')
+    ok, _ = can_transition(cl, 'signed-off')
     # 'completed' → 'signed-off' is allowed per transitions, pending check doesn't block
     # (blocking on pending happens at in-progress→completed, not at signoff)
     assert ok   # this transition is allowed — the pending block is at completed gate

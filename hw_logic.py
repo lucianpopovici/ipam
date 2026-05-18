@@ -249,6 +249,43 @@ def save_hw_instance(inst):
     r.sadd(f'project:{inst["project_id"]}:hw:instances', inst['id'])
 
 
+def write_binding_ip_to_ports(inst: dict, iface_id: str, ip_str: str) -> None:
+    """
+    Write ip_str into port_overrides for every port in the given iface binding.
+
+    For LAG / active-passive bindings the same IP is shared across all ports;
+    each port's entry records shared_with as the list of sibling port_ids on the
+    same HW instance, and lag_id when present.  For single-port bindings
+    shared_with is empty.  Idempotent: re-running with the same IP just
+    overwrites.
+    """
+    binding = inst.get('iface_bindings', {}).get(iface_id, {})
+    ports   = binding.get('ports', [])
+    if not ports:
+        return
+    lag_id  = binding.get('lag_id')
+
+    # Group port_ids by hw_instance_id so shared_with is per-device
+    by_iid: dict = {}
+    for p in ports:
+        by_iid.setdefault(p['hw_instance_id'], []).append(p['port_id'])
+
+    for hw_iid, port_ids in by_iid.items():
+        hw_inst = get_hw_instance(hw_iid)
+        if not hw_inst:
+            continue
+        overrides = dict(hw_inst.get('port_overrides', {}))
+        for pid in port_ids:
+            siblings = [p for p in port_ids if p != pid]
+            entry = dict(overrides.get(pid, {}))
+            entry['ip']          = ip_str
+            entry['shared_with'] = siblings
+            if lag_id is not None:
+                entry['lag_id'] = lag_id
+            overrides[pid] = entry
+        save_hw_instance({**hw_inst, 'port_overrides': overrides})
+
+
 def delete_hw_instance(iid):
     """Delete instance, remove from indices and rack placement."""
     inst = get_hw_instance(iid)
@@ -923,7 +960,7 @@ def _check_ne_bindings(pid: str, issues: list) -> None:
             for p in binding.get('ports', []):
                 key = (p['hw_instance_id'], p['port_id'])
                 if key in explicit_seen:
-                    prev_nid, prev_ne, prev_iface = explicit_seen[key]
+                    _, prev_ne, prev_iface = explicit_seen[key]
                     hw_inst = get_hw_instance(p['hw_instance_id'])
                     hw_tag = hw_inst['asset_tag'] if hw_inst else p['hw_instance_id']
                     issues.append(_issue('error', 'NE_PORT_DOUBLE_BOUND',

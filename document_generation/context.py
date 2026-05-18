@@ -17,16 +17,13 @@ def build_context(pid, user_id=None, user_name=None, user_email=None):
     All subsequent pipeline stages are deterministic from this dict.
     """
     import db
-    from ipam import get_project, project_networks, get_network
+    from ipam import get_project, get_network
     from ne import (
         get_site, get_pod,
         _proj_sites_key, _proj_pods_key, _proj_netypes_key,
-        get_ne_type, NE_INSTS_INDEX,
+        get_ne_type,
     )
-    from hw_logic import (
-        get_hw_template, get_hw_instance,
-        project_instances, HW_INST_INDEX,
-    )
+    from hw_logic import get_hw_template, get_hw_instance
     from customer import get_customer
 
     r = db.r

@@ -66,7 +66,7 @@ def get_template_set_metadata(ts_id):
     """Load template set metadata JSON, or return empty dict."""
     meta_path = os.path.join(TEMPLATE_SETS_ROOT, ts_id, 'metadata.json')
     if os.path.isfile(meta_path):
-        with open(meta_path) as f:
+        with open(meta_path, encoding='utf-8') as f:
             return json.load(f)
     return {}
 
@@ -86,7 +86,7 @@ def check_schema_compatibility(context):
     schema_max = meta.get('context_schema_max', 9999)
     schema_ver = context.get('context_schema_version', 1)
 
-    if not (schema_min <= schema_ver <= schema_max):
+    if not schema_min <= schema_ver <= schema_max:
         return (
             f"GEN_SCHEMA_INCOMPATIBLE: template set {ts_id!r} supports "
             f"schema versions {schema_min}–{schema_max}, "

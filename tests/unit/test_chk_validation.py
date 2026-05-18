@@ -50,7 +50,7 @@ def _cl(fr, cid, pid, *, status='in-progress', phase='post', label='w1',
 
 def _run(fr, pid='p1'):
     issues = []
-    hw_logic._check_checklists(pid, issues)
+    hw_logic._check_checklists(pid, issues)  # pylint: disable=protected-access
     return issues
 
 
@@ -240,4 +240,4 @@ def test_no_vendor_hints_no_chk_vendor_issue(fake_r):
 @pytest.mark.unit
 def test_empty_project_no_issues(fake_r):
     issues = _run(fake_r)
-    assert issues == []
+    assert not issues

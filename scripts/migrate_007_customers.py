@@ -3,12 +3,13 @@ Migration 007: Create cust-internal customer and backfill existing projects.
 
 Run once: python scripts/migrate_007_customers.py
 """
+import json
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-import json
-import db
+import db  # noqa: E402 — needs sys.path set first
 
 INTERNAL_CUSTOMER = {
     'id':              'cust-internal',

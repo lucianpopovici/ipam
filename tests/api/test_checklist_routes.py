@@ -10,7 +10,15 @@ import fakeredis
 @pytest.fixture()
 def client(monkeypatch):
     fr = fakeredis.FakeRedis(decode_responses=True)
-    import db, checks_logic, checks, hw_logic, ipam, ne, vmware, auth, customer
+    import db
+    import checks_logic
+    import checks
+    import hw_logic
+    import ipam
+    import ne
+    import vmware
+    import auth
+    import customer
     for mod in (db, checks_logic, checks, hw_logic, ipam, ne, vmware, auth, customer):
         monkeypatch.setattr(mod, 'r', fr)
 
@@ -34,7 +42,7 @@ def project(client):
 
 @pytest.fixture()
 def check_template(client, project):
-    c, fr = client
+    _, _ = client
     from db import new_id
     from checks_logic import save_check_template
     tmpl = {
@@ -61,7 +69,7 @@ def test_list_check_templates_empty(client):
 
 @pytest.mark.api
 def test_add_check_template(client):
-    c, fr = client
+    c, _ = client
     r = c.post('/admin/checks/templates/add', data={
         'name': 'My Check', 'phase': 'post', 'attached_to': 'project',
         'severity': 'standard', 'scope': 'global',
@@ -251,7 +259,7 @@ def test_signoff_requires_completed_status(client, project):
 
 @pytest.mark.api
 def test_supersede_creates_new_checklist(client, project, check_template):
-    c, fr = client
+    c, _ = client
     # Create an original checklist
     r = c.post(f'/projects/{project}/checklists/create',
                data={'phase': 'post', 'deployment_label': 'original'},
@@ -289,8 +297,8 @@ def test_locked_checklist_rejects_update(client, project):
 
 @pytest.mark.api
 def test_pending_count_api(client, project):
-    c, fr = client
-    cl = _make_checklist(fr, project)
+    c, fr = client  # fr used for _make_checklist
+    _make_checklist(fr, project)
     r = c.get(f'/api/projects/{project}/checklists/pending-count')
     assert r.status_code == 200
     data = json.loads(r.data)

@@ -17,11 +17,10 @@ import os
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
-    flash, abort, Response, send_file, g
+    flash, abort, Response
 )
 from flask_login import current_user
 from auth import editor_required
-import db
 from document_generation.context   import build_context
 from document_generation.resolver  import (
     get_template_search_paths, check_schema_compatibility
@@ -425,7 +424,7 @@ def regenerate_artifact(aid):
 
     pid          = old_art['project_id']
     ts_id        = old_art.get('template_set_id', '')
-    uid, name, _ = _current_user_info()
+    uid, _name, _ = _current_user_info()
     customer     = context.get('customer', {})
     proj_name    = context['project'].get('name', pid)
     cust_slug    = customer.get('slug', 'design')

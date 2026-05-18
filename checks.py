@@ -38,8 +38,10 @@ def _all_projects():
     for pid in ids:
         raw = r.get(f'project:{pid}')
         if raw:
-            try: projects.append(json.loads(raw))
-            except json.JSONDecodeError: pass
+            try:
+                projects.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
     return sorted(projects, key=lambda p: p.get('name', ''))
 
 
@@ -202,7 +204,8 @@ def delete_check_template_route(ctid):
 @editor_required
 def preview_check_template(ctid):
     """Return subject count for a given project (JSON — used by the live preview pane)."""
-    get_check_template(ctid) or abort(404)
+    if not get_check_template(ctid):
+        abort(404)
     body = request.get_json(silent=True, force=True) or {}
     pid  = body.get('project_id', '')
     if not pid:
@@ -226,7 +229,8 @@ def project_checklists_list(pid):
 @checks_bp.route('/projects/<pid>/checklists/create', methods=['POST'])
 @editor_required
 def create_checklist(pid):
-    _get_project(pid) or abort(404)
+    if not _get_project(pid):
+        abort(404)
     phase            = request.form.get('phase', '')
     deployment_label = request.form.get('deployment_label', '').strip()
 

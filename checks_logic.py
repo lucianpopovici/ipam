@@ -48,9 +48,14 @@ _JINJA = SandboxedEnvironment(autoescape=False)
 
 # ── Redis key helpers ──────────────────────────────────────────────────────────
 
-def _ct_key(ctid):   return f'check_template:{ctid}'
-def _cl_key(cid):    return f'checklist:{cid}'
-def _proj_cl_key(pid): return f'project:{pid}:checklists'
+def _ct_key(ctid):
+    return f'check_template:{ctid}'
+
+def _cl_key(cid):
+    return f'checklist:{cid}'
+
+def _proj_cl_key(pid):
+    return f'project:{pid}:checklists'
 
 
 # ── CRUD — check_template ──────────────────────────────────────────────────────
@@ -136,13 +141,17 @@ def build_context_snapshot(pid: str) -> dict:
     for sid in r.smembers(f'project:{pid}:sites'):
         raw = r.get(f'site:{sid}')
         if raw:
-            try: sites.append(json.loads(raw))
-            except json.JSONDecodeError: pass
+            try:
+                sites.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
     for pod_id in r.smembers(f'project:{pid}:pods'):
         raw = r.get(f'pod:{pod_id}')
         if raw:
-            try: pods.append(json.loads(raw))
-            except json.JSONDecodeError: pass
+            try:
+                pods.append(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
 
     return {
         'project':      project,
@@ -199,7 +208,7 @@ def resolve_subjects(tmpl: dict, ctx: dict) -> list:
                 iface  = iface_map.get(iface_id, {})
                 labels = set(iface.get('labels', []))
                 mode   = binding.get('bind_mode', 'single')
-                if iface_labels_any and not (labels & iface_labels_any):
+                if iface_labels_any and not labels & iface_labels_any:
                     continue
                 if binding_modes_any and mode not in binding_modes_any:
                     continue

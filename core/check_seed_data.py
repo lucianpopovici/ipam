@@ -14,7 +14,8 @@ DEFAULT_TEMPLATES = [
         'phase':              'pre',
         'attached_to':        'ne_iface',
         'attachment_filter':  {},
-        'action_description': 'Verify {{ iface.name }} on {{ ne.name }} is administratively down before reconfiguration.',
+        'action_description': ('Verify {{ iface.name }} on {{ ne.name }} is administratively'
+                              ' down before reconfiguration.'),
         'expected_result':    'Interface {{ iface.name }} is in admin-down state.',
         'vendor_hints': {
             'cisco_ios':  'show interface {{ iface.name }} | include admin',
@@ -52,7 +53,8 @@ DEFAULT_TEMPLATES = [
         'phase':              'pre',
         'attached_to':        'cable',
         'attachment_filter':  {},
-        'action_description': 'Verify cable {{ cable.label }} is physically present between {{ cable.end_a }} and {{ cable.end_b }}.',
+        'action_description': ('Verify cable {{ cable.label }} is physically present'
+                              ' between {{ cable.end_a }} and {{ cable.end_b }}.'),
         'expected_result':    'Cable {{ cable.label }} is correctly installed and labelled.',
         'vendor_hints':       {},
         'severity': 'standard',

@@ -1,15 +1,14 @@
 """Unit tests for document_generation.context — snapshot builder."""
-import pytest
 import json
-import sys
 import os
+import sys
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
 @pytest.mark.unit
 def test_build_context_returns_required_keys(client, seeded_project):
     """Snapshot contains every documented top-level key."""
-    import customer as cust_mod
     import db
     # create a minimal customer
     cust = {

@@ -14,7 +14,6 @@ Covers:
   - Combined PDF modal is present on the checklist list page
 """
 import re
-import json
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -47,8 +46,8 @@ def _create_project(page: Page, base: str, name: str = 'Checklist E2E') -> str:
 
 def _seed_check_template(pid: str = '') -> dict:
     """Seed a check template directly in Redis; returns the template dict."""
+    import json
     from db import new_id, r
-    import json as _json
     tmpl = {
         'id': new_id(),
         'name': 'E2E: verify project is operational',
@@ -64,7 +63,7 @@ def _seed_check_template(pid: str = '') -> dict:
         'scope': 'global',
         'project_id': '',
     }
-    r.set(f'check_template:{tmpl["id"]}', _json.dumps(tmpl))
+    r.set(f'check_template:{tmpl["id"]}', json.dumps(tmpl))
     r.sadd('check_templates:index', tmpl['id'])
     return tmpl
 
@@ -215,7 +214,6 @@ class TestChecklistFlow:
             self.page.locator('button:has-text("Transition")').first.click()
             self.page.wait_for_load_state('networkidle')
 
-        from checks_logic import get_checklist
         updated = get_checklist(cl['id'])
         assert updated['status'] in ('draft', 'in-progress')  # transition may already have happened
 
@@ -289,7 +287,6 @@ class TestChecklistFlow:
         """After sign-off, updating a check flashes a 'locked' message."""
         from checks_logic import save_checklist
         from db import new_id, r
-        import json as _json
         cid = new_id()
         cl = {
             'id': cid, 'project_id': self.pid, 'phase': 'post',

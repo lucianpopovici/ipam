@@ -38,7 +38,6 @@ def _create_project(page: Page, base: str,
 
 def _create_hw_template(base: str) -> str:
     """Create a server template with one mgmt port and one data port; return tid."""
-    import requests
     from db import new_id
     from hw_logic import save_hw_template
     tmpl = {
@@ -142,7 +141,7 @@ class TestNEHWBinding:
 
         # Click '+ Bind' for the mgmt iface row
         self.page.locator(
-            f'button[data-iface-id="iface-mgmt"]').click()
+            'button[data-iface-id="iface-mgmt"]').click()
         expect(self.page.locator('#bindModal')).to_be_visible()
 
         # Select HW instance
@@ -175,8 +174,8 @@ class TestNEHWBinding:
              f'/projects/{self.pid}/ne-instances/{self.nid}')
         # Click Unbind for the mgmt row
         self.page.locator(
-            f'tr:has(button[data-iface-id="iface-mgmt"]) '
-            f'button:has-text("Unbind")').click()
+            'tr:has(button[data-iface-id="iface-mgmt"]) '
+            'button:has-text("Unbind")').click()
         expect(self.page).to_have_url(re.compile(r'/ne-instances/'))
         expect(self.page.locator('text=unbound')).to_be_visible()
 
@@ -293,7 +292,6 @@ class TestNEHWBinding:
             f'{self.base}/projects/{self.pid}/rematerialize-rules')
         assert response.status in (200, 302)
 
-        from ne import get_ne_instance
         refreshed = get_ne_instance(self.nid)
         ports = refreshed['iface_bindings']['iface-mgmt']['ports']
         assert any(p['port_id'] == 'ilo' for p in ports)

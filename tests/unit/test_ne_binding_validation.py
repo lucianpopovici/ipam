@@ -19,7 +19,6 @@ def fake_r(monkeypatch):
     fr = fakeredis.FakeRedis(server=server, decode_responses=True)
     import db
     import hw_logic
-    import rules
     for mod in (db, hw_logic):
         monkeypatch.setattr(mod, 'r', fr)
     return fr
@@ -428,7 +427,7 @@ def test_ne_rule_stale_new_instance(fake_r):
         {'id': 'ilo', 'name': 'iLO', 'port_type': 'mgmt', 'connector': 'RJ45',
          'speed_gbps': 1, 'count': 1, 'notes': ''},
     ])
-    inst = _inst(fake_r, tmpl)
+    _inst(fake_r, tmpl)
     ne_type = _ne_type(fake_r, [
         {'id': 'if-a', 'name': 'oob', 'labels': [], 'sharing': 'project',
          'ipv4': None, 'ipv6': None, 'params': {}},

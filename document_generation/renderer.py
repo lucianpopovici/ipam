@@ -79,10 +79,10 @@ def render_template_to_string(template_name, context, search_paths):
     env = build_jinja_env(search_paths)
     try:
         tmpl = env.get_template(template_name)
-    except TemplateNotFound:
+    except TemplateNotFound as exc:
         raise FileNotFoundError(
             f"GEN_TEMPLATE_NOT_FOUND: {template_name!r} not found in {search_paths}"
-        )
+        ) from exc
     except TemplateSyntaxError as exc:
         raise SyntaxError(
             f"GEN_TEMPLATE_SYNTAX: {template_name}:{exc.lineno}: {exc.message}"

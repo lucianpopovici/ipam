@@ -12,10 +12,9 @@ import tempfile
 import shutil
 
 from flask import (
-    Blueprint, render_template, request, redirect, url_for, flash, abort, send_file
+    Blueprint, render_template, request, redirect, url_for, flash, abort
 )
 from auth import editor_required
-import db
 from db import r, new_id
 
 customer_bp = Blueprint('customer', __name__, url_prefix='')
@@ -240,7 +239,6 @@ def upload_template_set(cid):
             files.append(rel)
 
     from datetime import datetime, timezone
-    import json as _json
     version = len(customer_template_sets(cid)) + 1
     ts_label = request.form.get('label', f'v{version}')
 
@@ -257,10 +255,10 @@ def upload_template_set(cid):
     }
 
     # Write metadata file into the set dir
-    with open(os.path.join(ts_dir, 'metadata.json'), 'w') as mf:
-        _json.dump(ts_meta, mf, indent=2)
+    with open(os.path.join(ts_dir, 'metadata.json'), 'w', encoding='utf-8') as mf:
+        json.dump(ts_meta, mf, indent=2)
 
-    r.set(_ts_key(tsid), _json.dumps(ts_meta))
+    r.set(_ts_key(tsid), json.dumps(ts_meta))
     r.sadd(_customer_ts_index_key(cid), tsid)
 
     # Make this the active template set

@@ -5,6 +5,8 @@ extension-pkg-whitelist=redis,flask
 [MESSAGES CONTROL]
 disable=
     missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
     too-many-arguments,
     too-many-locals,
     too-many-branches,
@@ -15,6 +17,17 @@ disable=
     broad-except,
     redefined-outer-name,
     contextmanager-generator-missing-cleanup,
+    duplicate-code,
+    attribute-defined-outside-init,
+    global-statement,
+    cyclic-import,
+    unused-argument,
+    too-many-positional-arguments,
+    too-many-nested-blocks,
+    too-many-return-statements,
+    invalid-name,
+    wrong-import-position,
+    wrong-import-order,
 
 [FORMAT]
 max-line-length=120

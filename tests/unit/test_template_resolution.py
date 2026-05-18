@@ -1,8 +1,7 @@
 """Unit tests for document_generation.resolver — template path resolution."""
-import pytest
 import os
-import tempfile
 import sys
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 

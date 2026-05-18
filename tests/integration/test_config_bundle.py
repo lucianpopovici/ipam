@@ -1,10 +1,10 @@
 """Integration tests for the config bundle pipeline."""
-import pytest
-import os
-import json
-import zipfile
 import io
+import json
+import os
 import sys
+import zipfile
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
@@ -21,10 +21,10 @@ def test_config_bundle_empty_project(client, seeded_project, tmp_path, monkeypat
     pid = seeded_project['id']
     ctx = build_context(pid)
     search_paths = get_template_search_paths(ctx)
-    zip_bytes, missing = render_config_bundle(ctx, search_paths)
+    zip_bytes, _ = render_config_bundle(ctx, search_paths)
 
-    zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    assert len(zf.namelist()) == 0  # no NE instances → empty bundle
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        assert len(zf.namelist()) == 0  # no NE instances → empty bundle
 
 
 @pytest.mark.api
@@ -52,8 +52,8 @@ def test_config_bundle_excludes_render_config_false(client, seeded_project, tmp_
     search_paths = get_template_search_paths(ctx)
     zip_bytes, _ = render_config_bundle(ctx, search_paths)
 
-    zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
-    assert 'router-1.cfg' not in zf.namelist()
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        assert 'router-1.cfg' not in zf.namelist()
 
 
 @pytest.mark.api

@@ -1,8 +1,8 @@
 """Unit tests verifying Jinja2 sandbox prevents malicious template execution."""
-import pytest
-import sys
 import os
+import sys
 import tempfile
+import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
 
@@ -11,7 +11,7 @@ def _render(template_source, ctx=None):
     from document_generation.renderer import render_template_to_string
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpl_path = os.path.join(tmpdir, 'test.html')
-        with open(tmpl_path, 'w') as f:
+        with open(tmpl_path, 'w', encoding='utf-8') as f:
             f.write(template_source)
         result, missing = render_template_to_string('test.html', ctx or {}, [tmpdir])
         return result, missing
