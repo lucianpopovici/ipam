@@ -4,7 +4,15 @@ __pycache__/
 .pytest_cache/
 htmlcov/
 .coverage
-__pycache__
-*.pyc
 .env
 .venv
+
+# IDE
+.idea/
+
+# Claude Code
+.claude/
+claude-resume
+
+# Runtime artifacts
+var/
