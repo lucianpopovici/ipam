@@ -23,6 +23,7 @@ disable=
     cyclic-import,
     unused-argument,
     too-many-positional-arguments,
+    R0917,
     too-many-nested-blocks,
     too-many-return-statements,
     invalid-name,
