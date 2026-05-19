@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{% if service %}Edit Service{% else %}New Service{% endif %} – {{ customer.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Customers',  'url': url_for('customer.customers_list')},
+  {'label': customer.name, 'url': url_for('customer.customer_detail', cid=customer.id)},
+  {'label': 'Services',  'url': url_for('services.services_list', cid=customer.id)},
+  {'label': 'Edit: ' ~ service.name if service else 'New Service'}
+]) }}
+
+<h4 class="mb-3">{% if service %}Edit: {{ service.name }}{% else %}New Service{% endif %}</h4>
+
+<form method="post">
+<div class="row g-4">
+  {# ── Left: identity ── #}
+  <div class="col-lg-4">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Identity</strong></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Name <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" required
+                 value="{{ form_values.name or (service.name if service else '') }}"
+                 placeholder="e.g. oob">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea name="description" class="form-control" rows="3">{{ form_values.description or (service.description if service else '') }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Right: schema editor ── #}
+  <div class="col-lg-8">
+    <div class="card shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Fields</strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addField()">+ Add Field</button>
+      </div>
+      <div class="card-body p-0">
+        <div id="fieldList">
+          {# rendered by JS #}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">Save Service</button>
+  <a href="{{ url_for('services.services_list', cid=customer.id) }}" class="btn btn-secondary">Cancel</a>
+</div>
+<input type="hidden" name="fields_json" id="fieldsJson">
+</form>
+
+<script>
+const FIELD_TYPES  = {{ field_types | tojson }};
+const SCOPE_LEVELS = {{ scope_levels | tojson }};
+let   fields       = {{ schema | tojson }};
+
+function newField() {
+  return {
+    id: Math.random().toString(36).slice(2, 10),
+    name: '', label: '', field_type: 'text',
+    required: false, options: [], default: '',
+    scope_override: null
+  };
+}
+
+function addField() {
+  fields.push(newField());
+  render();
+}
+
+function removeField(i) { fields.splice(i, 1); render(); }
+function moveField(i, d) {
+  const j = i + d;
+  if (j >= 0 && j < fields.length) {
+    [fields[i], fields[j]] = [fields[j], fields[i]];
+    render();
+  }
+}
+
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;'); }
+
+function render() {
+  const el = document.getElementById('fieldList');
+  if (!fields.length) {
+    el.innerHTML = '<p class="text-muted small p-3 mb-0">No fields. Add one above.</p>';
+    return;
+  }
+  el.innerHTML = fields.map((f, i) => `
+    <div class="border-bottom p-3">
+      <div class="d-flex gap-2 align-items-start flex-wrap mb-2">
+        <div style="flex:1;min-width:110px">
+          <label class="form-label small mb-0">Name <span class="text-danger">*</span></label>
+          <input class="form-control form-control-sm" value="${esc(f.name)}" placeholder="hostname"
+                 oninput="fields[${i}].name=this.value">
+        </div>
+        <div style="flex:1;min-width:110px">
+          <label class="form-label small mb-0">Label</label>
+          <input class="form-control form-control-sm" value="${esc(f.label)}" placeholder="Hostname"
+                 oninput="fields[${i}].label=this.value">
+        </div>
+        <div style="flex:1;min-width:110px">
+          <label class="form-label small mb-0">Type</label>
+          <select class="form-select form-select-sm" onchange="fields[${i}].field_type=this.value">
+            ${FIELD_TYPES.map(t => `<option value="${t}"${t===f.field_type?' selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div style="min-width:130px">
+          <label class="form-label small mb-0">Scope override</label>
+          <select class="form-select form-select-sm"
+                  onchange="fields[${i}].scope_override=this.value||null">
+            <option value="" ${!f.scope_override?'selected':''}>inherit iface</option>
+            ${SCOPE_LEVELS.map(s => `<option value="${s}"${s===f.scope_override?' selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="d-flex flex-column gap-1 pt-3">
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" id="req_${i}"
+                   ${f.required?'checked':''}
+                   onchange="fields[${i}].required=this.checked">
+            <label class="form-check-label small" for="req_${i}">Required</label>
+          </div>
+        </div>
+        <div class="d-flex gap-1 pt-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveField(${i},-1)" ${i===0?'disabled':''}>↑</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="moveField(${i}, 1)" ${i===fields.length-1?'disabled':''}>↓</button>
+          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  onclick="removeField(${i})">✕</button>
+        </div>
+      </div>
+      ${(f.field_type==='dropdown'||f.field_type==='multi-select')?`
+      <div class="mt-1">
+        <label class="form-label small mb-0">Options <span class="text-muted">(comma-separated)</span></label>
+        <input class="form-control form-control-sm" value="${esc((f.options||[]).join(','))}"
+               oninput="fields[${i}].options=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+      </div>`:''}
+    </div>
+  `).join('');
+}
+
+function prepareSubmit() {
+  document.getElementById('fieldsJson').value = JSON.stringify(fields);
+}
+
+render();
+</script>
+{% endblock %}

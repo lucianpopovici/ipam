@@ -1,0 +1,29 @@
+{#
+  Reusable service-link widget for one NE-type iface.
+  Context required:
+    iface         – the iface dict (must have .id and .name)
+    ne_type_id    – the parent NE type id
+    customer_services  – list of service dicts available for this customer
+    linked_service_ids – set/list of currently linked service ids for this iface
+#}
+<div class="mt-2">
+  <label class="form-label small mb-1">Linked services</label>
+  <div class="d-flex flex-wrap gap-1">
+    {% for svc in customer_services %}
+    <div class="form-check form-check-inline mb-0">
+      <input class="form-check-input svc-link-check"
+             type="checkbox"
+             name="svc_{{ iface.id }}"
+             id="svc_{{ iface.id }}_{{ svc.id }}"
+             value="{{ svc.id }}"
+             data-iface-id="{{ iface.id }}"
+             {% if svc.id in linked_service_ids %}checked{% endif %}>
+      <label class="form-check-label small" for="svc_{{ iface.id }}_{{ svc.id }}">
+        <code>{{ svc.name }}</code>
+      </label>
+    </div>
+    {% else %}
+    <span class="text-muted small">No services defined for this customer.</span>
+    {% endfor %}
+  </div>
+</div>

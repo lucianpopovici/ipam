@@ -2,7 +2,9 @@
 Hardware Management logic and data access helpers.
 """
 
+import hashlib
 import json
+import re as _re
 from db import r, new_id, redis_get, redis_save, redis_delete, redis_all
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -14,6 +16,87 @@ FORM_FACTORS = ('19"', '21"', 'OCP', 'desktop', 'tower', '0U', 'N/A')
 PORT_TYPES = ('data', 'mgmt', 'power', 'console', 'usb')
 CABLE_TYPES = ('DAC', 'AOC', 'fiber-patch', 'copper-patch', 'power', 'console', 'other')
 SEVERITIES = ('error', 'warning', 'info')
+
+PORT_EXPAND_CAP = 1024
+
+
+def expand_port_pattern(name: str, count: int) -> tuple[list[str] | None, str | None]:
+    """
+    Expand a port-name pattern into a list of concrete names.
+
+    Rules (must match templates/hw/template_form.html::expandPattern):
+      - 'eth{0..7}'        → eth0, eth1, …, eth7 (range wins, count ignored,
+                              zero-padding preserved from the literal digits)
+      - 'gi-{N}/0', count=3 → gi-0/0, gi-1/0, gi-2/0
+      - 'eth', count=4     → eth0, eth1, eth2, eth3 (no pattern: index appended)
+      - 'iLO', count=1     → iLO (no expansion)
+
+    Returns (names, None) on success or (None, error_message) on failure.
+    Caps result at PORT_EXPAND_CAP.
+    """
+    name = (name or '').strip()
+    if not name:
+        return None, 'Port name is required'
+
+    m = _re.search(r'\{(\d+)\.\.(\d+)\}', name)
+    if m:
+        start_s, end_s = m.group(1), m.group(2)
+        start, end = int(start_s), int(end_s)
+        if end < start:
+            return None, 'Range end must be >= start'
+        if end - start + 1 > PORT_EXPAND_CAP:
+            return None, f'Range too large (max {PORT_EXPAND_CAP})'
+        width  = len(start_s)
+        prefix = name[:m.start()]
+        suffix = name[m.end():]
+        return [f'{prefix}{str(i).zfill(width)}{suffix}'
+                for i in range(start, end + 1)], None
+
+    n = int(count) if count else 1
+    if n < 1:
+        n = 1
+    if n > PORT_EXPAND_CAP:
+        return None, f'Count too large (max {PORT_EXPAND_CAP})'
+    if '{N}' in name:
+        return [name.replace('{N}', str(i)) for i in range(n)], None
+    if n == 1:
+        return [name], None
+    return [f'{name}{i}' for i in range(n)], None
+
+
+def expand_template_ports(tmpl: dict) -> dict:
+    """
+    Expand any port rows with count>1 or pattern syntax into individual rows.
+
+    Idempotent: a template whose rows already all have count==1 and no '{' in
+    any name is returned unchanged.
+
+    Per-row id rule:
+      - count==1 and no range: row passes through unchanged.
+      - otherwise: first sub-port keeps the original id; sub-ports n>=1 get
+        f'{original_id}-{n}'.
+
+    Raises ValueError on invalid patterns so save_hw_template can surface a
+    flash error.
+    """
+    rows = tmpl.get('ports') or []
+    out = []
+    for row in rows:
+        name = (row.get('name') or '').strip()
+        count = int(row.get('count') or 1)
+        if count <= 1 and '{' not in name:
+            out.append({**row, 'count': 1})
+            continue
+
+        names, err = expand_port_pattern(name, count)
+        if err:
+            raise ValueError(f'Port "{name}": {err}')
+        orig_id = row.get('id') or ''
+        for i, n in enumerate(names):
+            sub_id = orig_id if i == 0 else f'{orig_id}-{i}'
+            out.append({**row, 'id': sub_id, 'name': n, 'count': 1})
+    return {**tmpl, 'ports': out}
+
 
 # Default connectors seeded on first run
 DEFAULT_CONNECTORS = [
@@ -158,7 +241,8 @@ def get_hw_template(tid):
 
 
 def save_hw_template(tmpl):
-    """Save hardware template and update global or project index."""
+    """Save hardware template; expand port-name patterns + count before persisting."""
+    tmpl = expand_template_ports(tmpl)
     redis_save(_tmpl_key(tmpl['id']), tmpl)
     if tmpl.get('scope') == 'project' and tmpl.get('project_id'):
         r.sadd(f'project:{tmpl["project_id"]}:hw:templates', tmpl['id'])
@@ -691,6 +775,93 @@ def used_ports(pid: str) -> dict:
     return _used_ports(pid)
 
 
+def port_attached_subnets(hw_instance_id: str, port_id: str, pid: str) -> list:
+    """
+    Return subnets attached to (hw_instance_id, port_id).
+
+    Direct:     NE iface bound to this port with an IP in port_overrides.
+    Propagated: cable connects this port to a directly-bound port on another device.
+
+    Returns list of dicts:
+      {network_id, cidr, source ('direct'|'propagated'),
+       ne_instance_id, iface_id, port_ip, cable_id}
+    """
+    import ipaddress as _ip
+    from ipam import project_networks  # pylint: disable=import-outside-toplevel
+
+    results = []
+    nets = project_networks(pid)
+
+    def _find_net(ip_str):
+        try:
+            addr = _ip.ip_address(ip_str)
+        except ValueError:
+            return None
+        for n in nets:
+            try:
+                if addr in _ip.ip_network(n['cidr'], strict=False):
+                    return n
+            except ValueError:
+                pass
+        return None
+
+    # ── Direct attachment via port_overrides ──────────────────────────────────
+    inst = get_hw_instance(hw_instance_id)
+    if inst:
+        ip_str = inst.get('port_overrides', {}).get(port_id, {}).get('ip')
+        if ip_str:
+            net = _find_net(ip_str)
+            if net:
+                bound = get_port_bound(hw_instance_id, port_id)
+                results.append({
+                    'network_id':     net['id'],
+                    'cidr':           net['cidr'],
+                    'source':         'direct',
+                    'ne_instance_id': (bound or {}).get('ne_instance_id'),
+                    'iface_id':       (bound or {}).get('iface_id'),
+                    'port_ip':        ip_str,
+                    'cable_id':       None,
+                })
+
+    # ── Propagated via cable (one hop) ────────────────────────────────────────
+    cable_map = _used_ports(pid)  # {(iid, pid): cable_id}
+    cable_id = cable_map.get((hw_instance_id, port_id))
+    if cable_id:
+        cable = get_cable(cable_id)
+        if cable:
+            end_a = cable.get('end_a', {})
+            end_b = cable.get('end_b', {})
+            far_iid = far_pid_ = None
+            if end_a.get('instance_id') == hw_instance_id and end_a.get('port_id') == port_id:
+                far_iid  = end_b.get('instance_id')
+                far_pid_ = end_b.get('port_id')
+            elif end_b.get('instance_id') == hw_instance_id and end_b.get('port_id') == port_id:
+                far_iid  = end_a.get('instance_id')
+                far_pid_ = end_a.get('port_id')
+
+            if far_iid and far_pid_:
+                far_inst = get_hw_instance(far_iid)
+                if far_inst:
+                    far_ip = far_inst.get('port_overrides', {}).get(far_pid_, {}).get('ip')
+                    if far_ip:
+                        net = _find_net(far_ip)
+                        if net:
+                            # Skip if already emitted as direct (same subnet on same port)
+                            already = any(r2['network_id'] == net['id'] and r2['source'] == 'direct'
+                                          for r2 in results)
+                            if not already:
+                                results.append({
+                                    'network_id':     net['id'],
+                                    'cidr':           net['cidr'],
+                                    'source':         'propagated',
+                                    'ne_instance_id': None,
+                                    'iface_id':       None,
+                                    'port_ip':        None,
+                                    'cable_id':       cable_id,
+                                })
+    return results
+
+
 def _used_ports(pid: str) -> dict:
     """Return dict: (instance_id, port_id) -> cable_id for all cables in project."""
     used = {}
@@ -705,6 +876,76 @@ def _used_ports(pid: str) -> dict:
         if key_b[0]:
             used[key_b] = cid
     return used
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cable pattern helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+_PATTERN_PLACEHOLDER = _re.compile(
+    r'\{(a\.asset_tag|a\.port|a\.port_type|a\.connector'
+    r'|b\.asset_tag|b\.port|b\.port_type|b\.connector'
+    r'|cable_type|seq)\}'
+)
+
+
+def render_pattern(pattern: str, ctx: dict) -> str:
+    """
+    Render a cable pattern string using ctx.
+
+    Unknown placeholders pass through literally so user notes like {tenant}
+    survive.  Missing values render as empty strings.
+
+    ctx shape:
+        { 'a': {'asset_tag', 'port', 'port_type', 'connector'},
+          'b': {'asset_tag', 'port', 'port_type', 'connector'},
+          'cable_type': str,
+          'seq':        str | None,   # already zero-padded; None → ''
+        }
+    """
+    if not pattern:
+        return ''
+
+    def sub(m):
+        key = m.group(1)
+        if '.' in key:
+            side, attr = key.split('.', 1)
+            return str(ctx.get(side, {}).get(attr, '') or '')
+        if key == 'seq':
+            return ctx.get('seq') or ''
+        return str(ctx.get(key, '') or '')
+
+    return _PATTERN_PLACEHOLDER.sub(sub, pattern)
+
+
+def cable_pattern_context(cable: dict, *, defer_seq: bool = False) -> dict:
+    """Build a render-context dict from a cable's endpoints and template."""
+    def side(end: dict) -> dict:
+        iid  = end.get('instance_id') or ''
+        pid_ = end.get('port_id') or ''
+        inst = get_hw_instance(iid) if iid else None
+        port = _get_port(iid, pid_) if iid and pid_ else None
+        return {
+            'asset_tag': inst.get('asset_tag', '') if inst else '',
+            'port':      port.get('name', '')      if port else '',
+            'port_type': port.get('port_type', '') if port else '',
+            'connector': port.get('connector', '') if port else '',
+        }
+
+    tmpl = get_hw_template(cable.get('template_id')) if cable.get('template_id') else None
+    return {
+        'a':          side(cable.get('end_a', {})),
+        'b':          side(cable.get('end_b', {})),
+        'cable_type': tmpl.get('cable_type', '') if tmpl else '',
+        'seq':        None if defer_seq else '',
+    }
+
+
+def next_cable_seq(pid: str, pattern: str) -> str:
+    """Atomic per-(project, pattern) counter; returns 3-digit zero-padded string."""
+    h = hashlib.md5(pattern.encode()).hexdigest()[:8]
+    n = r.incr(f'project:{pid}:cable_seq:{h}')
+    return f'{n:03d}'
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -785,6 +1026,10 @@ def validate_project(pid: str) -> list:
                                      f'Cable {cable["asset_tag"]}: DAC/AOC speed mismatch '
                                      f'({spd_a}G ↔ {spd_b}G)',
                                      {'cable': cid}))
+
+        # Cable template connector and breakout constraints
+        if tmpl:
+            _check_cable_template_constraints(cable, tmpl, port_a, port_b, issues)
 
         # Port already used by another cable
         key_a = (end_a['instance_id'], end_a['port_id'])
@@ -886,6 +1131,40 @@ def _check_cable_port_type(cable_type, port_a, port_b, cable, issues):
             issues.append(_issue('error', 'CABLE_PORT_TYPE_MISMATCH',
                                  f'Cable {cable["asset_tag"]}: data cable connected to power port',
                                  {'cable': cable['id']}))
+
+
+def _check_cable_template_constraints(cable, tmpl, port_a, port_b, issues):
+    """Connector and breakout cross-checks against the cable template."""
+    tag = cable.get('asset_tag', cable.get('id', '?'))
+    expect_a = tmpl.get('connector_a', '')
+    expect_b = tmpl.get('connector_b', '')
+    actual_a = port_a.get('connector', '')
+    actual_b = port_b.get('connector', '')
+
+    if expect_a and actual_a and not connectors_compatible(expect_a, actual_a):
+        issues.append(_issue('error', 'CABLE_CONNECTOR_MISMATCH',
+            f'Cable {tag}: template expects {expect_a} at end A '
+            f'but port connector is {actual_a}',
+            {'cable': cable['id']}))
+    if expect_b and actual_b and not connectors_compatible(expect_b, actual_b):
+        issues.append(_issue('error', 'CABLE_CONNECTOR_MISMATCH',
+            f'Cable {tag}: template expects {expect_b} at end B '
+            f'but port connector is {actual_b}',
+            {'cable': cable['id']}))
+
+    t_brk = bool(tmpl.get('breakout'))
+    c_brk = bool(cable.get('breakout'))
+    if t_brk != c_brk:
+        issues.append(_issue('warning', 'CABLE_BREAKOUT_MISMATCH',
+            f'Cable {tag}: template breakout={t_brk} but cable breakout={c_brk}',
+            {'cable': cable['id']}))
+    elif t_brk:
+        t_fan = int(tmpl.get('breakout_fan_out') or 1)
+        c_fan = int(cable.get('breakout_fan_out') or 1)
+        if t_fan != c_fan:
+            issues.append(_issue('warning', 'CABLE_BREAKOUT_MISMATCH',
+                f'Cable {tag}: template fan-out={t_fan} but cable fan-out={c_fan}',
+                {'cable': cable['id']}))
 
 
 def load_validation(pid: str) -> list:
@@ -1090,6 +1369,57 @@ def _check_ne_bindings(pid: str, issues: list) -> None:
                             f'{ne_name} / {iface_name}: LAG spans '
                             f'{len({p["hw_instance_id"] for p in ports})} HW instances (MC-LAG)',
                             ctx))
+
+                # NE_PORT_NEEDS_IP_NO_SUBNET / NE_PORT_IP_OUTSIDE_SUBNET
+                for p in ports:
+                    port_map = _build_tmpl_port_map(p['hw_instance_id'], tmpl_port_cache)
+                    port_def = port_map.get(p['port_id'], {})
+                    if not port_def.get('requires_ip'):
+                        continue
+                    hw_inst = get_hw_instance(p['hw_instance_id'])
+                    hw_tag  = hw_inst['asset_tag'] if hw_inst else p['hw_instance_id']
+                    port_ip = (hw_inst or {}).get('port_overrides', {}).get(
+                        p['port_id'], {}).get('ip')
+                    if not port_ip:
+                        issues.append(_issue('error', 'NE_PORT_NEEDS_IP_NO_SUBNET',
+                            f'{ne_name} / {iface_name}: port {hw_tag}/{port_def.get("name", p["port_id"])} '
+                            f'requires an IP but none has been allocated — use "Alloc IP"',
+                            {**ctx, 'hw_instance': p['hw_instance_id'], 'port': p['port_id']}))
+                    else:
+                        # Check port IP is within one of the NE iface's subnets
+                        subnets = port_attached_subnets(p['hw_instance_id'], p['port_id'], pid)
+                        if subnets and not any(s['source'] == 'direct' for s in subnets):
+                            issues.append(_issue('error', 'NE_PORT_IP_OUTSIDE_SUBNET',
+                                f'{ne_name} / {iface_name}: port {hw_tag}/{port_def.get("name", p["port_id"])} '
+                                f'has IP {port_ip} but it does not match any bound NE iface subnet',
+                                {**ctx, 'hw_instance': p['hw_instance_id'], 'port': p['port_id'],
+                                 'port_ip': port_ip}))
+
+    # ── Pass 3: NE_SUBNET_CONFLICT_AT_CABLE_FAR_END ───────────────────────────
+    cables = project_cables(pid)
+    for cable in cables:
+        end_a = cable.get('end_a', {})
+        end_b = cable.get('end_b', {})
+        iid_a, pid_a = end_a.get('instance_id'), end_a.get('port_id')
+        iid_b, pid_b = end_b.get('instance_id'), end_b.get('port_id')
+        if not (iid_a and pid_a and iid_b and pid_b):
+            continue
+        nets_a = {s['network_id'] for s in port_attached_subnets(iid_a, pid_a, pid)
+                  if s['source'] == 'direct'}
+        nets_b = {s['network_id'] for s in port_attached_subnets(iid_b, pid_b, pid)
+                  if s['source'] == 'direct'}
+        conflict = nets_a & nets_b  # same network on both ends is OK (loop)
+        # Different networks on A-end vs B-end is a design error
+        if nets_a and nets_b and (nets_a - nets_b or nets_b - nets_a):
+            inst_a = get_hw_instance(iid_a)
+            inst_b = get_hw_instance(iid_b)
+            tag_a  = inst_a.get('asset_tag', iid_a) if inst_a else iid_a
+            tag_b  = inst_b.get('asset_tag', iid_b) if inst_b else iid_b
+            issues.append(_issue('error', 'NE_SUBNET_CONFLICT_AT_CABLE_FAR_END',
+                f'Cable {cable.get("asset_tag", cable["id"])}: '
+                f'{tag_a}/{pid_a} and {tag_b}/{pid_b} carry different subnets',
+                {'cable_id': cable['id'],
+                 'nets_a': sorted(nets_a), 'nets_b': sorted(nets_b)}))
 
 
 # ══════════════════════════════════════════════════════════════════════════════

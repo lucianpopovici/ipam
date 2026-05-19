@@ -17,7 +17,7 @@
 {% endif %}
 <h4 class="mb-3">{% if tmpl %}Edit: {{ tmpl.name }}{% else %}New Hardware Template{% endif %}</h4>
 
-<form method="post">
+<form method="post" onsubmit="return prepareSubmit()">
 <div class="row g-4">
   <div class="col-lg-5">
     <div class="card shadow-sm mb-3">
@@ -115,16 +115,88 @@
       </div>
       <div class="card-body p-0" id="portList"></div>
       <div class="card-footer text-muted small">
-        Each port entry represents a physical port <em>group</em> (e.g. "48× RJ45 1G data").
-        Use <strong>Count</strong> for identical repeated ports.
+        Each port row represents a port group.
+        Name supports <code>{0..47}</code> ranges and <code>{N}</code> placeholders.
+        Count is used when Name has no range. Disabled when <code>{0..N}</code> is present.
       </div>
     </div>
     <input type="hidden" name="ports_json" id="portsJson">
   </div>
 </div>
 
+<div class="row g-4 mt-0" id="cableTemplateFields" style="display:none">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Connectors &amp; Breakout</strong></div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small">End A connector <span class="text-muted">(any if blank)</span></label>
+            <select name="connector_a" class="form-select form-select-sm">
+              <option value="">— any —</option>
+              {% for c in connectors %}
+              <option value="{{ c }}" {% if tmpl and tmpl.get('connector_a')==c %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">End B connector <span class="text-muted">(any if blank)</span></label>
+            <select name="connector_b" class="form-select form-select-sm">
+              <option value="">— any —</option>
+              {% for c in connectors %}
+              <option value="{{ c }}" {% if tmpl and tmpl.get('connector_b')==c %}selected{% endif %}>{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="row g-2">
+          <div class="col-auto">
+            <div class="form-check mt-1">
+              <input class="form-check-input" type="checkbox" name="breakout" id="tmplBreakoutCb"
+                     value="1" {% if tmpl and tmpl.get('breakout') %}checked{% endif %}
+                     onchange="document.getElementById('tmplFanOutRow').style.display=this.checked?'':'none'">
+              <label class="form-check-label" for="tmplBreakoutCb">Breakout cable</label>
+            </div>
+          </div>
+          <div class="col" id="tmplFanOutRow" style="display:{% if tmpl and tmpl.get('breakout') %}''{% else %}none{% endif %}">
+            <label class="form-label small mb-0">Fan-out legs at end B</label>
+            <input type="number" name="breakout_fan_out" class="form-control form-control-sm"
+                   min="2" max="8" value="{{ tmpl.get('breakout_fan_out', 4) if tmpl else 4 }}">
+          </div>
+        </div>
+        <div class="form-text small mt-2">End A is the single-connector side for breakout cables.</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Auto-generation Patterns</strong></div>
+      <div class="card-body">
+        <div class="mb-2">
+          <label class="form-label small">Asset tag pattern</label>
+          <input type="text" name="asset_tag_pattern" class="form-control form-control-sm"
+                 value="{{ tmpl.get('asset_tag_pattern', '') if tmpl else '' }}"
+                 placeholder="{a.port_type}-{a.asset_tag}">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Label pattern</label>
+          <input type="text" name="label_pattern" class="form-control form-control-sm"
+                 value="{{ tmpl.get('label_pattern', '') if tmpl else '' }}"
+                 placeholder="{a.asset_tag}:{a.port} ↔ {b.asset_tag}:{b.port}">
+        </div>
+        <div class="form-text small">
+          Placeholders: <code>{a.asset_tag}</code>, <code>{a.port}</code>, <code>{a.port_type}</code>,
+          <code>{a.connector}</code>, <code>{b.asset_tag}</code>, <code>{b.port}</code>,
+          <code>{b.port_type}</code>, <code>{b.connector}</code>, <code>{cable_type}</code>,
+          <code>{seq}</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="mt-3 d-flex gap-2">
-  <button type="submit" class="btn btn-primary" onclick="prepareSubmit()">Save Template</button>
+  <button type="submit" class="btn btn-primary" onclick="return prepareSubmit()">Save Template</button>
   {% if proj %}
   <a href="{{ url_for('hw.project_hw_templates_route', pid=proj.id) }}" class="btn btn-secondary">Cancel</a>
   {% else %}
@@ -138,15 +210,67 @@ const CONNECTORS  = {{ connectors | tojson }};
 const PORT_TYPES  = {{ port_types | tojson }};
 let   ports       = {{ (tmpl.ports if tmpl else []) | tojson }};
 
+const PORT_EXPAND_CAP = 1024;
+
+function expandPattern(namePattern, count) {
+  const rangeMatch = namePattern.match(/\{(\d+)\.\.(\d+)\}/);
+  if (rangeMatch) {
+    const startStr = rangeMatch[1], endStr = rangeMatch[2];
+    const start = parseInt(startStr), end = parseInt(endStr);
+    if (end < start) return { error: 'End must be >= start' };
+    if (end - start + 1 > PORT_EXPAND_CAP) return { error: `Range too large (max ${PORT_EXPAND_CAP})` };
+    const w = startStr.length;
+    const prefix = namePattern.slice(0, namePattern.indexOf('{'));
+    const suffix = namePattern.slice(namePattern.indexOf('}') + 1);
+    const names = [];
+    for (let i = start; i <= end; i++) names.push(`${prefix}${String(i).padStart(w, '0')}${suffix}`);
+    return { names };
+  }
+  const n = parseInt(count) || 1;
+  if (n > PORT_EXPAND_CAP) return { error: `Count too large (max ${PORT_EXPAND_CAP})` };
+  if (namePattern.includes('{N}')) {
+    const names = [];
+    for (let i = 0; i < n; i++) names.push(namePattern.replace('{N}', i));
+    return { names };
+  }
+  if (n === 1) return { names: [namePattern] };
+  const names = [];
+  for (let i = 0; i < n; i++) names.push(`${namePattern}${i}`);
+  return { names };
+}
+
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
 function addPort(){
   ports.push({ id:uid(), name:'', port_type:'data', connector:'RJ45',
-               speed_gbps:1, count:1, breakout_fan_out:1, notes:'' });
+               speed_gbps:1, count:1, breakout_fan_out:1, notes:'',
+               labels:[], requires_ip:false });
   render();
 }
 function removePort(i){ ports.splice(i,1); render(); }
 function movePort(i,d){ const j=i+d; if(j>=0&&j<ports.length){[ports[i],ports[j]]=[ports[j],ports[i]]; render();} }
+
+function portPreview(name, count) {
+  if (!name) return '';
+  const hasRange = /\{\d+\.\.\d+\}/.test(name);
+  const result = expandPattern(name, hasRange ? 1 : count);
+  if (result.error) return `<span class="text-danger small">${esc(result.error)}</span>`;
+  const n = result.names.length;
+  if (n === 1) return `<span class="text-muted small">1 port: ${esc(result.names[0])}</span>`;
+  return `<span class="text-muted small"><strong>${n}</strong> ports: ${esc(result.names[0])} … ${esc(result.names[n-1])}</span>`;
+}
+
+function updatePortRow(i) {
+  const p = ports[i];
+  const hasRange = /\{\d+\.\.\d+\}/.test(p.name || '');
+  const countEl = document.getElementById(`port-count-${i}`);
+  if (countEl) {
+    countEl.disabled = hasRange;
+    countEl.title = hasRange ? 'Disabled — range in Name sets the count' : '';
+  }
+  const previewEl = document.getElementById(`port-preview-${i}`);
+  if (previewEl) previewEl.innerHTML = portPreview(p.name || '', p.count || 1);
+}
 
 function render(){
   const el = document.getElementById('portList');
@@ -154,69 +278,109 @@ function render(){
     el.innerHTML='<p class="text-muted small p-3 mb-0">No ports defined.</p>';
     return;
   }
-  el.innerHTML = ports.map((p,i)=>`
-    <div class="border-bottom px-3 py-2 d-flex gap-2 align-items-end flex-wrap">
-      <div style="flex:2;min-width:110px">
-        <label class="form-label small mb-0">Name</label>
-        <input class="form-control form-control-sm" value="${esc(p.name)}"
-               placeholder="e.g. eth0, PSU1"
-               oninput="ports[${i}].name=this.value">
+  el.innerHTML = ports.map((p,i)=>{
+    const hasRange = /\{\d+\.\.\d+\}/.test(p.name||'');
+    return `
+    <div class="border-bottom px-3 py-2">
+      <div class="d-flex gap-2 align-items-end flex-wrap">
+        <div style="flex:2;min-width:110px">
+          <label class="form-label small mb-0">Name</label>
+          <input class="form-control form-control-sm" value="${esc(p.name)}"
+                 placeholder="e.g. Eth1/{0..47}, gi-{N}/0, eth"
+                 oninput="ports[${i}].name=this.value; updatePortRow(${i})">
+        </div>
+        <div style="width:90px">
+          <label class="form-label small mb-0">Type</label>
+          <select class="form-select form-select-sm"
+                  onchange="ports[${i}].port_type=this.value">
+            ${PORT_TYPES.map(t=>`<option value="${t}"${t===p.port_type?' selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:110px">
+          <label class="form-label small mb-0">Connector</label>
+          <select class="form-select form-select-sm"
+                  onchange="ports[${i}].connector=this.value">
+            ${CONNECTORS.map(c=>`<option value="${c}"${c===p.connector?' selected':''}>${c}</option>`).join('')}
+          </select>
+        </div>
+        <div style="width:80px">
+          <label class="form-label small mb-0">Speed (G)</label>
+          <input type="number" class="form-control form-control-sm" min="0"
+                 value="${p.speed_gbps||''}"
+                 oninput="ports[${i}].speed_gbps=parseFloat(this.value)||0">
+        </div>
+        <div style="width:65px">
+          <label class="form-label small mb-0">Count</label>
+          <input id="port-count-${i}" type="number" class="form-control form-control-sm" min="1"
+                 value="${p.count||1}"
+                 ${hasRange ? 'disabled title="Disabled — range in Name sets the count"' : ''}
+                 oninput="ports[${i}].count=parseInt(this.value)||1; updatePortRow(${i})">
+        </div>
+        <div style="width:75px">
+          <label class="form-label small mb-0">Fan-out</label>
+          <input type="number" class="form-control form-control-sm" min="1"
+                 value="${p.breakout_fan_out||1}"
+                 title="Breakout fan-out (1 = no breakout)"
+                 oninput="ports[${i}].breakout_fan_out=parseInt(this.value)||1">
+        </div>
+        <div style="flex:2;min-width:100px">
+          <label class="form-label small mb-0">Notes</label>
+          <input class="form-control form-control-sm" value="${esc(p.notes||'')}"
+                 oninput="ports[${i}].notes=this.value">
+        </div>
+        <div style="min-width:110px">
+          <label class="form-label small mb-0">Labels <span class="text-muted">(comma)</span></label>
+          <input class="form-control form-control-sm" value="${esc((p.labels||[]).join(','))}"
+                 placeholder="ipmi, uplink…"
+                 oninput="ports[${i}].labels=this.value.split(',').map(s=>s.trim()).filter(Boolean)">
+        </div>
+        <div class="d-flex flex-column justify-content-end">
+          <div class="form-check mb-0" style="white-space:nowrap">
+            <input class="form-check-input" type="checkbox" id="req_ip_${i}"
+                   ${p.requires_ip?'checked':''}
+                   onchange="ports[${i}].requires_ip=this.checked">
+            <label class="form-check-label small" for="req_ip_${i}">Needs IP</label>
+          </div>
+        </div>
+        <div class="d-flex gap-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="movePort(${i},-1)" ${i===0?'disabled':''}>↑</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                  onclick="movePort(${i}, 1)" ${i===ports.length-1?'disabled':''}>↓</button>
+          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
+                  onclick="removePort(${i})">✕</button>
+        </div>
       </div>
-      <div style="width:90px">
-        <label class="form-label small mb-0">Type</label>
-        <select class="form-select form-select-sm"
-                onchange="ports[${i}].port_type=this.value">
-          ${PORT_TYPES.map(t=>`<option value="${t}"${t===p.port_type?' selected':''}>${t}</option>`).join('')}
-        </select>
-      </div>
-      <div style="width:110px">
-        <label class="form-label small mb-0">Connector</label>
-        <select class="form-select form-select-sm"
-                onchange="ports[${i}].connector=this.value">
-          ${CONNECTORS.map(c=>`<option value="${c}"${c===p.connector?' selected':''}>${c}</option>`).join('')}
-        </select>
-      </div>
-      <div style="width:80px">
-        <label class="form-label small mb-0">Speed (G)</label>
-        <input type="number" class="form-control form-control-sm" min="0"
-               value="${p.speed_gbps||''}"
-               oninput="ports[${i}].speed_gbps=parseFloat(this.value)||0">
-      </div>
-      <div style="width:65px">
-        <label class="form-label small mb-0">Count</label>
-        <input type="number" class="form-control form-control-sm" min="1"
-               value="${p.count||1}"
-               oninput="ports[${i}].count=parseInt(this.value)||1">
-      </div>
-      <div style="width:75px">
-        <label class="form-label small mb-0">Fan-out</label>
-        <input type="number" class="form-control form-control-sm" min="1"
-               value="${p.breakout_fan_out||1}"
-               title="Breakout fan-out (1 = no breakout)"
-               oninput="ports[${i}].breakout_fan_out=parseInt(this.value)||1">
-      </div>
-      <div style="flex:2;min-width:100px">
-        <label class="form-label small mb-0">Notes</label>
-        <input class="form-control form-control-sm" value="${esc(p.notes||'')}"
-               oninput="ports[${i}].notes=this.value">
-      </div>
-      <div class="d-flex gap-1">
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
-                onclick="movePort(${i},-1)" ${i===0?'disabled':''}>↑</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
-                onclick="movePort(${i}, 1)" ${i===ports.length-1?'disabled':''}>↓</button>
-        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1"
-                onclick="removePort(${i})">✕</button>
-      </div>
-    </div>`).join('');
+      <div id="port-preview-${i}" class="mt-1">${portPreview(p.name||'', p.count||1)}</div>
+    </div>`;
+  }).join('');
 }
 
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
-function prepareSubmit(){ document.getElementById('portsJson').value=JSON.stringify(ports); }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
+function prepareSubmit() {
+  const flat = [];
+  for (const p of ports) {
+    const r = expandPattern(p.name, p.count);
+    if (r.error) { alert(`Port row "${p.name}": ${r.error}`); return false; }
+    r.names.forEach((nm, i) => {
+      flat.push({
+        ...p,
+        id:    i === 0 ? p.id : `${p.id}-${i}`,
+        name:  nm,
+        count: 1,
+      });
+    });
+  }
+  document.getElementById('portsJson').value = JSON.stringify(flat);
+  return true;
+}
+
 function onCatChange(){
   const cat = document.getElementById('catSelect').value;
   document.getElementById('cableTypeField').style.display = cat==='cable'?'':'none';
   document.getElementById('rackLimitFields').style.display = cat==='rack'?'':'none';
+  document.getElementById('cableTemplateFields').style.display = cat==='cable'?'':'none';
 }
 onCatChange();
 render();

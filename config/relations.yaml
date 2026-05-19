@@ -1,6 +1,7 @@
 relations:
   - { name: pod_of_site, from: pod,         to: site, kind: many-to-many }
-  - { name: ne_in_pod,   from: ne_instance, to: pod,  kind: many-to-one  }
+  - { name: ne_in_pod,        from: ne_instance, to: pod,     kind: many-to-one  }
+  - { name: iface_of_service, from: ne_iface,    to: service, kind: many-to-many }
   # New relations land here — no Python changes for storage.
   #
   # ne_in_pod usage: when an NE instance is assigned to a POD, call

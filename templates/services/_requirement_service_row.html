@@ -1,0 +1,127 @@
+{#
+  One service requirement row for the requirements page.
+  Context: req (service row dict), proj
+#}
+{% set row_id = 'svc-' ~ loop.index %}
+<tr class="{% if req.missing == 0 %}table-success{% elif req.required %}table-danger{% else %}table-warning{% endif %}"
+    id="{{ row_id }}">
+  <td><!-- no checkbox for service rows --></td>
+  <td>{{ req.site_name }}</td>
+  <td>{{ req.pod_name }}</td>
+  <td>
+    <strong>{{ req.ne_type_name }}</strong>
+  </td>
+  <td><code>{{ req.iface_name }}</code></td>
+  <td colspan="3">
+    <span class="badge bg-info text-dark">service</span>
+    <code class="ms-1">{{ req.service_name }}.{{ req.field_label }}</code>
+    {% if req.required %}<span class="text-danger ms-1" title="Required">*</span>{% endif %}
+    <span class="badge {% if req.effective_scope == 'project' %}bg-danger
+      {% elif req.effective_scope == 'site' %}bg-warning text-dark
+      {% elif req.effective_scope == 'pod' %}bg-info text-dark
+      {% elif req.effective_scope == 'ne' %}bg-primary
+      {% else %}bg-secondary{% endif %} ms-1" style="font-size:.65rem">
+      {{ req.effective_scope }}
+    </span>
+  </td>
+  <td class="text-end">
+    <span class="fw-semibold">{{ req.resolved_count }}/{{ req.expected_count }}</span>
+  </td>
+  <td>
+    <span id="{{ row_id }}-status">
+      {% if req.missing == 0 %}
+      <span class="badge bg-success">resolved</span>
+      {% elif req.input_mode %}
+      <span class="badge bg-warning text-dark">partial</span>
+      {% else %}
+      <span class="badge bg-danger">unresolved</span>
+      {% endif %}
+    </span>
+    <button class="btn btn-xs btn-outline-secondary btn-sm ms-1 py-0 px-1"
+            type="button"
+            onclick="toggleSvcEditor('{{ row_id }}')">Edit</button>
+  </td>
+</tr>
+<tr id="{{ row_id }}-editor" class="d-none bg-light">
+  <td colspan="11">
+    <div class="p-3">
+      <form class="svc-save-form"
+            data-row-key="{{ req.key }}"
+            data-proj="{{ proj.id }}"
+            data-row-id="{{ row_id }}">
+        <div class="d-flex align-items-center gap-3 flex-wrap mb-2">
+          <div>
+            <label class="form-label small mb-0">Mode</label>
+            <select name="mode" class="form-select form-select-sm svc-mode-select"
+                    data-row="{{ row_id }}"
+                    onchange="onModeChange('{{ row_id }}')">
+              <option value="">-- select --</option>
+              <option value="text" {% if req.input_mode == 'text' %}selected{% endif %}>text (one value, fan-out)</option>
+              <option value="list" {% if req.input_mode == 'list' %}selected{% endif %}>list (per target)</option>
+              <option value="dynamic" {% if req.input_mode == 'dynamic' %}selected{% endif %}>dynamic (Jinja template)</option>
+            </select>
+          </div>
+        </div>
+
+        {# ── text mode ── #}
+        <div class="svc-panel svc-text-panel d-none" data-row="{{ row_id }}">
+          <label class="form-label small mb-1">Value</label>
+          <input name="value" class="form-control form-control-sm" style="max-width:400px"
+                 value="{{ req.mode_payload.value if req.mode_payload and req.mode_payload.mode == 'text' else '' }}">
+        </div>
+
+        {# ── list mode ── #}
+        <div class="svc-panel svc-list-panel d-none" data-row="{{ row_id }}">
+          <p class="small text-muted mb-1">Enter one value per target ({{ req.effective_scope }} scope).</p>
+          <input type="hidden" name="values_json" class="svc-values-json">
+          <div class="svc-list-grid border rounded p-2" style="max-height:260px;overflow-y:auto">
+            {# populated by JS from saved values #}
+          </div>
+          {% set saved_values = req.mode_payload.values if req.mode_payload and req.mode_payload.mode == 'list' else {} %}
+          <script>
+            (function(){
+              var saved = {{ saved_values | tojson }};
+              window['_svc_list_{{ row_id }}'] = saved;
+            })();
+          </script>
+        </div>
+
+        {# ── dynamic mode ── #}
+        <div class="svc-panel svc-dynamic-panel d-none" data-row="{{ row_id }}">
+          <div class="mb-2">
+            <label class="form-label small mb-0">Jinja2 template
+              <span class="text-muted">(variables: site, pod, ne_type, ne_instance, iface, index, custom_*)</span>
+            </label>
+            <textarea name="template" class="form-control form-control-sm font-monospace svc-template"
+                      data-row="{{ row_id }}" rows="2"
+                      style="max-width:600px">{{ req.mode_payload.template if req.mode_payload and req.mode_payload.mode == 'dynamic' else '' }}</textarea>
+          </div>
+          <div class="d-flex gap-2 flex-wrap mb-2">
+            {% for slot in ['suffix', 'prefix', 'env', 'extra'] %}
+            <div>
+              <label class="form-label small mb-0">custom_{{ slot }}</label>
+              <input name="custom_{{ slot }}" class="form-control form-control-sm" style="width:140px"
+                     value="{{ (req.mode_payload.custom or {})['custom_' ~ slot] if req.mode_payload and req.mode_payload.mode == 'dynamic' and req.mode_payload.custom else '' }}">
+            </div>
+            {% endfor %}
+          </div>
+          <div class="mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="previewDynamic('{{ row_id }}', '{{ req.key }}', '{{ proj.id }}')">
+              Preview (first 3)
+            </button>
+            <span class="small text-muted ms-2" id="{{ row_id }}-preview-out"></span>
+          </div>
+        </div>
+
+        <div class="mt-2">
+          <button type="button" class="btn btn-sm btn-primary"
+                  onclick="saveSvcRow('{{ row_id }}')">Save</button>
+          <button type="button" class="btn btn-sm btn-secondary ms-1"
+                  onclick="toggleSvcEditor('{{ row_id }}')">Cancel</button>
+          <span class="svc-save-msg ms-2 small" id="{{ row_id }}-save-msg"></span>
+        </div>
+      </form>
+    </div>
+  </td>
+</tr>

@@ -50,6 +50,12 @@
   </div>
 </div>
 
+{# ── Quick links ── #}
+<div class="d-flex gap-2 mb-4 flex-wrap">
+  <a href="{{ url_for('services.services_list', cid=customer.id) }}"
+     class="btn btn-outline-primary btn-sm">⚙ Service Catalogue</a>
+</div>
+
 {# ── Template Sets ── #}
 <div class="d-flex justify-content-between align-items-center mb-2">
   <h5>Template Sets</h5>

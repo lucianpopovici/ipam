@@ -138,10 +138,13 @@ def save_ne_type(ne):
         r.sadd(NE_TYPES_INDEX, ne['id'])
 
 def delete_ne_type(tid):
-    """Delete an NE type and remove from indices."""
+    """Delete an NE type, remove from indices, and clean up service links."""
+    import services_logic  # pylint: disable=import-outside-toplevel
     ne = get_ne_type(tid)
     if not ne:
         return
+    for iface in ne.get('interfaces', []):
+        services_logic.clear_iface_service_links(tid, iface['id'])
     if ne.get('scope') == 'project' and ne.get('project_id'):
         r.srem(_proj_netypes_key(ne['project_id']), tid)
     else:
@@ -275,28 +278,28 @@ def expand_site_pattern(pattern: str) -> list:
 # Subnet requirement engine
 # ══════════════════════════════════════════════════════════════════════════════
 
-def compute_requirements(pid: str) -> list:
+def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals
     """
-    Walk every site → pod → ne_slot → interface and emit subnet requirement dicts.
+    Walk every site → pod → ne_slot → interface and emit requirement dicts.
+
     Returns a flat list of requirement records, deduplicated by sharing level.
-    Each record:
-    {
-      site_id, site_name,
-      pod_id, pod_name,
-      ne_type_id, ne_type_name, ne_kind,
-      iface_id, iface_name,
-      ip_version: 'ipv4'|'ipv6',
-      prefix_len: int,
-      sharing: str,
-      labels: [sorted list],
-      count: int,               # how many subnets this line represents
-      key: str,                 # dedup key — same key = same subnet
-    }
+    IP rows carry ``kind='ip'``; service rows carry ``kind='service'``.
     """
+    import services_logic as _svc  # pylint: disable=import-outside-toplevel
+    from ipam import get_project as _get_proj  # pylint: disable=import-outside-toplevel
+
+    project  = _get_proj(pid) or {}
+    cust_id  = project.get('customer_id', '')
+
     sites    = project_sites(pid)
     reqs     = []
-    # keyed requirements for shared dedup
-    shared_keys: dict = {}   # key → req record (shared ones appear once)
+    shared_keys: dict = {}
+
+    # Precompute all NE instances in this project grouped by ne_type_id
+    all_insts = project_ne_instances(pid)
+    insts_by_type: dict = {}
+    for inst in all_insts:
+        insts_by_type.setdefault(inst.get('ne_type_id', ''), []).append(inst)
 
     for site in sites:  # pylint: disable=too-many-nested-blocks
         site_labels = set(site.get('labels', []))
@@ -313,6 +316,7 @@ def compute_requirements(pid: str) -> list:
                 ne_labels    = set(ne_type.get('labels', []))
                 ne_count     = int(slot.get('count', 1))
                 slot_labels  = set(slot.get('label_override', []))
+                type_insts   = insts_by_type.get(ne_type['id'], [])
 
                 for iface in ne_type.get('interfaces', []):
                     iface_labels = set(iface.get('labels', []))
@@ -326,7 +330,6 @@ def compute_requirements(pid: str) -> list:
                             continue
                         prefix_len = spec['prefix_len']
 
-                        # Build dedup key based on sharing scope
                         if sharing == 'project':
                             key = f'proj:{pid}|iface:{iface["id"]}|v:{ip_ver}'
                         elif sharing == 'site':
@@ -336,14 +339,15 @@ def compute_requirements(pid: str) -> list:
                         elif sharing == 'ne':
                             key = (f'site:{site["id"]}|pod:{pod["id"]}'
                                    f'|slot:{slot["ne_type_id"]}|iface:{iface["id"]}|v:{ip_ver}')
-                        else:  # interface — one per NE instance
-                            key = None  # never deduped
+                        else:
+                            key = None
 
                         if key and key in shared_keys:
-                            continue   # already emitted
+                            continue
 
                         count = _sharing_count(sharing, ne_count)
                         rec = {
+                            'kind':          'ip',
                             'site_id':       site['id'],
                             'site_name':     site['name'],
                             'pod_id':        pod['id'],
@@ -364,6 +368,13 @@ def compute_requirements(pid: str) -> list:
                         reqs.append(rec)
                         if key:
                             shared_keys[key] = rec
+
+                    # ── Service rows ──────────────────────────────────────────
+                    svc_rows = _svc.compute_service_rows(
+                        pid, site, pod, ne_type, iface,
+                        ne_count, cust_id, type_insts, shared_keys,
+                    )
+                    reqs.extend(svc_rows)
 
     return reqs
 
@@ -603,10 +614,17 @@ def list_ne_types():
 @editor_required
 def add_ne_type(pid=None):
     """Add a new global or project-specific NE type."""
+    import services_logic as _svc  # pylint: disable=import-outside-toplevel
     from ipam import get_project
+    from customer import all_customers as _all_custs  # pylint: disable=import-outside-toplevel
     proj         = get_project(pid) if pid else None
     ne_schema    = get_schema('ne', pid)
     iface_schema = get_schema('interface', pid)
+    cust_id      = (proj or {}).get('customer_id', '') if proj else ''
+    if cust_id:
+        cust_svcs = _svc.customer_services(cust_id)
+    else:
+        cust_svcs = [s for c in _all_custs() for s in _svc.customer_services(c['id'])]
     if request.method == 'POST':
         name       = request.form.get('name','').strip()
         ifaces_raw = request.form.get('interfaces_json','[]')
@@ -625,7 +643,9 @@ def add_ne_type(pid=None):
                                    ne_schema=ne_schema, iface_schema=iface_schema,
                                    ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
                                    field_types=FIELD_TYPES,
-                                   errors=errors, form_values=request.form)
+                                   errors=errors, form_values=request.form,
+                                   customer_services=cust_svcs,
+                                   linked_services_by_iface={})
         ne = {
             'id':          new_id(),
             'name':        name,
@@ -644,13 +664,16 @@ def add_ne_type(pid=None):
     return render_template('ne/ne_type_form.html', ne=None, proj=proj,
                            ne_schema=ne_schema, iface_schema=iface_schema,
                            ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
-                           field_types=FIELD_TYPES, errors={}, form_values={})
+                           field_types=FIELD_TYPES, errors={}, form_values={},
+                           customer_services=cust_svcs,
+                           linked_services_by_iface={})
 
 
 @ne_bp.route('/ne-types/<tid>/edit', methods=['GET','POST'])
 @editor_required
 def edit_ne_type(tid):
     """Edit an existing NE type."""
+    import services_logic as _svc  # pylint: disable=import-outside-toplevel
     from ipam import get_project
     ne = get_ne_type(tid)
     if not ne:
@@ -659,6 +682,12 @@ def edit_ne_type(tid):
     proj         = get_project(pid) if pid else None
     ne_schema    = get_schema('ne', pid)
     iface_schema = get_schema('interface', pid)
+    cust_id      = (proj or {}).get('customer_id', '') if proj else ''
+    from customer import all_customers as _all_custs  # pylint: disable=import-outside-toplevel
+    if cust_id:
+        cust_svcs = _svc.customer_services(cust_id)
+    else:
+        cust_svcs = [s for c in _all_custs() for s in _svc.customer_services(c['id'])]
     if request.method == 'POST':
         ifaces_raw = request.form.get('interfaces_json','[]')
         try:
@@ -673,25 +702,53 @@ def edit_ne_type(tid):
             ('interfaces', iface_err is None, f'Invalid interfaces JSON: {iface_err}'),
         )
         if errors:
+            linked_by_iface = {
+                iface['id']: [s['id'] for s in _svc.services_for_iface(tid, iface['id'])]
+                for iface in ne.get('interfaces', [])
+            }
             return render_template('ne/ne_type_form.html', ne=ne, proj=proj,
                                    ne_schema=ne_schema, iface_schema=iface_schema,
                                    ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
                                    field_types=FIELD_TYPES,
-                                   errors=errors, form_values=request.form)
+                                   errors=errors, form_values=request.form,
+                                   customer_services=cust_svcs,
+                                   linked_services_by_iface=linked_by_iface)
         ne['name']        = name
         ne['kind']        = request.form.get('kind', ne['kind'])
         ne['description'] = request.form.get('description','')
         ne['labels']      = parse_labels(request.form.get('labels',''))
         ne['params']      = collect_params(ne_schema, request.form)
         ne['interfaces']  = interfaces
+
+        # Sync service links for each iface
+        iface_ids_now = {iface['id'] for iface in interfaces}
+        for iface in interfaces:
+            wanted = set(request.form.getlist(f'svc_{iface["id"]}'))
+            current = {s['id'] for s in _svc.services_for_iface(tid, iface['id'])}
+            for sid in current - wanted:
+                _svc.unlink_service_from_iface(sid, tid, iface['id'])
+            for sid in wanted - current:
+                if _svc.get_service(sid):
+                    _svc.link_service_to_iface(sid, tid, iface['id'])
+        # Clean up links for removed ifaces
+        old_ifaces = {iface['id'] for iface in (ne.get('interfaces') or [])}
+        for removed_id in old_ifaces - iface_ids_now:
+            _svc.clear_iface_service_links(tid, removed_id)
+
         save_ne_type(ne)
         flash(f'NE Type "{ne["name"]}" updated.', 'success')
         return redirect(url_for('ne.list_project_ne_types', pid=pid) if pid
                         else url_for('ne.list_ne_types'))
+    linked_by_iface = {
+        iface['id']: [s['id'] for s in _svc.services_for_iface(tid, iface['id'])]
+        for iface in ne.get('interfaces', [])
+    }
     return render_template('ne/ne_type_form.html', ne=ne, proj=proj,
                            ne_schema=ne_schema, iface_schema=iface_schema,
                            ne_kinds=NE_KINDS, sharing_levels=SHARING_LEVELS,
-                           field_types=FIELD_TYPES, errors={}, form_values={})
+                           field_types=FIELD_TYPES, errors={}, form_values={},
+                           customer_services=cust_svcs,
+                           linked_services_by_iface=linked_by_iface)
 
 
 @ne_bp.route('/ne-types/<tid>/delete', methods=['POST'])
@@ -823,7 +880,8 @@ def edit_site(pid, sid):
         save_site(site)
         flash('Site updated.', 'success')
         return redirect(url_for('ne.list_sites', pid=pid))
-    return render_template('ne/site_form.html', proj=proj, site=site, schema=schema)
+    return render_template('ne/site_form.html', proj=proj, site=site, schema=schema,
+                           errors={}, form_values={})
 
 
 @ne_bp.route('/projects/<pid>/sites/<sid>/delete', methods=['POST'])
@@ -945,7 +1003,8 @@ def edit_pod(pid, pod_id):
         save_pod(pod)
         flash('POD updated.', 'success')
         return redirect(url_for('ne.pod_detail', pid=pid, pod_id=pod_id))
-    return render_template('ne/pod_form.html', proj=proj, pod=pod, schema=schema)
+    return render_template('ne/pod_form.html', proj=proj, pod=pod, schema=schema,
+                           errors={}, form_values={})
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/delete', methods=['POST'])
@@ -1138,11 +1197,12 @@ def requirements(pid):
         abort(404)
     reqs = compute_requirements(pid)
     save_requirements(pid, reqs)
-    # Summary stats
-    total   = sum(r_['count'] for r_ in reqs)
-    pushed  = sum(r_['count'] for r_ in reqs if r_.get('pushed'))
-    return render_template('ne/requirements.html', proj=proj, reqs=reqs,
-                           total=total, pushed=pushed,
+    ip_reqs = [r_ for r_ in reqs if r_.get('kind', 'ip') == 'ip']
+    svc_reqs = [r_ for r_ in reqs if r_.get('kind') == 'service']
+    total   = sum(r_['count'] for r_ in ip_reqs)
+    pushed  = sum(r_['count'] for r_ in ip_reqs if r_.get('pushed'))
+    return render_template('ne/requirements.html', proj=proj, reqs=ip_reqs,
+                           svc_reqs=svc_reqs, total=total, pushed=pushed,
                            sharing_levels=SHARING_LEVELS)
 
 
@@ -1171,6 +1231,8 @@ def push_requirements(pid):
 
     results, errors = [], []
     for req in reqs:
+        if req.get('kind', 'ip') != 'ip':
+            continue
         if req.get('pushed'):
             continue
         if not push_all and req['key'] not in keys:
@@ -1949,3 +2011,139 @@ def ne_instance_impact(nid):
         cascades.append({'kind': 'detach', 'count': n_bindings,
                          'what': f'{n_bindings} iface binding(s) will be released'})
     return jsonify({'label': inst['name'], 'cascades': cascades})
+
+
+# ── Port search and subnet attachment APIs ─────────────────────────────────────
+
+@ne_bp.route('/api/projects/<pid>/ports/search')
+def api_ports_search(pid):
+    """
+    Filter-driven cross-inventory port search.
+
+    Query params (all optional):
+      port_types[]    — comma-or-multi-value list of port_type values
+      connectors[]    — connector names (OR within; AND with port_types)
+      labels_any[]    — port labels; match if any overlap
+      hw_instance_id  — scope to one HW instance
+      exclude_bound   — 'true' (default) to hide ports bound to another NE
+      exclude_cabled  — 'false' (default) to keep cabled ports visible
+      q               — name substring filter
+      page, page_size — pagination (default page=1, page_size=50)
+    """
+    import hw_logic
+    from ipam import get_project  # pylint: disable=import-outside-toplevel
+
+    if not get_project(pid):
+        return jsonify({'error': 'not found'}), 404
+
+    port_types   = set(request.args.getlist('port_types[]') or
+                       request.args.get('port_types', '').split(','))
+    port_types   = {t for t in port_types if t}
+    connectors   = set(request.args.getlist('connectors[]') or
+                       request.args.get('connectors', '').split(','))
+    connectors   = {c for c in connectors if c}
+    labels_any   = set(request.args.getlist('labels_any[]') or
+                       request.args.get('labels_any', '').split(','))
+    labels_any   = {l for l in labels_any if l}
+    scope_hw     = request.args.get('hw_instance_id', '')
+    exclude_bound  = request.args.get('exclude_bound', 'true').lower() != 'false'
+    exclude_cabled = request.args.get('exclude_cabled', 'false').lower() == 'true'
+    q            = request.args.get('q', '').lower()
+    page         = max(1, int(request.args.get('page', 1)))
+    page_size    = min(200, max(1, int(request.args.get('page_size', 50))))
+
+    used_cables = hw_logic.used_ports(pid)
+    instances   = hw_logic.project_instances(pid)
+    if scope_hw:
+        instances = [i for i in instances if i['id'] == scope_hw]
+
+    rows = []
+    for inst in instances:
+        tmpl = inst.get('template')
+        if not tmpl:
+            continue
+        for port in tmpl.get('ports', []):
+            if port_types and port.get('port_type') not in port_types:
+                continue
+            if connectors and port.get('connector') not in connectors:
+                continue
+            port_labels = set(port.get('labels', []))
+            if labels_any and not port_labels.intersection(labels_any):
+                continue
+            count = int(port.get('count', 1))
+            for n in range(count):
+                pid_ = port['id']
+                pname = port['name'] if count == 1 else f"{port['name']}-{n}"
+                if q and q not in pname.lower():
+                    continue
+                bound  = hw_logic.get_port_bound(inst['id'], pid_)
+                cabled = (inst['id'], pid_) in used_cables
+                if exclude_bound and bound:
+                    continue
+                if exclude_cabled and cabled:
+                    continue
+                rows.append({
+                    'hw_instance_id': inst['id'],
+                    'asset_tag':      inst.get('asset_tag', inst['id']),
+                    'port_id':        pid_,
+                    'name':           pname,
+                    'port_type':      port.get('port_type', ''),
+                    'connector':      port.get('connector', ''),
+                    'speed_gbps':     port.get('speed_gbps', 0),
+                    'labels':         list(port_labels),
+                    'requires_ip':    port.get('requires_ip', False),
+                    'notes':          port.get('notes', ''),
+                    'is_bound':       bool(bound),
+                    'bound_to':       bound,
+                    'is_cabled':      cabled,
+                })
+
+    total = len(rows)
+    start = (page - 1) * page_size
+    return jsonify({
+        'total':     total,
+        'page':      page,
+        'page_size': page_size,
+        'results':   rows[start:start + page_size],
+    })
+
+
+@ne_bp.route('/api/projects/<pid>/ports/<hwid>/<port_id>/subnets')
+def api_port_subnets(pid, hwid, port_id):
+    """Return subnets attached to a specific port (direct + propagated)."""
+    import hw_logic  # pylint: disable=import-outside-toplevel
+    from ipam import get_project  # pylint: disable=import-outside-toplevel
+
+    if not get_project(pid):
+        return jsonify({'error': 'not found'}), 404
+    inst = hw_logic.get_hw_instance(hwid)
+    if not inst or inst.get('project_id') != pid:
+        return jsonify({'error': 'not found'}), 404
+
+    subnets = hw_logic.port_attached_subnets(hwid, port_id, pid)
+    return jsonify({'subnets': subnets})
+
+
+@ne_bp.route('/api/projects/<pid>/hw/<hwid>/subnets')
+def api_hw_subnets(pid, hwid):
+    """Return all subnets attached to any port on a HW instance, deduplicated."""
+    import hw_logic  # pylint: disable=import-outside-toplevel
+    from ipam import get_project  # pylint: disable=import-outside-toplevel
+
+    if not get_project(pid):
+        return jsonify({'error': 'not found'}), 404
+    inst = hw_logic.get_hw_instance(hwid)
+    if not inst or inst.get('project_id') != pid:
+        return jsonify({'error': 'not found'}), 404
+
+    tmpl = hw_logic.get_hw_template(inst.get('template_id', ''))
+    seen_nets: dict = {}
+    for port in (tmpl.get('ports', []) if tmpl else []):
+        count = int(port.get('count', 1))
+        for n in range(count):
+            pid_ = port['id']
+            for s in hw_logic.port_attached_subnets(hwid, pid_, pid):
+                if s['network_id'] not in seen_nets:
+                    seen_nets[s['network_id']] = s
+
+    return jsonify({'subnets': list(seen_nets.values())})

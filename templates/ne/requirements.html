@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% from '_macros.html' import breadcrumbs %}
-{% block title %}Subnet Requirements – {{ proj.name }}{% endblock %}
+{% block title %}Requirements – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
   {'label': 'Projects',      'url': url_for('ipam.index')},
@@ -9,13 +9,14 @@
 ]) }}
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <div>
-    <h4 class="mb-0">📋 Subnet Requirements <small class="text-muted fs-6">{{ proj.name }}</small></h4>
+    <h4 class="mb-0">📋 Requirements <small class="text-muted fs-6">{{ proj.name }}</small></h4>
     <span class="text-muted small">
       {{ total }} subnet{% if total != 1 %}s{% endif %} required ·
       {{ pushed }} pushed to IPAM
+      {% if svc_reqs %}· {{ svc_reqs | length }} service field(s){% endif %}
     </span>
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
     <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(true)">Select All</button>
     <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(false)">Deselect</button>
     <button class="btn btn-sm btn-success" onclick="pushSelected()">⬆ Push Selected to IPAM</button>
@@ -25,7 +26,7 @@
 
 <div id="pushResult" class="mb-3"></div>
 
-{% if reqs %}
+{% if reqs or svc_reqs %}
 <div class="card shadow-sm">
   <div class="table-responsive">
   <table class="table table-hover align-middle mb-0 small">
@@ -38,7 +39,7 @@
         <th>Interface</th>
         <th>IP ver</th>
         <th>Prefix</th>
-        <th>Sharing</th>
+        <th>Sharing / Scope</th>
         <th>Labels</th>
         <th class="text-end">Count</th>
         <th>Status</th>
@@ -86,6 +87,135 @@
         </td>
       </tr>
       {% endfor %}
+
+      {% if svc_reqs %}
+      <tr class="table-light">
+        <td colspan="11" class="fw-semibold text-muted small py-1 ps-3">
+          Service fields
+        </td>
+      </tr>
+      {% for req in svc_reqs %}
+      {% set row_id = 'svc-' ~ loop.index %}
+      <tr class="{% if req.missing == 0 %}table-success{% elif req.required %}table-danger{% else %}table-warning{% endif %}"
+          id="{{ row_id }}">
+        <td></td>
+        <td>{{ req.site_name }}</td>
+        <td>{{ req.pod_name }}</td>
+        <td><strong>{{ req.ne_type_name }}</strong></td>
+        <td><code>{{ req.iface_name }}</code></td>
+        <td colspan="2">
+          <span class="badge bg-info text-dark">service</span>
+          <code class="ms-1">{{ req.service_name }}.{{ req.field_label }}</code>
+          {% if req.required %}<span class="text-danger ms-1" title="Required">*</span>{% endif %}
+        </td>
+        <td>
+          <span class="badge {% if req.effective_scope == 'project' %}bg-danger
+            {% elif req.effective_scope == 'site' %}bg-warning text-dark
+            {% elif req.effective_scope == 'pod' %}bg-info text-dark
+            {% elif req.effective_scope == 'ne' %}bg-primary
+            {% else %}bg-secondary{% endif %}" style="font-size:.65rem">
+            {{ req.effective_scope }}
+          </span>
+        </td>
+        <td class="text-end">
+          <span id="{{ row_id }}-count" class="fw-semibold">
+            {{ req.resolved_count }}/{{ req.expected_count }}
+          </span>
+        </td>
+        <td>
+          <span id="{{ row_id }}-status">
+            {% if req.missing == 0 %}
+            <span class="badge bg-success">resolved</span>
+            {% elif req.input_mode %}
+            <span class="badge bg-warning text-dark">partial</span>
+            {% else %}
+            <span class="badge bg-danger">unresolved</span>
+            {% endif %}
+          </span>
+          <button class="btn btn-sm btn-outline-secondary ms-1 py-0 px-1"
+                  type="button"
+                  onclick="toggleSvcEditor('{{ row_id }}')">Edit</button>
+        </td>
+      </tr>
+      <tr id="{{ row_id }}-editor" class="d-none bg-light">
+        <td colspan="11">
+          <div class="p-3">
+            <form class="svc-save-form"
+                  data-row-key="{{ req.key }}"
+                  data-proj="{{ proj.id }}"
+                  data-row-id="{{ row_id }}"
+                  data-expected="{{ req.expected_count }}">
+              <div class="d-flex align-items-end gap-3 flex-wrap mb-2">
+                <div>
+                  <label class="form-label small mb-0">Mode</label>
+                  <select name="mode" class="form-select form-select-sm svc-mode-select"
+                          onchange="onModeChange('{{ row_id }}')">
+                    <option value="">-- select --</option>
+                    <option value="text" {% if req.input_mode == 'text' %}selected{% endif %}>text (one value, fan-out)</option>
+                    <option value="list" {% if req.input_mode == 'list' %}selected{% endif %}>list (per target)</option>
+                    <option value="dynamic" {% if req.input_mode == 'dynamic' %}selected{% endif %}>dynamic (Jinja template)</option>
+                  </select>
+                </div>
+              </div>
+
+              {# text panel #}
+              <div class="svc-panel svc-text d-none" data-for="{{ row_id }}">
+                <label class="form-label small mb-1">Value</label>
+                <input name="value" class="form-control form-control-sm" style="max-width:400px"
+                       value="{{ req.mode_payload.value if req.mode_payload and req.mode_payload.mode == 'text' else '' }}">
+              </div>
+
+              {# list panel #}
+              <div class="svc-panel svc-list d-none" data-for="{{ row_id }}">
+                <p class="small text-muted mb-1">One value per target ({{ req.effective_scope }} scope).</p>
+                <input type="hidden" name="values_json" class="svc-values-json">
+                {% set saved_values = req.mode_payload.values if req.mode_payload and req.mode_payload.mode == 'list' else {} %}
+                <div class="svc-list-grid border rounded p-2" style="max-height:220px;overflow-y:auto"
+                     data-saved='{{ saved_values | tojson }}'>
+                  {# JS renders rows #}
+                </div>
+              </div>
+
+              {# dynamic panel #}
+              <div class="svc-panel svc-dynamic d-none" data-for="{{ row_id }}">
+                <div class="mb-2">
+                  <label class="form-label small mb-0">Template
+                    <span class="text-muted">(vars: site, pod, ne_type, ne_instance, iface, index, custom_*)</span>
+                  </label>
+                  <textarea name="template" class="form-control form-control-sm font-monospace svc-tpl"
+                            rows="2" style="max-width:600px"
+                            >{{ req.mode_payload.template if req.mode_payload and req.mode_payload.mode == 'dynamic' else '' }}</textarea>
+                </div>
+                {% set c = (req.mode_payload.custom or {}) if req.mode_payload and req.mode_payload.mode == 'dynamic' else {} %}
+                <div class="d-flex gap-2 flex-wrap mb-2">
+                  {% for slot in ['suffix', 'prefix', 'env', 'extra'] %}
+                  <div>
+                    <label class="form-label small mb-0">custom_{{ slot }}</label>
+                    <input name="custom_{{ slot }}" class="form-control form-control-sm svc-custom"
+                           style="width:140px" value="{{ c.get('custom_' ~ slot, '') }}">
+                  </div>
+                  {% endfor %}
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="previewDynamic('{{ row_id }}', '{{ req.key | urlencode }}', '{{ proj.id }}')">
+                  Preview
+                </button>
+                <div class="small text-muted mt-1 font-monospace" id="{{ row_id }}-preview"></div>
+              </div>
+
+              <div class="mt-2 d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-sm btn-primary"
+                        onclick="saveSvcRow('{{ row_id }}')">Save</button>
+                <button type="button" class="btn btn-sm btn-secondary"
+                        onclick="toggleSvcEditor('{{ row_id }}')">Cancel</button>
+                <span class="small text-muted" id="{{ row_id }}-msg"></span>
+              </div>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      {% endif %}
     </tbody>
   </table>
   </div>
@@ -93,18 +223,24 @@
 
 <div class="mt-3 text-muted small">
   <strong>Sharing legend:</strong>
-  <span class="badge bg-light text-dark border border-danger ms-1">project</span> 1 subnet for whole project ·
+  <span class="badge bg-light text-dark border border-danger ms-1">project</span> 1 subnet ·
   <span class="badge bg-light text-dark border border-warning ms-1">site</span> 1 per site ·
   <span class="badge bg-light text-dark border border-info ms-1">pod</span> 1 per pod ·
   <span class="badge bg-light text-dark border border-primary ms-1">ne</span> 1 per NE type ·
   <span class="badge bg-light text-dark border ms-1">interface</span> 1 per instance
+  <span class="ms-3">
+    Service rows:
+    <span class="badge bg-success">resolved</span>
+    <span class="badge bg-warning text-dark">partial</span>
+    <span class="badge bg-danger">unresolved</span>
+  </span>
 </div>
 
 {% else %}
 <div class="text-center py-5 text-muted">
   <p>No requirements computed. Make sure you have:</p>
   <ol class="text-start d-inline-block">
-    <li>NE Types defined with interfaces that have subnet requirements</li>
+    <li>NE Types defined with interfaces that have subnet requirements or linked services</li>
     <li>PODs with NE slots assigned</li>
     <li>PODs assigned to at least one Site</li>
   </ol>
@@ -118,32 +254,139 @@ function selectAll(checked){
   document.querySelectorAll('.req-check').forEach(cb=>cb.checked=checked);
   document.getElementById('checkAll').checked=checked;
 }
-
 async function pushSelected(){
-  const keys = [...document.querySelectorAll('.req-check:checked')].map(cb=>cb.value);
-  if(!keys.length){ showResult('Select at least one requirement.','warning'); return; }
+  const keys=[...document.querySelectorAll('.req-check:checked')].map(cb=>cb.value);
+  if(!keys.length){showResult('Select at least one requirement.','warning');return;}
   await doPush({keys});
 }
-
-async function pushAll(){
-  await doPush({all:true});
-}
-
+async function pushAll(){ await doPush({all:true}); }
 async function doPush(payload){
-  const resp = await fetch(`/projects/${PROJ_ID}/requirements/push`,{
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
+  const resp=await fetch(`/projects/${PROJ_ID}/requirements/push`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
   });
-  const d = await resp.json();
-  const msg = `✓ ${d.pushed.length} subnet(s) pushed to IPAM` +
-              (d.errors.length ? ` · ${d.errors.length} error(s)` : '');
-  showResult(msg, d.errors.length?'warning':'success');
-  setTimeout(()=>location.reload(), 1200);
+  const d=await resp.json();
+  const msg=`✓ ${d.pushed.length} subnet(s) pushed`+(d.errors.length?` · ${d.errors.length} error(s)`:'');
+  showResult(msg,d.errors.length?'warning':'success');
+  setTimeout(()=>location.reload(),1200);
+}
+function showResult(msg,type){
+  document.getElementById('pushResult').innerHTML=`<div class="alert alert-${type} py-2">${msg}</div>`;
 }
 
-function showResult(msg, type){
-  document.getElementById('pushResult').innerHTML =
-    `<div class="alert alert-${type} py-2">${msg}</div>`;
+/* ── service row helpers ── */
+function toggleSvcEditor(rowId){
+  const ed=document.getElementById(rowId+'-editor');
+  ed.classList.toggle('d-none');
+  if(!ed.classList.contains('d-none')){
+    const form=ed.querySelector('.svc-save-form');
+    const mode=form.querySelector('[name=mode]').value;
+    showPanel(rowId, mode, form);
+  }
 }
+
+function onModeChange(rowId){
+  const ed=document.getElementById(rowId+'-editor');
+  const form=ed.querySelector('.svc-save-form');
+  const mode=form.querySelector('[name=mode]').value;
+  showPanel(rowId, mode, form);
+}
+
+function showPanel(rowId, mode, form){
+  form.querySelectorAll('.svc-panel').forEach(p=>{
+    if(p.dataset.for===rowId) p.classList.add('d-none');
+  });
+  if(!mode) return;
+  const panel=form.querySelector(`.svc-${mode}[data-for="${rowId}"]`);
+  if(panel){
+    panel.classList.remove('d-none');
+    if(mode==='list') initListGrid(rowId, panel, form);
+  }
+}
+
+function initListGrid(rowId, panel, form){
+  const grid=panel.querySelector('.svc-list-grid');
+  if(grid.children.length) return; // already populated
+  const saved=JSON.parse(grid.dataset.saved||'{}');
+  const expected=parseInt(form.dataset.expected)||1;
+  // Build N placeholder rows
+  let html='';
+  const keys=Object.keys(saved);
+  if(keys.length){
+    keys.forEach(k=>{
+      html+=`<div class="d-flex gap-2 mb-1 align-items-center">
+        <code class="small text-muted" style="min-width:120px">${esc(k)}</code>
+        <input class="form-control form-control-sm svc-list-input" data-key="${esc(k)}"
+               value="${esc(saved[k])}">
+      </div>`;
+    });
+  } else {
+    for(let i=1;i<=expected;i++){
+      const key=`target-${i}`;
+      html+=`<div class="d-flex gap-2 mb-1 align-items-center">
+        <code class="small text-muted" style="min-width:120px">${key}</code>
+        <input class="form-control form-control-sm svc-list-input" data-key="${key}" value="">
+      </div>`;
+    }
+  }
+  grid.innerHTML=html;
+  // Sync to hidden input on change
+  grid.addEventListener('input',()=>{
+    const vals={};
+    grid.querySelectorAll('.svc-list-input').forEach(el=>{ vals[el.dataset.key]=el.value; });
+    form.querySelector('.svc-values-json').value=JSON.stringify(vals);
+  });
+  // Init hidden input
+  const vals={};
+  grid.querySelectorAll('.svc-list-input').forEach(el=>{ vals[el.dataset.key]=el.value; });
+  form.querySelector('.svc-values-json').value=JSON.stringify(vals);
+}
+
+async function previewDynamic(rowId, rowKey, pid){
+  const ed=document.getElementById(rowId+'-editor');
+  const form=ed.querySelector('.svc-save-form');
+  const tpl=form.querySelector('.svc-tpl').value;
+  const params=new URLSearchParams({template:tpl});
+  form.querySelectorAll('.svc-custom').forEach(el=>{
+    params.set(el.name, el.value);
+  });
+  const resp=await fetch(`/api/projects/${pid}/requirements/service/${encodeURIComponent(rowKey)}/preview?${params}`);
+  const d=await resp.json();
+  document.getElementById(rowId+'-preview').textContent=
+    (d.previews||[]).join(' | ') || '(no preview)';
+}
+
+async function saveSvcRow(rowId){
+  const ed=document.getElementById(rowId+'-editor');
+  const form=ed.querySelector('.svc-save-form');
+  const rowKey=form.dataset.rowKey;
+  const pid=form.dataset.proj;
+  const fd=new FormData(form);
+  const resp=await fetch(`/projects/${pid}/requirements/service/${encodeURIComponent(rowKey)}`,{
+    method:'POST',
+    headers:{'X-Requested-With':'XMLHttpRequest'},
+    body:fd
+  });
+  const d=await resp.json();
+  if(d.error){
+    document.getElementById(rowId+'-msg').textContent=d.error;
+    return;
+  }
+  // Update count and status badge
+  document.getElementById(rowId+'-count').textContent=`${d.resolved_count}/${form.dataset.expected}`;
+  const statusEl=document.getElementById(rowId+'-status');
+  const missing=d.missing;
+  if(missing===0){
+    statusEl.innerHTML='<span class="badge bg-success">resolved</span>';
+    document.getElementById(rowId).className='table-success';
+  } else if(d.input_mode){
+    statusEl.innerHTML='<span class="badge bg-warning text-dark">partial</span>';
+  } else {
+    statusEl.innerHTML='<span class="badge bg-danger">unresolved</span>';
+  }
+  document.getElementById(rowId+'-msg').textContent='Saved.';
+  setTimeout(()=>{ document.getElementById(rowId+'-msg').textContent=''; },2000);
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
 </script>
 {% endblock %}

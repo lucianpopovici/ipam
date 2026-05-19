@@ -53,48 +53,144 @@
   {% endif %}
 </div>
 
-{# Port table — bound / cabled / free #}
-<div class="card shadow-sm">
-  <div class="card-header py-2">
+{# Port table — Binding · Cable · Subnets #}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 d-flex align-items-center gap-3 flex-wrap">
     <strong>Ports</strong>
     {% set bound_count  = port_rows | selectattr('is_bound')  | list | length %}
     {% set cabled_count = port_rows | selectattr('is_cabled') | list | length %}
+    {% set cabled_only  = port_rows | selectattr('is_cabled') | rejectattr('is_bound') | list | length %}
     {% set free_count   = port_rows | rejectattr('is_bound')  | rejectattr('is_cabled') | list | length %}
-    <span class="ms-2 badge bg-primary">{{ bound_count }} bound</span>
-    <span class="badge bg-secondary">{{ cabled_count }} cabled</span>
-    <span class="badge bg-success">{{ free_count }} free</span>
+    <span class="text-muted small">
+      {{ port_rows | length }} ports —
+      <span class="badge bg-primary">{{ bound_count }} bound</span>
+      <span class="badge bg-secondary">{{ cabled_only }} cabled-only</span>
+      <span class="badge bg-success">{{ free_count }} free</span>
+    </span>
+    {# URL-param filters #}
+    <form class="d-flex gap-2 ms-auto align-items-center" method="get" style="font-size:.85rem">
+      <select name="filter_bound" class="form-select form-select-sm" style="width:140px"
+              onchange="this.form.submit()">
+        <option value="">all ports</option>
+        <option value="1" {% if request.args.get('filter_bound')=='1' %}selected{% endif %}>bound only</option>
+        <option value="0" {% if request.args.get('filter_bound')=='0' %}selected{% endif %}>unbound only</option>
+      </select>
+      <select name="filter_type" class="form-select form-select-sm" style="width:120px"
+              onchange="this.form.submit()">
+        <option value="">all types</option>
+        {% for pt in ['data','mgmt','console','power','usb'] %}
+        <option value="{{ pt }}" {% if request.args.get('filter_type')==pt %}selected{% endif %}>{{ pt }}</option>
+        {% endfor %}
+      </select>
+    </form>
   </div>
   {% if not port_rows %}
   <div class="card-body text-muted small">No ports defined in template.</div>
   {% else %}
+  {% set fb = request.args.get('filter_bound','') %}
+  {% set ft = request.args.get('filter_type','') %}
   <div class="table-responsive">
-  <table class="table table-sm align-middle mb-0">
+  <table class="table table-sm align-middle mb-0 small">
     <thead class="table-light">
       <tr>
         <th>Port</th>
         <th>Type</th>
-        <th>Connector</th>
-        <th>Status</th>
+        <th>Conn</th>
+        <th>Binding</th>
+        <th>Cable</th>
+        <th>Subnets attached</th>
       </tr>
     </thead>
     <tbody>
       {% for p in port_rows %}
-      <tr class="{% if p.is_bound %}table-primary bg-opacity-25{% elif p.is_cabled %}table-secondary bg-opacity-10{% endif %}">
-        <td><code>{{ p.name }}</code></td>
-        <td><span class="badge bg-light text-dark border">{{ p.port_type }}</span></td>
-        <td>{{ p.connector or '—' }}</td>
+      {% if (ft and p.port_type != ft) or (fb == '1' and not p.is_bound) or (fb == '0' and p.is_bound) %}
+      {% else %}
+      <tr class="{% if p.is_bound %}table-primary bg-opacity-10{% elif p.is_cabled %}table-secondary bg-opacity-10{% endif %}">
+        <td>
+          <code>{{ p.name }}</code>
+          {% if p.requires_ip %}
+          <span class="badge bg-warning text-dark ms-1" title="Requires IP allocation" style="font-size:.6rem">IP</span>
+          {% endif %}
+          {% if p.labels %}
+          {% for lbl in p.labels %}
+          <span class="badge bg-light text-muted border ms-1" style="font-size:.6rem">{{ lbl }}</span>
+          {% endfor %}
+          {% endif %}
+        </td>
+        <td><span class="badge bg-light text-dark border" style="font-size:.7rem">{{ p.port_type or '—' }}</span></td>
+        <td class="text-muted">{{ p.connector or '—' }}</td>
         <td>
           {% if p.is_bound %}
-          <span class="badge bg-primary">bound</span>
-          <small class="text-muted ms-1">
-            NE: <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=p.ne_id) }}">{{ p.ne_name }}</a>
-            <span class="badge bg-light text-dark border ms-1">{{ p.bind_mode }}</span>
-          </small>
-          {% elif p.is_cabled %}
-          <span class="badge bg-secondary">cabled</span>
-          <small class="text-muted ms-1">(no NE binding)</small>
+          <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=p.ne_id) }}"
+             class="text-decoration-none fw-semibold">{{ p.ne_name }}</a>
+          <span class="badge bg-light text-dark border ms-1" style="font-size:.65rem">{{ p.bind_mode }}</span>
           {% else %}
-          <span class="badge bg-success">free</span>
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.cable_far %}
+          <span class="text-success">→</span>
+          <code class="ms-1">{{ p.cable_far.asset_tag }}/{{ p.cable_far.port_id }}</code>
+          {% else %}
+          <span class="text-muted">uncabled</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.port_ip %}
+          <code class="text-success me-1">{{ p.port_ip }}</code>
+          {% endif %}
+          {% for s in p.subnets %}
+          <div>
+            <code>{{ s.cidr }}</code>
+            <span class="badge {% if s.source == 'direct' %}bg-primary{% else %}bg-secondary{% endif %} ms-1"
+                  style="font-size:.6rem">{{ s.source }}</span>
+          </div>
+          {% endfor %}
+          {% if not p.port_ip and not p.subnets %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+
+{# Subnets terminating on this device (deduplicated) #}
+{% set all_subnets = [] %}
+{% for p in port_rows %}
+  {% for s in p.subnets %}
+    {% if s.network_id not in (all_subnets | map(attribute='network_id') | list) %}
+      {% set _ = all_subnets.append(s) %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+{% if all_subnets %}
+<div class="card shadow-sm">
+  <div class="card-header py-2"><strong>Subnets attached to {{ inst.asset_tag }}</strong></div>
+  <div class="table-responsive">
+  <table class="table table-sm mb-0 small">
+    <thead class="table-light">
+      <tr><th>CIDR</th><th>Source</th><th>Via</th></tr>
+    </thead>
+    <tbody>
+      {% for s in all_subnets %}
+      <tr>
+        <td><code>{{ s.cidr }}</code></td>
+        <td>
+          <span class="badge {% if s.source == 'direct' %}bg-primary{% else %}bg-secondary{% endif %}">
+            {{ s.source }}
+          </span>
+        </td>
+        <td class="text-muted">
+          {% if s.source == 'direct' and s.ne_instance_id %}
+          NE binding
+          {% elif s.cable_id %}
+          cable {{ s.cable_id[:8] }}
           {% endif %}
         </td>
       </tr>
@@ -102,6 +198,6 @@
     </tbody>
   </table>
   </div>
-  {% endif %}
 </div>
+{% endif %}
 {% endblock %}

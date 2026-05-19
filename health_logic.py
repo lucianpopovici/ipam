@@ -29,6 +29,9 @@ def check_project_health(pid: str) -> list:
     # 4. Cable Integrity
     issues.extend(_check_cable_integrity(pid))
 
+    # 5. Service field gaps
+    issues.extend(_check_service_field_gaps(pid))
+
     return issues
 
 def _check_subnet_utilization(pid: str) -> list:
@@ -61,6 +64,8 @@ def _check_requirement_gaps(pid: str) -> list:
         existing_nets[key] = existing_nets.get(key, 0) + 1
 
     for req in reqs:
+        if req.get('kind', 'ip') != 'ip':
+            continue
         if req.get('pushed'):
             continue
 
@@ -96,4 +101,20 @@ def _check_cable_integrity(pid: str) -> list:
             })
 
         # Mismatched connectors check is already in hw_logic.validate_project
+    return issues
+
+
+def _check_service_field_gaps(pid: str) -> list:
+    import services_logic  # pylint: disable=import-outside-toplevel
+    issues = []
+    for gap in services_logic.service_field_gaps(pid):
+        issues.append({
+            'type':     'service_field_missing',
+            'severity': gap['severity'],
+            'message':  (
+                f"Service field missing: {gap['missing']} value(s) needed for "
+                f"'{gap['service']}.{gap['field']}' on {gap['ne_type']} / {gap['iface']}."
+            ),
+            'context':  gap,
+        })
     return issues

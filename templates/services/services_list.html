@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
+{% block title %}Services – {{ customer.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Customers', 'url': url_for('customer.customers_list')},
+  {'label': customer.name, 'url': url_for('customer.customer_detail', cid=customer.id)},
+  {'label': 'Services'}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Service Catalogue <small class="text-muted fs-6">{{ customer.name }}</small></h4>
+  <a href="{{ url_for('services.add_service', cid=customer.id) }}" class="btn btn-primary btn-sm">+ New Service</a>
+</div>
+
+{% if services %}
+<div class="row g-3">
+  {% for svc in services %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h6 class="card-title mb-0"><code>{{ svc.name }}</code></h6>
+            <small class="text-muted">{{ svc.id }}</small>
+          </div>
+          <div class="d-flex gap-1">
+            <a href="{{ url_for('services.edit_service', cid=customer.id, sid=svc.id) }}"
+               class="btn btn-sm btn-outline-secondary">Edit</a>
+            {{ confirm_delete(
+                 url_for('services.delete_service', cid=customer.id, sid=svc.id),
+                 svc.name,
+                 url_for('services.service_impact', cid=customer.id, sid=svc.id)
+               ) }}
+          </div>
+        </div>
+        {% if svc.description %}
+        <p class="card-text small text-muted mt-2 mb-1">{{ svc.description }}</p>
+        {% endif %}
+        <div class="mt-2 d-flex gap-3 small text-muted">
+          <span>{{ svc.schema | length }} field(s)</span>
+          <span>{{ svc._iface_count }} iface link(s)</span>
+        </div>
+        {% if svc.schema %}
+        <div class="mt-2">
+          {% for f in svc.schema %}
+          <span class="badge bg-light text-dark border me-1 mb-1" style="font-size:.7rem">
+            {{ f.label or f.name }}
+            {% if f.required %}<span class="text-danger">*</span>{% endif %}
+            {% if f.scope_override %}
+            <span class="text-muted">({{ f.scope_override }})</span>
+            {% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+{{ empty_state(
+  icon='⚙',
+  title='No services yet',
+  body='Services define named bundles of required fields (e.g. "oob" with hostname and domain) that can be linked to NE-type interfaces.',
+  primary_action={'label': '+ New Service', 'url': url_for('services.add_service', cid=customer.id)}
+) }}
+{% endif %}
+{% endblock %}

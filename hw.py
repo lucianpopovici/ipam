@@ -26,7 +26,8 @@ from hw_logic import (
     get_rack_slots, place_in_rack, _remove_from_rack, rack_layout_view,
     get_cable, save_cable, delete_cable, project_cables, _used_ports,
     validate_project, load_validation, trace_cable_path,
-    hw_instance_bindings,
+    hw_instance_bindings, port_attached_subnets,
+    render_pattern, cable_pattern_context, next_cable_seq,
 )
 
 hw_bp = Blueprint('hw', __name__, url_prefix='')
@@ -114,8 +115,18 @@ def add_hw_template(pid=None):
             'ports': ports,
             'scope': 'project' if pid else 'global',
             'project_id': pid or '',
+            'connector_a': request.form.get('connector_a', '').strip(),
+            'connector_b': request.form.get('connector_b', '').strip(),
+            'breakout': request.form.get('breakout') == '1',
+            'breakout_fan_out': int(request.form.get('breakout_fan_out', 1) or 1),
+            'asset_tag_pattern': request.form.get('asset_tag_pattern', '').strip(),
+            'label_pattern': request.form.get('label_pattern', '').strip(),
         }
-        save_hw_template(tmpl)
+        try:
+            save_hw_template(tmpl)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(request.url)
         flash(f'Hardware template "{name}" saved.', 'success')
         return redirect(url_for('hw.project_hw_templates_route', pid=pid) if pid
                         else url_for('hw.hw_templates_list'))
@@ -155,7 +166,17 @@ def edit_hw_template(tid):
         tmpl['cable_type'] = request.form.get('cable_type', '')
         tmpl['description'] = request.form.get('description', '')
         tmpl['ports'] = ports
-        save_hw_template(tmpl)
+        tmpl['connector_a'] = request.form.get('connector_a', '').strip()
+        tmpl['connector_b'] = request.form.get('connector_b', '').strip()
+        tmpl['breakout'] = request.form.get('breakout') == '1'
+        tmpl['breakout_fan_out'] = int(request.form.get('breakout_fan_out', 1) or 1)
+        tmpl['asset_tag_pattern'] = request.form.get('asset_tag_pattern', '').strip()
+        tmpl['label_pattern'] = request.form.get('label_pattern', '').strip()
+        try:
+            save_hw_template(tmpl)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(request.url)
         flash(f'Template "{tmpl["name"]}" updated.', 'success')
         return redirect(url_for('hw.project_hw_templates_route', pid=pid) if pid
                         else url_for('hw.hw_templates_list'))
@@ -362,7 +383,7 @@ def hw_instance_detail(pid, iid):
     bound_info  = hw_instance_bindings(iid)
     bound_map   = {b['port_id']: b for b in bound_info}
 
-    # Build per-port rows
+    # Build per-port rows with binding + cable + subnet info
     port_rows = []
     for port in (tmpl.get('ports', []) if tmpl else []):
         count = int(port.get('count', 1))
@@ -372,16 +393,44 @@ def hw_instance_detail(pid, iid):
             bound = bound_map.get(pid_)
             cabled = (iid, pid_) in used_cables
             ne_inst = get_ne_instance(bound['ne_instance_id']) if bound else None
+            # Cable far-end info
+            cable_far = None
+            if cabled:
+                cable_id = used_cables.get((iid, pid_))
+                cable = get_cable(cable_id) if cable_id else None
+                if cable:
+                    end_a, end_b = cable.get('end_a', {}), cable.get('end_b', {})
+                    if end_a.get('instance_id') == iid and end_a.get('port_id') == pid_:
+                        far_iid, far_pid = end_b.get('instance_id'), end_b.get('port_id')
+                    else:
+                        far_iid, far_pid = end_a.get('instance_id'), end_a.get('port_id')
+                    if far_iid:
+                        far_hw = get_hw_instance(far_iid)
+                        cable_far = {
+                            'asset_tag': far_hw.get('asset_tag', far_iid) if far_hw else far_iid,
+                            'port_id':   far_pid or '',
+                            'cable_id':  cable_id,
+                        }
+            # Subnet attachments
+            subnets = port_attached_subnets(iid, pid_, proj['id'])
+            port_ip = inst.get('port_overrides', {}).get(pid_, {}).get('ip')
             port_rows.append({
-                'port_id':   pid_,
-                'name':      pname,
-                'port_type': port.get('port_type', ''),
-                'connector': port.get('connector', ''),
-                'is_bound':  bool(bound),
-                'ne_name':   ne_inst.get('name', '') if ne_inst else '',
-                'ne_id':     bound.get('ne_instance_id', '') if bound else '',
-                'bind_mode': bound.get('bind_mode', '') if bound else '',
-                'is_cabled': cabled,
+                'port_id':      pid_,
+                'name':         pname,
+                'port_type':    port.get('port_type', ''),
+                'connector':    port.get('connector', ''),
+                'speed_gbps':   port.get('speed_gbps', 0),
+                'labels':       port.get('labels', []),
+                'requires_ip':  port.get('requires_ip', False),
+                'is_bound':     bool(bound),
+                'ne_name':      ne_inst.get('name', '') if ne_inst else '',
+                'ne_id':        bound.get('ne_instance_id', '') if bound else '',
+                'iface_id':     bound.get('iface_id', '') if bound else '',
+                'bind_mode':    bound.get('bind_mode', '') if bound else '',
+                'is_cabled':    cabled,
+                'cable_far':    cable_far,
+                'subnets':      subnets,
+                'port_ip':      port_ip,
             })
 
     return render_template('hw/instance_detail.html', proj=proj, inst=inst,
@@ -568,6 +617,23 @@ def rack_table(pid):
 # Routes — Cable plant
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _apply_cable_patterns(cable: dict, pid: str) -> None:
+    """Server-side fallback: fill blank asset_tag / label from template patterns."""
+    tmpl = get_hw_template(cable.get('template_id')) if cable.get('template_id') else None
+    if not tmpl:
+        return
+    if not cable.get('asset_tag') and tmpl.get('asset_tag_pattern'):
+        ctx = cable_pattern_context(cable, defer_seq=True)
+        if '{seq}' in tmpl['asset_tag_pattern']:
+            ctx['seq'] = next_cable_seq(pid, tmpl['asset_tag_pattern'])
+        cable['asset_tag'] = render_pattern(tmpl['asset_tag_pattern'], ctx)
+    if not cable.get('label') and tmpl.get('label_pattern'):
+        ctx = cable_pattern_context(cable, defer_seq=True)
+        if '{seq}' in tmpl['label_pattern']:
+            ctx['seq'] = next_cable_seq(pid, tmpl['label_pattern'])
+        cable['label'] = render_pattern(tmpl['label_pattern'], ctx)
+
+
 @hw_bp.route('/projects/<pid>/hw/cables')
 def cable_list(pid):
     """List all cables in a project."""
@@ -622,6 +688,7 @@ def add_cable(pid):
             'breakout': request.form.get('breakout') == '1',
             'breakout_fan_out': int(request.form.get('breakout_fan_out', 1) or 1),
         }
+        _apply_cable_patterns(cable, pid)
         save_cable(cable)
         flash(f'Cable {cable["asset_tag"] or cable["id"]} added.', 'success')
         return redirect(url_for('hw.cable_list', pid=pid))
@@ -656,6 +723,7 @@ def edit_cable(pid, cid):
         }
         cable['breakout'] = request.form.get('breakout') == '1'
         cable['breakout_fan_out'] = int(request.form.get('breakout_fan_out', 1) or 1)
+        _apply_cable_patterns(cable, pid)
         save_cable(cable)
         flash('Cable updated.', 'success')
         return redirect(url_for('hw.cable_list', pid=pid))
@@ -674,6 +742,15 @@ def delete_cable_route(pid, cid):
     delete_cable(cid)
     flash('Cable deleted.', 'info')
     return redirect(url_for('hw.cable_list', pid=pid))
+
+
+@hw_bp.route('/api/hw/templates/<tid>')
+def api_hw_template(tid):
+    """Return a single HW template as JSON (used by the cable form JS)."""
+    tmpl = get_hw_template(tid)
+    if not tmpl:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(tmpl)
 
 
 @hw_bp.route('/api/projects/<pid>/hw/instance-ports/<iid>')

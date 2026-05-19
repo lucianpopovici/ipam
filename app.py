@@ -14,6 +14,7 @@ from api_v1 import api_v1_bp
 from customer import customer_bp
 from documents import documents_bp
 from checks import checks_bp
+from services import services_bp
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-local-use-only')
@@ -87,6 +88,7 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(customer_bp)
 app.register_blueprint(documents_bp)
 app.register_blueprint(checks_bp)
+app.register_blueprint(services_bp)
 api.register_blueprint(api_v1_bp)
 
 with app.app_context():

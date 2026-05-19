@@ -36,8 +36,10 @@ def fake_redis(monkeypatch):
     import auth
     import customer
     import checks_logic
+    import services_logic
     for mod in (db, ipam, ne, hw_logic, vmware, auth, customer, checks_logic):
         monkeypatch.setattr(mod, 'r', fake_r)
+    # services_logic uses db.r (import db; db.r) — db is already patched above
 
     yield fake_r
 

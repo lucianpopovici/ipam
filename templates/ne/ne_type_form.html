@@ -73,6 +73,9 @@
           <strong>Interfaces</strong>
           <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleAddBar()">+ Add Interface</button>
         </div>
+        {% if customer_services %}
+        <div class="mt-1 small text-muted">Service links available — expand each iface to link services.</div>
+        {% endif %}
         <div id="addBar" class="d-none mt-2">
           <div class="d-flex gap-2 align-items-end flex-wrap">
             <div style="flex:2;min-width:160px">
@@ -108,9 +111,11 @@
 </form>
 
 <script>
-const SHARING_LEVELS = {{ sharing_levels | tojson }};
-const IFACE_SCHEMA   = {{ iface_schema | tojson }};
-let   ifaces         = {{ (ne.interfaces if ne else []) | tojson }};
+const SHARING_LEVELS    = {{ sharing_levels | tojson }};
+const IFACE_SCHEMA      = {{ iface_schema | tojson }};
+const CUSTOMER_SERVICES = {{ customer_services | tojson }};
+const LINKED_BY_IFACE   = {{ linked_services_by_iface | tojson }};
+let   ifaces            = {{ (ne.interfaces if ne else []) | tojson }};
 
 function newIface(){
   return {
@@ -299,6 +304,24 @@ function render(){
       ${IFACE_SCHEMA.length?`
       <details class="mt-1"><summary class="small text-muted">Interface parameters</summary>
         <div class="mt-2">${renderParamInputs(iface,i)}</div>
+      </details>`:''}
+      ${CUSTOMER_SERVICES.length?`
+      <details class="mt-1"><summary class="small text-muted">Linked services</summary>
+        <div class="mt-2 d-flex flex-wrap gap-2">
+          ${CUSTOMER_SERVICES.map(svc => {
+            const linked = (LINKED_BY_IFACE[iface.id] || []).includes(svc.id);
+            return `<div class="form-check form-check-inline mb-0">
+              <input class="form-check-input" type="checkbox"
+                     name="svc_${esc(iface.id)}"
+                     id="svc_${esc(iface.id)}_${esc(svc.id)}"
+                     value="${esc(svc.id)}"
+                     ${linked?' checked':''}>
+              <label class="form-check-label small" for="svc_${esc(iface.id)}_${esc(svc.id)}">
+                <code>${esc(svc.name)}</code>
+              </label>
+            </div>`;
+          }).join('')}
+        </div>
       </details>`:''}
     </div>`).join('');
 }
