@@ -65,7 +65,7 @@ def build_context(pid, user_id=None, user_name=None, user_email=None):
                 seen_ne_type_ids.add(tid)
 
     # ── NE instances ─────────────────────────────────────────────────────────
-    ne_inst_ids = list(r.smembers(f'ne:instances:project:{pid}'))
+    ne_inst_ids = list(r.smembers(f'project:{pid}:ne_instances'))
     ne_instances = []
     for iid in ne_inst_ids:
         raw = r.get(f'ne:instance:{iid}')
@@ -132,7 +132,7 @@ def build_context(pid, user_id=None, user_name=None, user_email=None):
             vrfs.append(json.loads(raw))
 
     # ── bindings_flat (denormalized NE-iface ↔ HW-port rows) ─────────────────
-    bindings_flat = _build_bindings_flat(ne_instances, hw_instances, ne_types)
+    bindings_flat = _build_bindings_flat(ne_instances, hw_instances, ne_types, hw_templates)
 
     # ── Missing summary ───────────────────────────────────────────────────────
     missing_fields = []
@@ -181,21 +181,35 @@ def build_context(pid, user_id=None, user_name=None, user_email=None):
     }
 
 
-def _build_bindings_flat(ne_instances, hw_instances, ne_types):
+def _build_bindings_flat(ne_instances, hw_instances, ne_types, hw_templates=None):
     """Produce one row per NE-iface ↔ HW-port binding, denormalized."""
-    hw_by_id = {h['id']: h for h in hw_instances}
+    hw_by_id      = {h['id']: h for h in hw_instances}
+    ne_type_by_id = {nt['id']: nt for nt in ne_types}
+    tmpl_ports    = {t['id']: {p['id']: p for p in t.get('ports', [])}
+                     for t in (hw_templates or [])}
     rows = []
     for ne_inst in ne_instances:
-        for iface in ne_inst.get('iface_bindings', []):
-            hw_iid  = iface.get('hw_instance_id')
-            hw_inst = hw_by_id.get(hw_iid, {})
-            rows.append({
-                'ne_instance_id':   ne_inst.get('id'),
-                'ne_instance_name': ne_inst.get('name'),
-                'iface_name':       iface.get('iface_name') or iface.get('name'),
-                'hw_instance_id':   hw_iid,
-                'hw_instance_name': hw_inst.get('name', ''),
-                'port_name':        iface.get('port_name', ''),
-                'connector':        iface.get('connector', ''),
-            })
+        ne_type  = ne_type_by_id.get(ne_inst.get('ne_type_id', ''), {})
+        iface_map = {i['id']: i for i in ne_type.get('interfaces', [])}
+        for iface_id, binding in ne_inst.get('iface_bindings', {}).items():
+            iface     = iface_map.get(iface_id, {})
+            bind_mode = binding.get('bind_mode', 'single')
+            for p in binding.get('ports', []):
+                hw_iid  = p.get('hw_instance_id')
+                port_id = p.get('port_id')
+                hw_inst = hw_by_id.get(hw_iid, {})
+                port    = tmpl_ports.get(hw_inst.get('template_id', ''), {}).get(port_id, {})
+                rows.append({
+                    'ne_instance_id':   ne_inst.get('id'),
+                    'ne_instance_name': ne_inst.get('name'),
+                    'iface_id':         iface_id,
+                    'iface_name':       iface.get('name', iface_id),
+                    'bind_mode':        bind_mode,
+                    'role':             p.get('role', 'primary'),
+                    'hw_instance_id':   hw_iid,
+                    'hw_instance_name': hw_inst.get('asset_tag', hw_iid or ''),
+                    'port_id':          port_id,
+                    'port_name':        port.get('name', port_id or ''),
+                    'connector':        port.get('connector', ''),
+                })
     return rows

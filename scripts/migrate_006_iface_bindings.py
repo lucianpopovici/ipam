@@ -45,17 +45,17 @@ with app.app_context():
     print('Cleared stale port-bound index.')
 
     # ── Step 2: reshape iface_bindings ────────────────────────────────────────
-    all_nids = r.smembers('ne_instances:index')
+    all_nids = r.smembers('ne:instances:index')
     print(f'Found {len(all_nids)} NE instance(s) to inspect.')
 
     for nid in all_nids:
-        raw = r.get(f'ne_inst:{nid}')
+        raw = r.get(f'ne:instance:{nid}')
         if not raw:
             continue
         try:
             inst = json.loads(raw)
         except json.JSONDecodeError:
-            print(f'  WARN: could not parse ne_inst:{nid} — skipped')
+            print(f'  WARN: could not parse ne:instance:{nid} — skipped')
             continue
 
         old_bindings = inst.get('iface_bindings', {})
@@ -79,7 +79,7 @@ with app.app_context():
             if not hw_iid or not port_id:
                 # Malformed — preserve as-is so data isn't lost
                 new_bindings[iface_id] = binding
-                print(f'  WARN: ne_inst:{nid} iface {iface_id} has no hw/port — preserved verbatim')
+                print(f'  WARN: ne:instance:{nid} iface {iface_id} has no hw/port — preserved verbatim')
                 continue
 
             new_bindings[iface_id] = {
@@ -96,14 +96,14 @@ with app.app_context():
 
         if inst_changed:
             inst['iface_bindings'] = new_bindings
-            r.set(f'ne_inst:{nid}', json.dumps(inst))
+            r.set(f'ne:instance:{nid}', json.dumps(inst))
             migrated_insts += 1
         else:
             skipped_insts += 1
 
     # ── Step 3: rebuild hw:port_bound index from new shape ────────────────────
     for nid in all_nids:
-        raw = r.get(f'ne_inst:{nid}')
+        raw = r.get(f'ne:instance:{nid}')
         if not raw:
             continue
         try:
