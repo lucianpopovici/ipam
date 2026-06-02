@@ -12,7 +12,7 @@
 > form pre-fills from those patterns and the validator gains two new
 > codes.
 >
-> **Status:** Design — ready to implement.
+> **Status:** Implemented (2026-06-02).
 
 ---
 

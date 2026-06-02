@@ -116,7 +116,7 @@ class TestChecklistFlow:
         self.page.fill('textarea[name="expected_result"]', 'System is operational.')
         self.page.click('button[type="submit"]')
         expect(self.page).to_have_url(re.compile(r'/admin/checks/templates'))
-        expect(self.page.locator('text=UI created template')).to_be_visible()
+        expect(self.page.locator('strong:has-text("UI created template")')).to_be_visible()
 
     # ── Checklist list ─────────────────────────────────────────────────────────
 

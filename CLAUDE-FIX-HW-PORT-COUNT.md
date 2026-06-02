@@ -11,7 +11,7 @@
 > expansions scattered across the codebase from inventing a parallel
 > (and broken) naming/identity scheme.
 >
-> **Status:** Design — ready to implement.
+> **Status:** Implemented (2026-06-02).
 
 ---
 
