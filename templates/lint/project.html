@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}Lint — {{ proj.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Fleet Lint', 'url': url_for('lint.lint_fleet')},
+  {'label': proj.name}
+]) }}
+<h4 class="mb-3">Lint — {{ proj.name }}</h4>
+
+{% if not findings %}
+<div class="alert alert-success">No lint issues found touching this project.</div>
+{% else %}
+<div class="mb-2 small text-muted">{{ findings|length }} finding{% if findings|length != 1 %}s{% endif %} involving this project.</div>
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    {% for f in findings %}
+    <div class="border-bottom py-2 px-3">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <span class="badge
+            {% if f.severity == 'error' %}bg-danger
+            {% elif f.severity == 'warning' %}bg-warning text-dark
+            {% else %}bg-secondary{% endif %}">
+            {{ f.severity }}
+          </span>
+          <code class="ms-1">{{ f.rule }}</code>
+          {% if f.rule in ('cross_project_overlap', 'same_cidr_collision') %}
+          — VRF <code>{{ f.vrf }}</code>:
+          <a href="{{ url_for('ipam.network_detail', net_id=f.subnet_a.id) }}">{{ f.subnet_a.cidr }}</a>
+          ({{ proj_name(f.subnet_a.project_id) }})
+          ↔
+          <a href="{{ url_for('ipam.network_detail', net_id=f.subnet_b.id) }}">{{ f.subnet_b.cidr }}</a>
+          ({{ proj_name(f.subnet_b.project_id) }})
+          {% elif f.rule == 'reserved_range_overlap' %}
+          —
+          <a href="{{ url_for('ipam.network_detail', net_id=f.subnet.id) }}">{{ f.subnet.cidr }}</a>
+          overlaps reserved range <code>{{ f.reserved.cidr }}</code> ({{ f.reserved.name }})
+          {% endif %}
+          {% if f.acked and f.ack_info %}
+          <div class="text-muted small mt-1">Acked: {{ f.ack_info.reason or '(no reason)' }}</div>
+          {% endif %}
+        </div>
+        <div>
+          {% if f.acked %}
+          <form method="post" action="{{ url_for('lint.unack_finding', fid=f.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Unack</button>
+          </form>
+          {% else %}
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="collapse" data-bs-target="#ack-{{ f.id }}">Acknowledge…</button>
+          {% endif %}
+        </div>
+      </div>
+      {% if not f.acked %}
+      <div class="collapse mt-2" id="ack-{{ f.id }}">
+        <form method="post" action="{{ url_for('lint.ack_finding', fid=f.id) }}" class="d-flex gap-2">
+          <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason (optional)">
+          <button type="submit" class="btn btn-sm btn-warning flex-shrink-0">Confirm</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="mt-3">
+  <a href="{{ url_for('lint.lint_fleet') }}" class="btn btn-sm btn-outline-secondary">← All lint findings</a>
+</div>
+{% endblock %}

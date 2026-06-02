@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
+{% block title %}Fleet Lint{% endblock %}
+{% block content %}
+{{ breadcrumbs([{'label': 'Fleet Lint'}]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">Fleet Lint</h4>
+    <div class="text-muted small">
+      Cross-project CIDR overlaps, reserved-range violations, and other fleet-wide issues.
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('lint.list_reserved') }}" class="btn btn-sm btn-outline-secondary">⛔ Reserved ranges</a>
+    <a href="{{ url_for('lint.lint_json') }}"     class="btn btn-sm btn-outline-secondary">⬇ JSON</a>
+    <a href="{{ url_for('lint.lint_fleet', refresh=1) }}" class="btn btn-sm btn-outline-primary">↻ Refresh</a>
+  </div>
+</div>
+
+{% set total_open = errors|length + warnings|length + infos|length %}
+
+{% if total_open == 0 and acked|length == 0 %}
+{{ empty_state(
+  icon='✅',
+  title='No lint issues',
+  body='No cross-project CIDR overlaps or reserved-range violations found.',
+  primary_action={'label': '↻ Refresh', 'url': url_for('lint.lint_fleet', refresh=1)}
+) }}
+{% else %}
+
+{# ── Summary bar ── #}
+<div class="d-flex gap-3 mb-3 flex-wrap small">
+  <span class="badge bg-danger fs-6">{{ errors|length }} error{% if errors|length != 1 %}s{% endif %}</span>
+  <span class="badge bg-warning text-dark fs-6">{{ warnings|length }} warning{% if warnings|length != 1 %}s{% endif %}</span>
+  <span class="badge bg-secondary fs-6">{{ infos|length }} info</span>
+  {% if acked %}
+  <span class="text-muted">· {{ acked|length }} acknowledged</span>
+  {% endif %}
+</div>
+
+{# ── Macro for a single finding row ── #}
+{% macro finding_row(f) %}
+<div class="border-bottom py-2 px-3">
+  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+    <div>
+      {% if f.rule == 'cross_project_overlap' %}
+        <strong class="text-danger">CIDR overlap</strong>
+        in VRF <code>{{ f.vrf }}</code>:
+        <a href="{{ url_for('ipam.network_detail', net_id=f.subnet_a.id) }}">{{ f.subnet_a.cidr }}</a>
+        ({{ proj_name(f.subnet_a.project_id) }})
+        ↔
+        <a href="{{ url_for('ipam.network_detail', net_id=f.subnet_b.id) }}">{{ f.subnet_b.cidr }}</a>
+        ({{ proj_name(f.subnet_b.project_id) }})
+      {% elif f.rule == 'same_cidr_collision' %}
+        <strong class="text-danger">Same CIDR in two projects</strong>
+        in VRF <code>{{ f.vrf }}</code>:
+        <code>{{ f.subnet_a.cidr }}</code>
+        in <a href="{{ url_for('lint.lint_project', pid=f.subnet_a.project_id) }}">{{ proj_name(f.subnet_a.project_id) }}</a>
+        and <a href="{{ url_for('lint.lint_project', pid=f.subnet_b.project_id) }}">{{ proj_name(f.subnet_b.project_id) }}</a>
+      {% elif f.rule == 'reserved_range_overlap' %}
+        <strong class="text-warning">Reserved-range overlap</strong>:
+        <a href="{{ url_for('ipam.network_detail', net_id=f.subnet.id) }}">{{ f.subnet.cidr }}</a>
+        ({{ proj_name(f.subnet.project_id) }})
+        falls inside
+        <code>{{ f.reserved.cidr }}</code> — {{ f.reserved.name }}
+        {% if f.description %}<div class="text-muted small">{{ f.description }}</div>{% endif %}
+      {% else %}
+        <code>{{ f.rule }}</code>
+      {% endif %}
+      {% if f.acked and f.ack_info %}
+      <div class="text-muted small mt-1">
+        Acknowledged: {{ f.ack_info.reason or '(no reason given)' }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-1 flex-shrink-0">
+      {% if f.acked %}
+      <form method="post" action="{{ url_for('lint.unack_finding', fid=f.id) }}" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Unacknowledge</button>
+      </form>
+      {% else %}
+      <button type="button" class="btn btn-sm btn-outline-secondary"
+              data-bs-toggle="collapse"
+              data-bs-target="#ack-{{ f.id }}"
+              aria-expanded="false">Acknowledge…</button>
+      {% endif %}
+    </div>
+  </div>
+  {% if not f.acked %}
+  <div class="collapse mt-2" id="ack-{{ f.id }}">
+    <form method="post" action="{{ url_for('lint.ack_finding', fid=f.id) }}" class="d-flex gap-2">
+      <input type="text" name="reason" class="form-control form-control-sm"
+             placeholder="Optional reason (e.g. 'deliberate VRF reuse')">
+      <button type="submit" class="btn btn-sm btn-warning flex-shrink-0">Confirm ack</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro severity_section(label, badge_class, items) %}
+{% if items %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <strong>{{ label }}</strong>
+    <span class="badge {{ badge_class }}">{{ items|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% for f in items %}{{ finding_row(f) }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{{ severity_section('Errors', 'bg-danger', errors) }}
+{{ severity_section('Warnings', 'bg-warning text-dark', warnings) }}
+{{ severity_section('Info', 'bg-secondary', infos) }}
+
+{% if acked %}
+<details class="mt-2">
+  <summary class="text-muted small" style="cursor:pointer">
+    {{ acked|length }} acknowledged finding{% if acked|length != 1 %}s{% endif %}
+  </summary>
+  <div class="card shadow-sm mt-2">
+    <div class="card-body p-0">
+      {% for f in acked %}{{ finding_row(f) }}{% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}
+
+{% endif %}
+{% endblock %}

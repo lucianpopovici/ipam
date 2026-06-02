@@ -1003,9 +1003,12 @@ def index():
                 p['utilization'] = 0
         except (ValueError, TypeError):
             p['utilization'] = 0
+    from lint import get_findings, project_finding_counts  # pylint: disable=import-outside-toplevel
+    lint_counts = project_finding_counts(get_findings())
     return render_template('index.html', projects=projects,
                            global_labels=global_labels(),
-                           global_summary=global_pool_summary())
+                           global_summary=global_pool_summary(),
+                           lint_counts=lint_counts)
 
 
 @ipam_bp.route('/overview')

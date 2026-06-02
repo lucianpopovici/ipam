@@ -9,7 +9,7 @@
 > the per-project validators.
 > **Scope:** new `lint.py` blueprint, one report page, one JSON API,
 > hooks into existing per-project save validators.
-> **Status:** Design — not yet implemented.
+> **Status:** Implemented (2026-06-02).
 
 ---
 

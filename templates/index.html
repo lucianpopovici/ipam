@@ -68,6 +68,15 @@
             style="width:{{ p.utilization }}%"></div>
         </div>
         <small class="text-muted">{{ p.subnet_count }} subnet{% if p.subnet_count != 1 %}s{% endif %} · {{ p.utilization }}% used</small>
+        {% if lint_counts.get(p.id) %}
+        {% set lc = lint_counts[p.id] %}
+        <a href="{{ url_for('lint.lint_project', pid=p.id) }}"
+           class="badge text-decoration-none ms-1
+             {% if lc.errors %}bg-danger{% elif lc.warnings %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
+           title="{{ lc.errors }} error(s), {{ lc.warnings }} warning(s)">
+          ⚠ {{ lc.total }}
+        </a>
+        {% endif %}
       </div>
       <div class="card-footer d-flex gap-2">
         <a href="{{ url_for('ipam.project_detail', pid=p.id) }}" class="btn btn-sm btn-outline-primary flex-fill">View</a>

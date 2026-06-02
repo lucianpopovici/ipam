@@ -19,6 +19,7 @@ from vrf import vrf_bp
 from dns import dns_bp
 from dhcp import dhcp_bp
 from topology import topology_bp
+from lint import lint_bp
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-local-use-only')
@@ -97,6 +98,7 @@ app.register_blueprint(vrf_bp)
 app.register_blueprint(dns_bp)
 app.register_blueprint(dhcp_bp)
 app.register_blueprint(topology_bp)
+app.register_blueprint(lint_bp)
 api.register_blueprint(api_v1_bp)
 
 with app.app_context():
