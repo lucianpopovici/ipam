@@ -4,26 +4,35 @@
 <div class="row justify-content-center"><div class="col-md-7">
   <div class="card shadow-sm">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span><strong>Add Subnet to {{ proj.name }}</strong> <span class="text-muted small">({{ proj.supernet }})</span></span>
+      <span><strong>Add Subnet to {{ proj.name }}</strong>
+        {% set supernet = proj.legacy_supernet or proj.supernet %}
+        {% if supernet %}<span class="text-muted small">({{ supernet }})</span>{% endif %}
+      </span>
       <a href="{{ url_for('ipam.manage_project_labels', pid=proj.id) }}" class="small text-muted">🏷️ Labels</a>
     </div>
     <div class="card-body">
       <form method="post">
-        {# Allocation mode #}
+        {# Allocation mode — auto-carve only available if project has a supernet #}
+        {% set has_supernet = proj.legacy_supernet or proj.supernet %}
         <div class="mb-3">
           <label class="form-label fw-semibold">Allocation mode</label>
           <div class="d-flex gap-3">
+            {% if has_supernet %}
             <div class="form-check">
-              <input class="form-check-input" type="radio" name="mode" id="modeAuto" value="auto" checked onchange="toggleMode()">
-              <label class="form-check-label" for="modeAuto">Auto-carve</label>
+              <input class="form-check-input" type="radio" name="mode" id="modeAuto" value="auto"
+                     {% if has_supernet %}checked{% endif %} onchange="toggleMode()">
+              <label class="form-check-label" for="modeAuto">Auto-carve from {{ has_supernet }}</label>
             </div>
+            {% endif %}
             <div class="form-check">
-              <input class="form-check-input" type="radio" name="mode" id="modeManual" value="manual" onchange="toggleMode()">
+              <input class="form-check-input" type="radio" name="mode" id="modeManual" value="manual"
+                     {% if not has_supernet %}checked{% endif %} onchange="toggleMode()">
               <label class="form-check-label" for="modeManual">Manual CIDR</label>
             </div>
           </div>
         </div>
-        <div id="autoFields">
+
+        <div id="autoFields" {% if not has_supernet %}style="display:none"{% endif %}>
           <div class="mb-3">
             <label class="form-label">Prefix length *</label>
             <div class="input-group" style="max-width:200px">
@@ -32,13 +41,55 @@
             </div>
           </div>
         </div>
-        <div id="manualFields" style="display:none">
+        <div id="manualFields" {% if has_supernet %}style="display:none"{% endif %}>
           <div class="mb-3">
             <label class="form-label">CIDR *</label>
             <input type="text" name="cidr" class="form-control" placeholder="e.g. 10.20.1.0/24"
-                   data-validate="prefix-in-supernet" data-supernet="{{ proj.supernet }}">
+                   {% if has_supernet %}
+                   data-validate="prefix-in-supernet" data-supernet="{{ has_supernet }}"
+                   {% endif %}>
           </div>
         </div>
+
+        {# VRF picker (three-state: global RIB / specific VRF / unset) #}
+        {% if vrfs is defined %}
+        <div class="mb-3">
+          <label class="form-label fw-semibold">VRF</label>
+          <select name="vrf_id" class="form-select">
+            <option value="">— Global routing table —</option>
+            {% for v in vrfs %}
+            <option value="{{ v.id }}">{{ v.name }}{% if v.rd %} ({{ v.rd }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Null = global routing table. VRFs are defined per customer.</div>
+        </div>
+        {% endif %}
+
+        {# Site and POD context (optional entity references) #}
+        {% if sites is defined and sites %}
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Site <span class="text-muted fw-normal small">(optional)</span></label>
+            <select name="site_id" class="form-select">
+              <option value="">— Any site —</option>
+              {% for s in sites %}
+              <option value="{{ s.id }}">{{ s.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% if pods is defined and pods %}
+          <div class="col-md-6 mb-3">
+            <label class="form-label">POD <span class="text-muted fw-normal small">(optional)</span></label>
+            <select name="pod_id" class="form-select">
+              <option value="">— Any POD —</option>
+              {% for p in pods %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
 
         {# Name #}
         <div class="mb-3">
@@ -49,7 +100,7 @@
         {# Labels #}
         {% include '_label_picker.html' %}
 
-        {# Template picker — two tiers #}
+        {# Template picker #}
         <div class="mb-3">
           <label class="form-label fw-semibold">
             Subnet Template
@@ -110,10 +161,14 @@ const TEMPLATE_DESCRIPTIONS = {
   {% endfor %}
 };
 
+const HAS_SUPERNET = {{ 'true' if (proj.legacy_supernet or proj.supernet) else 'false' }};
+
 function toggleMode() {
-  const auto = document.getElementById('modeAuto').checked;
-  document.getElementById('autoFields').style.display   = auto ? '' : 'none';
-  document.getElementById('manualFields').style.display = auto ? 'none' : '';
+  const auto = HAS_SUPERNET && document.getElementById('modeAuto') && document.getElementById('modeAuto').checked;
+  const autoDiv   = document.getElementById('autoFields');
+  const manualDiv = document.getElementById('manualFields');
+  if (autoDiv)   autoDiv.style.display   = auto ? '' : 'none';
+  if (manualDiv) manualDiv.style.display = auto ? 'none' : '';
 }
 
 function updateTemplateHint() {

@@ -278,38 +278,66 @@ def expand_site_pattern(pattern: str) -> list:
 # Subnet requirement engine
 # ══════════════════════════════════════════════════════════════════════════════
 
-def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals
+def effective_vrf(ne_inst: dict, ne_type: dict, iface_id: str):
+    """Return the effective VRF id (may be None = global RIB) for an iface on an instance."""
+    overrides = ne_inst.get('vrf_overrides', {})
+    if iface_id in overrides:
+        return overrides[iface_id]      # explicit override (None = global RIB)
+    iface = next((i for i in ne_type.get('interfaces', []) if i['id'] == iface_id), {})
+    return iface.get('vrf_id')          # type default (None = global RIB)
+
+
+def _iface_address_count(spec: dict, family: str) -> int:
+    """Return address_count for an iface spec, converting legacy prefix_len if needed."""
+    from ipam import address_count_from_prefix  # pylint: disable=import-outside-toplevel
+    if 'address_count' in spec:
+        return int(spec['address_count'])
+    # Legacy format: {prefix_len: N}
+    prefix_len = spec.get('prefix_len', 24 if family == 'ipv4' else 64)
+    return address_count_from_prefix(prefix_len, 6 if family == 'ipv6' else 4)
+
+
+def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals,too-many-branches
     """
     Walk every site → pod → ne_slot → interface and emit requirement dicts.
 
-    Returns a flat list of requirement records, deduplicated by sharing level.
-    IP rows carry ``kind='ip'``; service rows carry ``kind='service'``.
+    IP rows are grouped by (family, vrf_id, label_frozenset, sharing_scope_value):
+    each group produces one requirement whose address_count is the sum of all
+    contributing ifaces. This ensures shared subnets are sized correctly.
+
+    Service rows are appended unchanged.
+    Returns a flat list of requirement records; IP rows carry ``kind='ip'``,
+    service rows carry ``kind='service'``.
     """
     import services_logic as _svc  # pylint: disable=import-outside-toplevel
-    from ipam import get_project as _get_proj  # pylint: disable=import-outside-toplevel
+    from ipam import (  # pylint: disable=import-outside-toplevel
+        get_project as _get_proj, min_prefix_v4, min_prefix_v6,
+    )
 
     project  = _get_proj(pid) or {}
     cust_id  = project.get('customer_id', '')
-
     sites    = project_sites(pid)
-    reqs     = []
-    shared_keys: dict = {}
 
-    # Precompute all NE instances in this project grouped by ne_type_id
+    # Precompute NE instances per type for service-row generation
     all_insts = project_ne_instances(pid)
     insts_by_type: dict = {}
     for inst in all_insts:
         insts_by_type.setdefault(inst.get('ne_type_id', ''), []).append(inst)
 
+    # Groups accumulate contributions before emitting
+    # key → {family, vrf_id, labels, sharing, site_id, pod_id, ne_type_id, ...}
+    groups: dict = {}
+    service_reqs: list = []
+
+    family_int = {'ipv4': 4, 'ipv6': 6}
+
     for site in sites:  # pylint: disable=too-many-nested-blocks
         site_labels = set(site.get('labels', []))
-        site_pods_list = site_pods(site['id'])
 
-        for pod in site_pods_list:
+        for pod in site_pods(site['id']):
             pod_labels = set(pod.get('labels', []))
-            slots      = get_pod_slots(pod['id'])
 
-            for slot in slots:
+            for slot in get_pod_slots(pod['id']):
                 ne_type = get_ne_type(slot['ne_type_id'])
                 if not ne_type:
                     continue
@@ -320,34 +348,61 @@ def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals
 
                 for iface in ne_type.get('interfaces', []):
                     iface_labels = set(iface.get('labels', []))
-                    all_labels   = sorted(site_labels | pod_labels | ne_labels |
-                                          slot_labels | iface_labels)
-                    sharing      = iface.get('sharing', 'interface')
+                    all_labels   = frozenset(
+                        site_labels | pod_labels | ne_labels | slot_labels | iface_labels
+                    )
+                    sharing  = iface.get('sharing', 'interface')
 
                     for ip_ver in ('ipv4', 'ipv6'):
                         spec = iface.get(ip_ver)
                         if not spec:
                             continue
-                        prefix_len = spec['prefix_len']
 
+                        fam_int  = family_int[ip_ver]
+                        vrf_id   = iface.get('vrf_id')  # type-level default
+                        addr_cnt = _iface_address_count(spec, ip_ver)
+                        min_pf   = spec.get('min_prefix')
+
+                        # Sharing scope value determines the group key
                         if sharing == 'project':
-                            key = f'proj:{pid}|iface:{iface["id"]}|v:{ip_ver}'
+                            scope_val = 'project'
                         elif sharing == 'site':
-                            key = f'site:{site["id"]}|iface:{iface["id"]}|v:{ip_ver}'
+                            scope_val = site['id']
                         elif sharing == 'pod':
-                            key = f'site:{site["id"]}|pod:{pod["id"]}|iface:{iface["id"]}|v:{ip_ver}'
+                            scope_val = pod['id']
                         elif sharing == 'ne':
-                            key = (f'site:{site["id"]}|pod:{pod["id"]}'
-                                   f'|slot:{slot["ne_type_id"]}|iface:{iface["id"]}|v:{ip_ver}')
+                            scope_val = f'ne:{ne_type["id"]}@{pod["id"]}'
                         else:
-                            key = None
+                            # interface — one per NE instance
+                            scope_val = None  # unique per emission
 
-                        if key and key in shared_keys:
+                        if scope_val is not None:
+                            gkey = (fam_int, vrf_id, all_labels, scope_val)
+                        else:
+                            # interface-level: one req per (pod, ne_type, iface, ip_ver) scope
+                            # count carries the multiplicity (ne_count instances)
+                            scope_val = f'iface-scope:{pod["id"]}:{ne_type["id"]}:{iface["id"]}:{ip_ver}'
+                            gkey = (fam_int, vrf_id, all_labels, scope_val)
+
+                        if gkey in groups:
+                            g = groups[gkey]
+                            if sharing not in ('project', 'site', 'pod', 'ne'):
+                                # interface-level: accumulate count
+                                g['count'] += ne_count
+                                g['address_count'] += addr_cnt
+                            else:
+                                g['address_count'] += addr_cnt
+                            if min_pf and (g['min_prefix'] is None or min_pf < g['min_prefix']):
+                                g['min_prefix'] = min_pf
+                            g['iface_refs'].append(f'{ne_type["name"]}/{iface["name"]}')
                             continue
 
-                        count = _sharing_count(sharing, ne_count)
-                        rec = {
+                        count = ne_count if sharing == 'interface' else 1
+                        groups[gkey] = {
                             'kind':          'ip',
+                            'family':        fam_int,
+                            'ip_version':    ip_ver,
+                            'vrf_id':        vrf_id,
                             'site_id':       site['id'],
                             'site_name':     site['name'],
                             'pod_id':        pod['id'],
@@ -357,35 +412,48 @@ def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals
                             'ne_kind':       ne_type['kind'],
                             'iface_id':      iface['id'],
                             'iface_name':    iface['name'],
-                            'ip_version':    ip_ver,
-                            'prefix_len':    prefix_len,
                             'sharing':       sharing,
-                            'labels':        all_labels,
+                            'labels':        sorted(all_labels),
+                            'address_count': addr_cnt,
+                            'min_prefix':    min_pf,
+                            'iface_refs':    [f'{ne_type["name"]}/{iface["name"]}'],
                             'count':         count,
-                            'key':           key or f'uniq:{uuid.uuid4()}',
+                            'key':           f'grp:{hash(gkey) & 0xFFFFFFFF:08x}',
                             'pushed':        False,
                         }
-                        reqs.append(rec)
-                        if key:
-                            shared_keys[key] = rec
 
                     # ── Service rows ──────────────────────────────────────────
                     svc_rows = _svc.compute_service_rows(
                         pid, site, pod, ne_type, iface,
-                        ne_count, cust_id, type_insts, shared_keys,
+                        ne_count, cust_id, type_insts, {},
                     )
-                    reqs.extend(svc_rows)
+                    service_reqs.extend(r_ for r_ in svc_rows if r_.get('kind') == 'service')
+
+    # Compute min_prefix for each group based on address_count
+    reqs: list = []
+    for g in groups.values():
+        if g['min_prefix'] is None:
+            if g['family'] == 4:
+                g['min_prefix'] = min_prefix_v4(g['address_count'])
+            else:
+                g['min_prefix'] = min_prefix_v6(g['address_count'])
+        # Keep prefix_len for backward compat with existing templates
+        g['prefix_len'] = g['min_prefix']
+        reqs.append(g)
+
+    # Append service rows
+    for r_ in service_reqs:
+        if r_.get('kind') == 'service':
+            reqs.append(r_)
 
     return reqs
 
+
 def _sharing_count(sharing: str, ne_count: int) -> int:
     """How many subnets does this requirement line represent."""
-    # site/pod/project level = 1 per that scope (already deduped above)
-    # ne = 1 per ne type slot (ne_count instances share one)
-    # interface = one per NE instance
     if sharing in ('project', 'site', 'pod', 'ne'):
         return 1
-    return ne_count   # interface-level: one per instance
+    return ne_count
 
 def save_requirements(pid: str, reqs: list):
     """Save subnet requirements for a project."""
@@ -1229,6 +1297,8 @@ def push_requirements(pid):
     push_all = data.get('all') in (True, 'true', 'on')
     keys     = set(data.getlist('keys') if hasattr(data, 'getlist') else data.get('keys', []))
 
+    supernet = proj.get('legacy_supernet') or proj.get('supernet')
+
     results, errors = [], []
     for req in reqs:
         if req.get('kind', 'ip') != 'ip':
@@ -1237,15 +1307,22 @@ def push_requirements(pid):
             continue
         if not push_all and req['key'] not in keys:
             continue
-        # Repeat `count` times for interface-level sharing
+
+        prefix_len = req.get('min_prefix') or req.get('prefix_len', 24)
         for _ in range(req['count']):
             try:
-                cidr = str(carve_next_subnet(proj['supernet'],
-                                             req['prefix_len'], pid))
+                if not supernet:
+                    raise ValueError(
+                        'No supernet on this project. Create the subnet manually '
+                        'or assign a legacy supernet.'
+                    )
+                cidr = str(carve_next_subnet(supernet, prefix_len, pid))
                 net = {
                     'id':          _new_id(),
                     'name':        f"{req['ne_type_name']}/{req['iface_name']}",
                     'cidr':        cidr,
+                    'family':      req.get('family', 4),
+                    'vrf_id':      req.get('vrf_id'),
                     'description': (f"{req['ne_kind']} {req['ne_type_name']} "
                                     f"iface {req['iface_name']} "
                                     f"[{req['sharing']}]"),
@@ -1255,7 +1332,8 @@ def push_requirements(pid):
                 _save_net(net)
                 r.sadd(project_nets_key(pid), net['id'])
                 add_labels_to_network(net['id'], req['labels'])
-                results.append({'cidr': cidr, 'labels': req['labels']})
+                results.append({'cidr': cidr, 'labels': req['labels'],
+                                 'vrf_id': req.get('vrf_id')})
             except ValueError as e:
                 errors.append({'req': req['key'], 'error': str(e)})
         if not errors:

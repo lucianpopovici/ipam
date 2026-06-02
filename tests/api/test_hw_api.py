@@ -35,10 +35,10 @@ def _server_tmpl():
         'cable_type': '', 'description': '',
         'ports': [
             {'id': 'eth0', 'name': 'eth0', 'port_type': 'data',
-             'connector': 'RJ45', 'speed_gbps': 1, 'count': 4,
+             'connector': 'RJ45', 'speed_gbps': 1, 'count': 1,
              'breakout_fan_out': 1, 'notes': ''},
             {'id': 'sfp0', 'name': 'sfp0', 'port_type': 'data',
-             'connector': 'SFP28', 'speed_gbps': 25, 'count': 2,
+             'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
              'breakout_fan_out': 1, 'notes': ''},
         ],
         'scope': 'global', 'project_id': '',
@@ -167,11 +167,11 @@ class TestHWTemplateRoutes:
         assert any(t['name'] == 'My Server' for t in global_hw_templates())
 
     def test_add_template_with_ports(self, client):
-        """Verify adding a template with ports."""
+        """Verify adding a template with ports (count=1 — no expansion)."""
         seed_connectors()
         ports = json.dumps([{
             'id': 'p1', 'name': 'eth0', 'port_type': 'data',
-            'connector': 'RJ45', 'speed_gbps': 1, 'count': 4,
+            'connector': 'RJ45', 'speed_gbps': 1, 'count': 1,
             'breakout_fan_out': 1, 'notes': '',
         }])
         resp = client.post('/hw/templates/add', data={
@@ -183,6 +183,25 @@ class TestHWTemplateRoutes:
         from hw import global_hw_templates
         tmpl = next(t for t in global_hw_templates() if t['name'] == 'Server-Ports')
         assert len(tmpl['ports']) == 1
+
+    def test_add_template_count_expansion(self, client):
+        """Verify saving a template via route expands count>1 port rows."""
+        seed_connectors()
+        ports = json.dumps([{
+            'id': 'p1', 'name': 'eth', 'port_type': 'data',
+            'connector': 'RJ45', 'speed_gbps': 1, 'count': 4,
+            'breakout_fan_out': 1, 'notes': '',
+        }])
+        resp = client.post('/hw/templates/add', data={
+            'name': 'Count-Expand', 'vendor': '', 'model': '',
+            'category': 'server', 'form_factor': '19"', 'u_size': '1',
+            'cable_type': '', 'description': '', 'ports_json': ports,
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+        from hw import global_hw_templates
+        tmpl = next(t for t in global_hw_templates() if t['name'] == 'Count-Expand')
+        assert len(tmpl['ports']) == 4
+        assert [p['name'] for p in tmpl['ports']] == ['eth0', 'eth1', 'eth2', 'eth3']
 
     def test_edit_hw_template(self, client):
         """Verify editing a hardware template."""
@@ -642,6 +661,71 @@ class TestCableRoutes:
         resp = client.get(f'/api/projects/{pid}/hw/instance-ports/no-such-id')
         assert resp.status_code == 200
         assert not json.loads(resp.data)
+
+    def test_instance_ports_api_returns_all_subports(self, client):
+        """48-port switch must surface 48 entries in the cable-form picker."""
+        seed_connectors()
+        pid  = _create_project(client)
+        tmpl = {
+            'id': new_id(), 'name': 'ToR-48', 'vendor': 'Cisco', 'model': 'N9K',
+            'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [{'id': 'p1', 'name': 'Eth1/{0..47}', 'port_type': 'data',
+                       'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                       'breakout_fan_out': 1, 'notes': ''}],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(tmpl)
+        inst = _make_instance(pid, tmpl)
+        resp  = client.get(f'/api/projects/{pid}/hw/instance-ports/{inst["id"]}')
+        ports = json.loads(resp.data)
+        assert len(ports) == 48
+        assert {p['name'] for p in ports} == {f'Eth1/{i}' for i in range(48)}
+        assert len({p['id'] for p in ports}) == 48
+
+    def test_cable_can_bind_to_specific_subport(self, client):
+        """Cables must distinguish between p1-3 and p1-4 on the same template."""
+        seed_connectors()
+        pid  = _create_project(client)
+        tmpl = {
+            'id': new_id(), 'name': 'ToR-8', 'vendor': 'Cisco', 'model': 'N9K',
+            'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [{'id': 'p1', 'name': 'Eth1/{0..7}', 'port_type': 'data',
+                       'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                       'breakout_fan_out': 1, 'notes': ''}],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(tmpl)
+        inst = _make_instance(pid, tmpl)
+
+        # Bind two different cables to p1-3 and p1-4 (distinct sub-ports)
+        c1 = {
+            'id': new_id(), 'template_id': None, 'project_id': pid,
+            'asset_tag': 'C-P3', 'label': '', 'length_m': '',
+            'end_a': {'instance_id': inst['id'], 'port_id': 'p1-3'},
+            'end_b': {'instance_id': '', 'port_id': ''},
+            'breakout': False, 'breakout_fan_out': 1,
+        }
+        c2 = {
+            'id': new_id(), 'template_id': None, 'project_id': pid,
+            'asset_tag': 'C-P4', 'label': '', 'length_m': '',
+            'end_a': {'instance_id': inst['id'], 'port_id': 'p1-4'},
+            'end_b': {'instance_id': '', 'port_id': ''},
+            'breakout': False, 'breakout_fan_out': 1,
+        }
+        save_cable(c1)
+        save_cable(c2)
+
+        resp  = client.get(f'/api/projects/{pid}/hw/instance-ports/{inst["id"]}')
+        ports = json.loads(resp.data)
+        # p1-3 and p1-4 are distinct; both show as in_use, others are free
+        p3 = next(p for p in ports if p['id'] == 'p1-3')
+        p4 = next(p for p in ports if p['id'] == 'p1-4')
+        p0 = next(p for p in ports if p['id'] == 'p1')
+        assert p3['in_use'] is True
+        assert p4['in_use'] is True
+        assert p0['in_use'] is False
 
 
 # ══════════════════════════════════════════════════════════════════════════════

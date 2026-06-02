@@ -38,7 +38,9 @@
         <th>NE Type</th>
         <th>Interface</th>
         <th>IP ver</th>
-        <th>Prefix</th>
+        <th>Addresses</th>
+        <th>Min Prefix</th>
+        <th>VRF</th>
         <th>Sharing / Scope</th>
         <th>Labels</th>
         <th class="text-end">Count</th>
@@ -60,8 +62,10 @@
           <span class="badge bg-secondary">{{ req.ne_kind }}</span>
         </td>
         <td><code>{{ req.iface_name }}</code></td>
-        <td><span class="badge bg-light text-dark border">{{ req.ip_version }}</span></td>
-        <td><code>/{{ req.prefix_len }}</code></td>
+        <td><span class="badge bg-light text-dark border">{{ req.ip_version or ('ipv4' if req.family == 4 else 'ipv6') }}</span></td>
+        <td class="text-end">{{ req.address_count or '—' }}</td>
+        <td><code>{% if req.min_prefix %}/{{ req.min_prefix }}{% else %}—{% endif %}</code></td>
+        <td class="small text-muted">{{ req.vrf_id or '— global —' }}</td>
         <td>
           <span class="badge bg-light text-dark border
             {% if req.sharing == 'project' %}border-danger

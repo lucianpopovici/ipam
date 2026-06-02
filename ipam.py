@@ -42,6 +42,45 @@ def validate_ip_interface(val: str) -> bool:
     except (ValueError, TypeError):
         return False
 
+# ── Address-count / minimum-prefix helpers ─────────────────────────────────────
+
+def _ceil_log2(n: int) -> int:
+    """Smallest k such that 2^k >= n."""
+    if n <= 1:
+        return 0
+    k = 0
+    while (1 << k) < n:
+        k += 1
+    return k
+
+def min_prefix_v4(address_count: int) -> int:
+    """Smallest IPv4 prefix that accommodates address_count host addresses."""
+    if address_count <= 1:
+        return 32
+    if address_count == 2:
+        return 31   # RFC 3021 P2P
+    # +2 for network + broadcast; next power-of-2 >= count+2
+    return 32 - _ceil_log2(address_count + 2)
+
+def min_prefix_v6(address_count: int) -> int:
+    """Smallest IPv6 prefix that accommodates address_count addresses."""
+    if address_count <= 1:
+        return 128
+    return 128 - _ceil_log2(address_count)
+
+def address_count_from_prefix(prefix_len: int, family: int) -> int:
+    """Usable host count for a prefix (legacy conversion)."""
+    if family == 6:
+        if prefix_len >= 128:
+            return 1
+        return 2 ** (128 - prefix_len)
+    # IPv4
+    if prefix_len >= 32:
+        return 1
+    if prefix_len == 31:
+        return 2
+    return max(1, 2 ** (32 - prefix_len) - 2)
+
 # ── Bitmap Helpers ─────────────────────────────────────────────────────────────
 
 def get_ip_offset(net_cidr, ip_str):
@@ -258,61 +297,175 @@ def template_scope(tid: str, pid: str) -> str:
 # Rule engine
 # ══════════════════════════════════════════════════════════════════════════════
 
-def resolve_template_rules(cidr: str, rules: list) -> list:
-    """Resolve subnet rules into a list of specific IP slots."""
+def _resolve_offset(offset_obj, prev_end: int) -> int:
+    """Resolve an offset object to an absolute host index (0-based)."""
+    if isinstance(offset_obj, int):
+        return offset_obj - 1  # legacy: 1-based
+    if not isinstance(offset_obj, dict):
+        return 0
+    kind = offset_obj.get('kind', 'fixed')
+    if kind == 'fixed':
+        return int(offset_obj.get('value', 0))
+    if kind == 'after_previous':
+        return prev_end + int(offset_obj.get('gap', 0))
+    return 0
+
+
+def resolve_template_rules(cidr: str, rules: list, pid: str = None) -> list:
+    """Resolve subnet rules into a list of specific IP slots.
+
+    *pid* is used by per_hw/per_ne rules to look up live inventory counts.
+    When None, per_hw/per_ne rules fall back to max_count.
+    """
     network_obj = ipaddress.ip_network(cidr, strict=False)
     num_hosts   = network_obj.num_addresses
     if num_hosts <= 2:
-        # For /31, /32 (IPv4) or /127, /128 (IPv6), use all addresses as potential hosts
         host_list = [network_obj[i] for i in range(num_hosts)]
     else:
-        # Standard subnet: skip network and broadcast
-        # In ipaddress, network_obj[0] is network, network_obj[-1] is broadcast
-        # num_hosts - 2 available hosts
         num_hosts -= 2
-        host_list = None # We will index network_obj[idx + 1]
+        host_list = None  # index network_obj[idx + 1]
+
+    def _ip_at(idx):
+        return str(host_list[idx] if host_list else network_obj[idx + 1])
 
     slot_map = {}
+    prev_end = -1  # track last index used by previous rule (for after_previous)
+
     for rule in rules:
         rtype  = rule.get('type')
         role   = rule.get('role', 'reserved')
         status = rule.get('status', 'reserved')
+
         if rtype == 'from_start':
-            idx = int(rule.get('offset', 1)) - 1
+            offset_obj = rule.get('offset', 1)
+            idx = _resolve_offset(offset_obj, prev_end)
             if 0 <= idx < num_hosts:
-                ip = host_list[idx] if host_list else network_obj[idx + 1]
-                slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
+                slot_map[idx] = {'ip': _ip_at(idx), 'role': role, 'status': status}
+                prev_end = max(prev_end, idx)
+
         elif rtype == 'from_end':
             count = int(rule.get('count', 1))
             for i in range(count):
                 idx = num_hosts - 1 - i
                 if idx >= 0:
-                    ip = host_list[idx] if host_list else network_obj[idx + 1]
-                    slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
+                    slot_map[idx] = {'ip': _ip_at(idx), 'role': role, 'status': status}
+            prev_end = max(prev_end, num_hosts - 1)
+
         elif rtype == 'range':
             frm = int(rule.get('from', 1)) - 1
             to  = int(rule.get('to',  1)) - 1
-            # For range, we limit to a reasonable number to avoid huge loops
-            # if someone defines a range of billions.
             for idx in range(frm, min(to + 1, num_hosts)):
                 if idx >= 0:
-                    if len(slot_map) > 1000: # Safety cap
+                    if len(slot_map) > 1000:
                         break
-                    ip = host_list[idx] if host_list else network_obj[idx + 1]
-                    slot_map[idx] = {'ip': str(ip), 'role': role, 'status': status}
+                    slot_map[idx] = {'ip': _ip_at(idx), 'role': role, 'status': status}
+            prev_end = max(prev_end, min(to, num_hosts - 1))
+
+        elif rtype in ('per_hw', 'per_ne'):
+            # Determine how many slots to reserve
+            max_count = int(rule.get('max_count', 0))
+            actual_count = _resolve_dynamic_count(rtype, rule, pid) if pid else 0
+            count = actual_count if pid else max_count
+            offset_obj = rule.get('offset', {'kind': 'fixed', 'value': 0})
+            start_idx  = _resolve_offset(offset_obj, prev_end)
+            for i in range(count):
+                idx = start_idx + i
+                if idx >= num_hosts:
+                    break
+                if len(slot_map) > 1000:
+                    break
+                slot_map[idx] = {
+                    'ip':     _ip_at(idx),
+                    'role':   f"{role}:{i}" if count > 1 else role,
+                    'status': status,
+                    'phantom_source': f'rule:{rtype}:{i}',
+                }
+            if count > 0:
+                prev_end = max(prev_end, start_idx + count - 1)
+
     return [info for idx, info in sorted(slot_map.items())]
+
+
+def _resolve_dynamic_count(rtype: str, rule: dict, pid: str) -> int:
+    """Count actual inventory items matching a per_hw or per_ne rule."""
+    max_count = int(rule.get('max_count', 0))
+    try:
+        if rtype == 'per_hw':
+            count = _count_per_hw(rule, pid)
+        else:
+            count = _count_per_ne(rule, pid)
+        return min(count, max_count) if max_count else count
+    except Exception:  # pylint: disable=broad-except
+        return 0
+
+
+def _count_per_hw(rule: dict, pid: str) -> int:
+    """Count HW instances matching per_hw selectors in the project."""
+    insts = project_instances(pid)
+    total = 0
+    for sel in rule.get('selectors', []):
+        required_labels = set(sel.get('labels_any', []))
+        for inst in insts:
+            tmpl = get_hw_template(inst.get('template_id', '')) or {}
+            eff_labels = set(tmpl.get('labels', [])) | set(inst.get('labels', []))
+            if required_labels and not required_labels.intersection(eff_labels):
+                continue
+            total += 1
+    return total
+
+
+def _count_per_ne(rule: dict, pid: str) -> int:
+    """Count NE instances matching per_ne filter in the project."""
+    from ne import project_ne_instances as _pi  # pylint: disable=import-outside-toplevel
+    ne_filter    = rule.get('ne_filter', {})
+    ne_type_id   = ne_filter.get('ne_type_id')
+    labels_any   = set(ne_filter.get('labels_any', []))
+    per_ne_count = int(rule.get('per_ne_count', 1))
+    max_count    = int(rule.get('max_count', 0))
+
+    matching = 0
+    for inst in _pi(pid):
+        if ne_type_id and inst.get('ne_type_id') != ne_type_id:
+            continue
+        if labels_any and not labels_any.intersection(set(inst.get('labels', []))):
+            continue
+        matching += 1
+        if max_count and matching >= max_count:
+            break
+    return matching * per_ne_count
+
+
+def _validate_offset(offset_obj, rule_index: int, allow_relative: bool):
+    """Validate a rule offset object ({kind, value} or {kind, gap})."""
+    if not isinstance(offset_obj, dict):
+        return  # legacy integer offset; accepted silently
+    kind = offset_obj.get('kind')
+    if kind == 'fixed':
+        if not isinstance(offset_obj.get('value'), int) or offset_obj['value'] < 0:
+            raise ValueError(f'Rule {rule_index}: fixed offset needs integer value >= 0')
+    elif kind == 'after_previous':
+        if not allow_relative:
+            raise ValueError(f'Rule {rule_index}: TMPL_FIRST_RULE_RELATIVE — '
+                             f'first rule cannot use after_previous offset')
+        if not isinstance(offset_obj.get('gap', 0), int):
+            raise ValueError(f'Rule {rule_index}: after_previous needs integer gap')
+    elif kind is not None:
+        raise ValueError(f'Rule {rule_index}: unknown offset kind "{kind}"')
 
 
 def _validate_rules(rules: list):
     """Validate template rules for correctness."""
-    valid_types    = {'from_start', 'from_end', 'range'}
+    valid_types    = {'from_start', 'from_end', 'range', 'per_hw', 'per_ne'}
     valid_statuses = {'reserved', 'allocated', 'dhcp'}
     for i, rule in enumerate(rules):
         rtype = rule.get('type')
         if rtype not in valid_types:
             raise ValueError(f'Rule {i}: unknown type "{rtype}"')
         if rtype == 'from_start':
-            if not isinstance(rule.get('offset'), int) or rule['offset'] < 1:
+            offset = rule.get('offset', 1)
+            if isinstance(offset, dict):
+                _validate_offset(offset, i, allow_relative=(i > 0))
+            elif not isinstance(offset, int) or offset < 1:
                 raise ValueError(f'Rule {i}: from_start needs integer offset >= 1')
         elif rtype == 'from_end':
             if not isinstance(rule.get('count'), int) or rule['count'] < 1:
@@ -321,6 +474,11 @@ def _validate_rules(rules: list):
             frm, to = rule.get('from'), rule.get('to')
             if not isinstance(frm, int) or not isinstance(to, int) or frm < 1 or to < frm:
                 raise ValueError(f'Rule {i}: range needs integer from >= 1, to >= from')
+        elif rtype in ('per_hw', 'per_ne'):
+            _validate_offset(rule.get('offset', {'kind': 'fixed', 'value': 0}), i, allow_relative=(i > 0))
+            max_count = rule.get('max_count', 0)
+            if not isinstance(max_count, int) or max_count < 0:
+                raise ValueError(f'Rule {i}: {rtype} needs integer max_count >= 0')
         if rule.get('status', 'reserved') not in valid_statuses:
             raise ValueError(f'Rule {i}: unknown status "{rule["status"]}"')
 
@@ -593,13 +751,20 @@ def project_pool_summary(pid):
     if not proj:
         return {}
     nets    = project_networks(pid)
-    parent  = ipaddress.ip_network(proj['supernet'], strict=False)
-    total   = parent.num_addresses
     alloc   = sum(ipaddress.ip_network(n['cidr']).num_addresses for n in nets)
     pending = sum(len(n.get('pending_slots', [])) for n in nets)
+    # Capacity: if legacy_supernet exists use that, otherwise sum subnets
+    legacy = proj.get('legacy_supernet') or proj.get('supernet')
+    if legacy:
+        try:
+            total = ipaddress.ip_network(legacy, strict=False).num_addresses
+        except ValueError:
+            total = alloc
+    else:
+        total = alloc
     return {
-        'supernet': proj['supernet'], 'total_ips': total,
-        'allocated_ips': alloc, 'free_ips': total - alloc,
+        'supernet': legacy or '', 'total_ips': total,
+        'allocated_ips': alloc, 'free_ips': max(0, total - alloc),
         'pending': pending,
         'utilization': round((alloc / total) * 100, 1) if total else 0,
         'subnet_count': len(nets), 'pools': pool_by_label_set(nets),
@@ -615,29 +780,77 @@ def global_pool_summary() -> dict:
     for proj in sorted(projects, key=lambda p: p['name']):
         nets   = project_networks(proj['id'])
         all_nets.extend(nets)
-        parent = ipaddress.ip_network(proj['supernet'], strict=False)
-        proj_total   = parent.num_addresses
         proj_alloc   = sum(ipaddress.ip_network(n['cidr']).num_addresses for n in nets)
         proj_pending = sum(len(n.get('pending_slots', [])) for n in nets)
+        # Capacity: legacy_supernet if present, else sum of subnets
+        legacy = proj.get('legacy_supernet') or proj.get('supernet')
+        if legacy:
+            try:
+                proj_total = ipaddress.ip_network(legacy, strict=False).num_addresses
+            except ValueError:
+                proj_total = proj_alloc
+        else:
+            proj_total = proj_alloc
         grand_total   += proj_total
         grand_alloc   += proj_alloc
         grand_pending += proj_pending
         project_rows.append({
-            'id': proj['id'], 'name': proj['name'], 'supernet': proj['supernet'],
+            'id': proj['id'], 'name': proj['name'],
+            'supernet': legacy or '',
             'total_ips': proj_total, 'alloc_ips': proj_alloc,
-            'free_ips': proj_total - proj_alloc, 'pending': proj_pending,
+            'free_ips': max(0, proj_total - proj_alloc), 'pending': proj_pending,
             'utilization': round((proj_alloc / proj_total) * 100, 1) if proj_total else 0,
             'subnet_count': len(nets),
         })
 
     return {
         'total_ips': grand_total, 'alloc_ips': grand_alloc,
-        'free_ips': grand_total - grand_alloc, 'pending': grand_pending,
+        'free_ips': max(0, grand_total - grand_alloc), 'pending': grand_pending,
         'utilization': round((grand_alloc / grand_total) * 100, 1) if grand_total else 0,
         'project_count': len(projects),
         'projects': project_rows,
         'label_pool': pool_by_label_set(all_nets),
     }
+
+def resolve_pool(family: int, vrf_id, label_set: set, pid: str,
+                site_id: str = None, pod_id: str = None) -> list:
+    """
+    Return subnets in project *pid* that match the given criteria.
+
+    Match conditions (all must hold):
+      1. subnet.family == family  (4 or 6)
+      2. subnet.vrf_id == vrf_id  (null == null — not a wildcard)
+      3. label_set ⊆ subnet.labels
+      4. site_id: subnet.site_id == site_id OR subnet.site_id is None
+      5. pod_id:  subnet.pod_id  == pod_id  OR subnet.pod_id  is None
+    """
+    nets = project_networks(pid)
+    results = []
+    for net in nets:
+        net_family = net.get('family')
+        if net_family is None:
+            # Legacy: infer family from CIDR
+            try:
+                net_family = ipaddress.ip_network(net['cidr'], strict=False).version
+            except ValueError:
+                continue
+        if net_family != family:
+            continue
+        # VRF must match exactly (null == null is a valid match)
+        if net.get('vrf_id') != vrf_id:
+            continue
+        # All required labels must be present
+        net_labels = set(net.get('labels', get_network_labels(net['id'])))
+        if not label_set.issubset(net_labels):
+            continue
+        # Site/pod: subnet's value must equal the filter OR be None (more general)
+        if site_id is not None and net.get('site_id') not in (site_id, None):
+            continue
+        if pod_id is not None and net.get('pod_id') not in (pod_id, None):
+            continue
+        results.append(net)
+    return results
+
 
 def _delete_network_data(nid):
     """Delete all data associated with a network, including its IP records and label associations."""
@@ -781,9 +994,13 @@ def index():
         nets = project_networks(p['id'])
         p['subnet_count'] = len(nets)
         try:
-            parent = ipaddress.ip_network(p['supernet'], strict=False)
+            legacy = p.get('legacy_supernet') or p.get('supernet')
             alloc  = sum(ipaddress.ip_network(n['cidr']).num_addresses for n in nets)
-            p['utilization'] = round((alloc / parent.num_addresses) * 100, 1)
+            if legacy:
+                parent = ipaddress.ip_network(legacy, strict=False)
+                p['utilization'] = round((alloc / parent.num_addresses) * 100, 1)
+            else:
+                p['utilization'] = 0
         except (ValueError, TypeError):
             p['utilization'] = 0
     return render_template('index.html', projects=projects,
@@ -819,26 +1036,40 @@ def manage_global_labels():
 @ipam_bp.route('/projects/add', methods=['GET', 'POST'])
 @editor_required
 def add_project():
-    """Add a new project with a defined supernet."""
+    """Add a new project. Customer is required; supernet is optional (stored as legacy_supernet)."""
     if request.method == 'POST':
-        name     = request.form.get('name', '').strip()
-        supernet = request.form.get('supernet', '').strip()
-        errors   = form_errors(
-            ('name',     bool(name),                  'Project name is required.'),
-            ('supernet', validate_ip_interface(supernet), 'Invalid supernet CIDR.'),
+        name        = request.form.get('name', '').strip()
+        customer_id = request.form.get('customer_id', '').strip()
+        supernet    = request.form.get('supernet', '').strip()
+
+        supernet_ok = (not supernet) or validate_ip_interface(supernet)
+        errors = form_errors(
+            ('name',     bool(name),     'Project name is required.'),
+            ('supernet', supernet_ok,    'Invalid supernet CIDR.'),
         )
         if errors:
-            return render_template('project_form.html', errors=errors, form_values=request.form)
-        customer_id = request.form.get('customer_id', '').strip()
-        proj = {'id': new_id(), 'name': name, 'supernet': supernet,
-                'description': request.form.get('description', ''),
-                'customer_id': customer_id}
+            from customer import all_customers
+            return render_template('project_form.html', errors=errors,
+                                   form_values=request.form,
+                                   customers=all_customers())
+        # Warn (don't block) when no customer is assigned
+        if not customer_id:
+            flash('No customer assigned. Assign a customer to use VRFs and service definitions.', 'warning')
+
+        proj = {
+            'id':          new_id(),
+            'name':        name,
+            'description': request.form.get('description', ''),
+            'customer_id': customer_id,
+        }
+        if supernet:
+            proj['legacy_supernet'] = supernet
+
         save_project(proj)
-        # Maintain customer↔project index
-        if customer_id:
-            r.sadd(f'customer:{customer_id}:projects', proj['id'])
+        r.sadd(f'customer:{customer_id}:projects', proj['id'])
         flash(f'Project "{proj["name"]}" created.', 'success')
         return redirect(url_for('ipam.project_detail', pid=proj['id']))
+
     from customer import all_customers
     return render_template('project_form.html', errors={}, form_values={},
                            customers=all_customers())
@@ -1118,12 +1349,15 @@ def dismiss_all_slots_route(net_id):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _handle_auto_subnet(proj, pid):
-    """Handle auto-carving logic for a new subnet."""
+    """Handle auto-carving logic for a new subnet (requires legacy_supernet)."""
+    supernet = proj.get('legacy_supernet') or proj.get('supernet')
+    if not supernet:
+        return None, 'Auto-carve requires a supernet. Enter the CIDR manually or assign a supernet to this project.'
     prefix_len = request.form.get('prefix_len', '').strip()
     if not prefix_len or not prefix_len.isdigit():
         return None, 'Please enter a valid prefix length.'
     try:
-        return str(carve_next_subnet(proj['supernet'], int(prefix_len), pid)), None
+        return str(carve_next_subnet(supernet, int(prefix_len), pid)), None
     except ValueError as e:
         return None, str(e)
 
@@ -1133,10 +1367,13 @@ def _handle_manual_subnet(proj, pid):
     if not validate_ip_interface(cidr):
         return None, f'Invalid CIDR: {cidr}'
 
+    supernet = proj.get('legacy_supernet') or proj.get('supernet')
     try:
         subnet_obj = ipaddress.ip_network(cidr, strict=False)
-        if not subnet_obj.subnet_of(ipaddress.ip_network(proj['supernet'], strict=False)):
-            return None, f'{cidr} is not within {proj["supernet"]}.'
+        if supernet:
+            sup_obj = ipaddress.ip_network(supernet, strict=False)
+            if not subnet_obj.subnet_of(sup_obj):
+                return None, f'{cidr} is not within {supernet}.'
     except (ValueError, TypeError) as e:
         return None, f'Invalid CIDR: {e}'
     for used in used_subnets_in_project(pid):
@@ -1165,9 +1402,22 @@ def add_subnet(pid):
             flash(err, 'danger')
             return redirect(url_for('ipam.add_subnet', pid=pid))
 
-        net = {'id': new_id(), 'name': name or cidr, 'cidr': cidr,
-               'description': request.form.get('description', ''),
-               'vlan': request.form.get('vlan') or '', 'project_id': pid}
+        try:
+            net_family = ipaddress.ip_network(cidr, strict=False).version
+        except ValueError:
+            net_family = 4
+        net = {
+            'id':          new_id(),
+            'name':        name or cidr,
+            'cidr':        cidr,
+            'family':      net_family,
+            'description': request.form.get('description', ''),
+            'vlan':        request.form.get('vlan') or '',
+            'project_id':  pid,
+            'vrf_id':      request.form.get('vrf_id', '').strip() or None,
+            'site_id':     request.form.get('site_id', '').strip() or None,
+            'pod_id':      request.form.get('pod_id', '').strip() or None,
+        }
         save_network(net)
         r.sadd(project_nets_key(pid), net['id'])
         add_labels_to_network(net['id'], labels)
@@ -1182,9 +1432,14 @@ def add_subnet(pid):
         else:
             flash(f'Subnet {cidr} added.', 'success')
         return redirect(url_for('ipam.project_detail', pid=pid))
+    from vrf import vrfs_for_project  # pylint: disable=import-outside-toplevel
+    from ne import project_sites, project_pods  # pylint: disable=import-outside-toplevel
     return render_template('subnet_form.html', proj=proj,
                            labels=available_labels_for_project(pid),
-                           templates=available_templates_for_project(pid))
+                           templates=available_templates_for_project(pid),
+                           vrfs=vrfs_for_project(pid),
+                           sites=project_sites(pid),
+                           pods=project_pods(pid))
 
 
 @ipam_bp.route('/projects/<pid>/subnet/bulk', methods=['GET', 'POST'])
@@ -1204,8 +1459,16 @@ def bulk_add_subnets(pid):
             labels = [l.strip() for l in req.get('labels', []) if str(l).strip()]
             tid    = req.get('template_id') or None
             try:
-                cidr = str(carve_next_subnet(proj['supernet'], int(req['prefix_len']), pid))
+                bulk_supernet = proj.get('legacy_supernet') or proj.get('supernet')
+                if not bulk_supernet:
+                    raise ValueError('No supernet on project; add subnets manually.')
+                cidr = str(carve_next_subnet(bulk_supernet, int(req['prefix_len']), pid))
+                try:
+                    net_family = ipaddress.ip_network(cidr, strict=False).version
+                except ValueError:
+                    net_family = 4
                 net  = {'id': new_id(), 'name': req.get('name', '') or cidr, 'cidr': cidr,
+                        'family': net_family,
                         'description': req.get('description', ''),
                         'vlan': req.get('vlan', ''), 'project_id': pid}
                 save_network(net)
@@ -1238,6 +1501,15 @@ def edit_network(net_id):
         net['name']        = request.form.get('name', net['name']).strip()
         net['description'] = request.form.get('description', '')
         net['vlan']        = request.form.get('vlan') or ''
+        net['vrf_id']      = request.form.get('vrf_id', '').strip() or None
+        net['site_id']     = request.form.get('site_id', '').strip() or None
+        net['pod_id']      = request.form.get('pod_id', '').strip() or None
+        # Ensure family is stored if not already set
+        if 'family' not in net:
+            try:
+                net['family'] = ipaddress.ip_network(net['cidr'], strict=False).version
+            except ValueError:
+                pass
         new_labels = parse_labels(request.form.get('labels', ''))
         old_labels = get_network_labels(net_id)
         remove_labels_from_network(net_id, [l for l in old_labels if l not in new_labels])

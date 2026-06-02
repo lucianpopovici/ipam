@@ -14,6 +14,8 @@ from hw_logic import (
     get_cable, save_cable, delete_cable, project_cables,
     _used_ports,
     validate_project,
+    expand_port_pattern, expand_template_ports,
+    render_pattern, cable_pattern_context, next_cable_seq,
 )
 from db import new_id
 from ipam import save_project
@@ -222,7 +224,7 @@ class TestHWTemplateHelpers:
         t = self._tmpl()
         t['ports'] = [
             {'id': 'p1', 'name': 'eth0', 'port_type': 'data',
-             'connector': 'RJ45', 'speed_gbps': 1, 'count': 4,
+             'connector': 'RJ45', 'speed_gbps': 1, 'count': 1,
              'breakout_fan_out': 1, 'notes': ''},
         ]
         save_hw_template(t)
@@ -937,3 +939,365 @@ class TestValidationEngine:
         view = rack_layout_view(rack_inst['id'])
         assert view['total_power'] == 200
         assert view['total_weight'] == 20
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Port pattern expansion helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestExpandPortPattern:
+    """Unit tests for expand_port_pattern."""
+
+    def test_count_one_no_pattern(self):
+        names, err = expand_port_pattern('iLO', 1)
+        assert err is None and names == ['iLO']
+
+    def test_count_append(self):
+        names, err = expand_port_pattern('eth', 4)
+        assert err is None and names == ['eth0', 'eth1', 'eth2', 'eth3']
+
+    def test_N_placeholder(self):
+        names, err = expand_port_pattern('gi-{N}/0', 3)
+        assert err is None and names == ['gi-0/0', 'gi-1/0', 'gi-2/0']
+
+    def test_range_wins_over_count(self):
+        names, err = expand_port_pattern('Eth1/{0..3}', 99)
+        assert err is None and names == ['Eth1/0', 'Eth1/1', 'Eth1/2', 'Eth1/3']
+
+    def test_range_preserves_zero_padding(self):
+        names, err = expand_port_pattern('p-{01..03}', 1)
+        assert err is None and names == ['p-01', 'p-02', 'p-03']
+
+    def test_range_inverted_errors(self):
+        names, err = expand_port_pattern('eth{5..1}', 1)
+        assert names is None and 'end' in err.lower()
+
+    def test_cap_exceeded(self):
+        names, err = expand_port_pattern('eth{0..9999}', 1)
+        assert names is None and 'max' in err.lower()
+
+    def test_empty_name_errors(self):
+        names, err = expand_port_pattern('', 1)
+        assert names is None and err
+
+
+class TestExpandTemplatePorts:
+    """Unit tests for expand_template_ports."""
+
+    def _tmpl(self, ports):
+        return {'id': 't', 'name': 'T', 'ports': ports}
+
+    def test_idempotent_on_flat(self):
+        t = self._tmpl([{'id': 'p1', 'name': 'eth0', 'count': 1}])
+        assert expand_template_ports(t)['ports'] == [
+            {'id': 'p1', 'name': 'eth0', 'count': 1}
+        ]
+
+    def test_count_expansion_keeps_first_id(self):
+        t = self._tmpl([{'id': 'p1', 'name': 'eth', 'count': 3}])
+        out = expand_template_ports(t)['ports']
+        assert [p['id'] for p in out] == ['p1', 'p1-1', 'p1-2']
+        assert [p['name'] for p in out] == ['eth0', 'eth1', 'eth2']
+
+    def test_port_ids_unique_after_expand(self):
+        t = self._tmpl([{'id': 'p1', 'name': 'Eth1/{0..47}', 'count': 1}])
+        out = expand_template_ports(t)['ports']
+        ids = [p['id'] for p in out]
+        assert len(ids) == 48 and len(set(ids)) == 48
+
+    def test_invalid_pattern_raises(self):
+        t = self._tmpl([{'id': 'p1', 'name': 'eth{5..1}', 'count': 1}])
+        with pytest.raises(ValueError):
+            expand_template_ports(t)
+
+    def test_save_expands_count(self):
+        t = {
+            'id': new_id(), 'name': 'T', 'vendor': '', 'model': '',
+            'category': 'server', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [{'id': 'p1', 'name': 'eth', 'port_type': 'data',
+                       'connector': 'RJ45', 'speed_gbps': 1, 'count': 4,
+                       'breakout_fan_out': 1, 'notes': ''}],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(t)
+        loaded = get_hw_template(t['id'])
+        assert len(loaded['ports']) == 4
+        assert [p['name'] for p in loaded['ports']] == ['eth0', 'eth1', 'eth2', 'eth3']
+
+    def test_save_expands_range(self):
+        t = {
+            'id': new_id(), 'name': 'T2', 'vendor': '', 'model': '',
+            'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [{'id': 'p1', 'name': 'Eth1/{0..3}', 'port_type': 'data',
+                       'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                       'breakout_fan_out': 1, 'notes': ''}],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(t)
+        loaded = get_hw_template(t['id'])
+        assert len(loaded['ports']) == 4
+        assert [p['name'] for p in loaded['ports']] == ['Eth1/0', 'Eth1/1', 'Eth1/2', 'Eth1/3']
+
+    def test_save_expands_N_placeholder(self):
+        t = {
+            'id': new_id(), 'name': 'T3', 'vendor': '', 'model': '',
+            'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [{'id': 'p1', 'name': 'gi-{N}/0', 'port_type': 'data',
+                       'connector': 'SFP28', 'speed_gbps': 25, 'count': 3,
+                       'breakout_fan_out': 1, 'notes': ''}],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(t)
+        loaded = get_hw_template(t['id'])
+        assert len(loaded['ports']) == 3
+        assert [p['name'] for p in loaded['ports']] == ['gi-0/0', 'gi-1/0', 'gi-2/0']
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cable pattern rendering
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestRenderPattern:
+    """Unit tests for render_pattern()."""
+
+    def test_all_placeholders(self):
+        ctx = {
+            'a': {'asset_tag': 'compute01', 'port': 'eth0',
+                  'port_type': 'data', 'connector': 'SFP28'},
+            'b': {'asset_tag': 'tor04', 'port': 'Eth1/3',
+                  'port_type': 'data', 'connector': 'SFP28'},
+            'cable_type': 'DAC',
+            'seq': '042',
+        }
+        out = render_pattern(
+            '{cable_type}-{a.asset_tag}:{a.port} -> {b.asset_tag}:{b.port} #{seq}', ctx)
+        assert out == 'DAC-compute01:eth0 -> tor04:Eth1/3 #042'
+
+    def test_missing_field_renders_empty(self):
+        ctx = {'a': {}, 'b': {}, 'cable_type': '', 'seq': ''}
+        assert render_pattern('{a.asset_tag}-{b.port}', ctx) == '-'
+
+    def test_unknown_placeholder_passes_through(self):
+        ctx = {'a': {'asset_tag': 'x'}, 'b': {}, 'cable_type': '', 'seq': ''}
+        assert render_pattern('{a.asset_tag}-{tenant}', ctx) == 'x-{tenant}'
+
+    def test_empty_pattern_returns_empty(self):
+        assert render_pattern('', {}) == ''
+
+    def test_seq_none_renders_empty(self):
+        ctx = {'a': {}, 'b': {}, 'cable_type': '', 'seq': None}
+        assert render_pattern('{seq}', ctx) == ''
+
+    def test_port_type_placeholder(self):
+        ctx = {'a': {'port_type': 'mgmt'}, 'b': {}, 'cable_type': '', 'seq': ''}
+        assert render_pattern('{a.port_type}-link', ctx) == 'mgmt-link'
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cable sequence counter
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestNextCableSeq:
+    """Unit tests for next_cable_seq()."""
+
+    def test_seq_increments(self, fake_redis):
+        s1 = next_cable_seq('p1', '{a.asset_tag}-{seq}')
+        s2 = next_cable_seq('p1', '{a.asset_tag}-{seq}')
+        assert (s1, s2) == ('001', '002')
+
+    def test_seq_zero_padded_to_three(self, fake_redis):
+        for _ in range(9):
+            next_cable_seq('p1', 'pat')
+        s = next_cable_seq('p1', 'pat')
+        assert s == '010'
+
+    def test_seq_isolated_per_project(self, fake_redis):
+        next_cable_seq('p1', 'pat')
+        next_cable_seq('p1', 'pat')
+        s = next_cable_seq('p2', 'pat')
+        assert s == '001'
+
+    def test_seq_isolated_per_pattern(self, fake_redis):
+        next_cable_seq('p1', 'pat-A')
+        s = next_cable_seq('p1', 'pat-B')
+        assert s == '001'
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Cable template validation codes
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCableTemplateValidation:
+    """Unit tests for CABLE_CONNECTOR_MISMATCH and CABLE_BREAKOUT_MISMATCH."""
+
+    def _make_project(self):
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        return pid
+
+    def _server_tmpl(self, connector='SFP28'):
+        t = {
+            'id': new_id(), 'name': 'Server', 'vendor': 'Dell', 'model': 'R650',
+            'category': 'server', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [
+                {'id': 'sfp0', 'name': 'sfp0', 'port_type': 'data',
+                 'connector': connector, 'speed_gbps': 25, 'count': 1,
+                 'breakout_fan_out': 1, 'notes': ''},
+            ],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(t)
+        return t
+
+    def _switch_tmpl(self):
+        t = {
+            'id': new_id(), 'name': 'Switch', 'vendor': 'Cisco', 'model': 'N9K',
+            'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+            'cable_type': '', 'description': '',
+            'ports': [
+                {'id': 'swp0', 'name': 'swp0', 'port_type': 'data',
+                 'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                 'breakout_fan_out': 1, 'notes': ''},
+            ],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(t)
+        return t
+
+    def _instance(self, pid, tmpl):
+        inst = {
+            'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
+            'asset_tag': f'{tmpl["name"][:3]}-{new_id()}',
+            'serial': '', 'status': 'deployed',
+            'location': {}, 'port_overrides': {},
+        }
+        save_hw_instance(inst)
+        return inst
+
+    def _cable(self, pid, tmpl_id, iid_a, port_a, iid_b, port_b, **extras):
+        c = {
+            'id': new_id(), 'template_id': tmpl_id, 'project_id': pid,
+            'asset_tag': 'CAB-TEST', 'label': '', 'length_m': '1',
+            'end_a': {'instance_id': iid_a, 'port_id': port_a},
+            'end_b': {'instance_id': iid_b, 'port_id': port_b},
+            'breakout': False, 'breakout_fan_out': 1,
+        }
+        c.update(extras)
+        save_cable(c)
+        return c
+
+    def test_connector_mismatch_via_template_emits_error(self):
+        seed_connectors()
+        pid   = self._make_project()
+        srv_t = self._server_tmpl(connector='RJ45')   # port is RJ45
+        sw_t  = self._switch_tmpl()                    # port is SFP28
+        srv   = self._instance(pid, srv_t)
+        sw    = self._instance(pid, sw_t)
+        cab_t = {
+            'id': new_id(), 'name': 'DAC', 'vendor': '', 'model': '',
+            'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
+            'cable_type': 'DAC', 'description': '', 'ports': [],
+            'scope': 'global', 'project_id': '',
+            'connector_a': 'QSFP28',   # expects QSFP28, but port is RJ45
+            'connector_b': '',
+            'breakout': False, 'breakout_fan_out': 1,
+            'asset_tag_pattern': '', 'label_pattern': '',
+        }
+        save_hw_template(cab_t)
+        self._cable(pid, cab_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0')
+        issues = validate_project(pid)
+        assert any(i['code'] == 'CABLE_CONNECTOR_MISMATCH' for i in issues)
+
+    def test_connector_compatible_via_matrix_no_mismatch_error(self):
+        seed_connectors()
+        pid   = self._make_project()
+        srv_t = self._server_tmpl(connector='SFP+')   # port is SFP+
+        sw_t  = self._switch_tmpl()
+        srv   = self._instance(pid, srv_t)
+        sw    = self._instance(pid, sw_t)
+        cab_t = {
+            'id': new_id(), 'name': 'DAC', 'vendor': '', 'model': '',
+            'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
+            'cable_type': 'DAC', 'description': '', 'ports': [],
+            'scope': 'global', 'project_id': '',
+            'connector_a': 'SFP28',   # SFP28 ↔ SFP+ is compatible per compat matrix
+            'connector_b': '',
+            'breakout': False, 'breakout_fan_out': 1,
+            'asset_tag_pattern': '', 'label_pattern': '',
+        }
+        save_hw_template(cab_t)
+        self._cable(pid, cab_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0')
+        issues = validate_project(pid)
+        assert not any(i['code'] == 'CABLE_CONNECTOR_MISMATCH' for i in issues)
+
+    def test_breakout_mismatch_warning(self):
+        seed_connectors()
+        pid   = self._make_project()
+        srv_t = self._server_tmpl()
+        sw_t  = self._switch_tmpl()
+        srv   = self._instance(pid, srv_t)
+        sw    = self._instance(pid, sw_t)
+        cab_t = {
+            'id': new_id(), 'name': 'DAC', 'vendor': '', 'model': '',
+            'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
+            'cable_type': 'DAC', 'description': '', 'ports': [],
+            'scope': 'global', 'project_id': '',
+            'connector_a': '', 'connector_b': '',
+            'breakout': True, 'breakout_fan_out': 4,   # template says breakout
+            'asset_tag_pattern': '', 'label_pattern': '',
+        }
+        save_hw_template(cab_t)
+        # Cable instance has breakout=False → mismatch
+        self._cable(pid, cab_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0',
+                    breakout=False)
+        issues = validate_project(pid)
+        assert any(i['code'] == 'CABLE_BREAKOUT_MISMATCH'
+                   and i['severity'] == 'warning' for i in issues)
+
+    def test_breakout_fan_out_mismatch_warning(self):
+        seed_connectors()
+        pid   = self._make_project()
+        srv_t = self._server_tmpl()
+        sw_t  = self._switch_tmpl()
+        srv   = self._instance(pid, srv_t)
+        sw    = self._instance(pid, sw_t)
+        cab_t = {
+            'id': new_id(), 'name': 'DAC', 'vendor': '', 'model': '',
+            'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
+            'cable_type': 'DAC', 'description': '', 'ports': [],
+            'scope': 'global', 'project_id': '',
+            'connector_a': '', 'connector_b': '',
+            'breakout': True, 'breakout_fan_out': 4,
+            'asset_tag_pattern': '', 'label_pattern': '',
+        }
+        save_hw_template(cab_t)
+        # Cable breakout=True but fan_out=2, template says 4
+        self._cable(pid, cab_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0',
+                    breakout=True, breakout_fan_out=2)
+        issues = validate_project(pid)
+        assert any(i['code'] == 'CABLE_BREAKOUT_MISMATCH'
+                   and i['severity'] == 'warning' for i in issues)
+
+    def test_no_mismatch_when_template_has_no_connector_fields(self):
+        seed_connectors()
+        pid   = self._make_project()
+        srv_t = self._server_tmpl(connector='RJ45')
+        sw_t  = self._switch_tmpl()
+        srv   = self._instance(pid, srv_t)
+        sw    = self._instance(pid, sw_t)
+        # Cable template without connector_a/connector_b — old-style template
+        cab_t = {
+            'id': new_id(), 'name': 'DAC', 'vendor': '', 'model': '',
+            'category': 'cable', 'form_factor': 'N/A', 'u_size': 0,
+            'cable_type': 'DAC', 'description': '', 'ports': [],
+            'scope': 'global', 'project_id': '',
+        }
+        save_hw_template(cab_t)
+        self._cable(pid, cab_t['id'], srv['id'], 'sfp0', sw['id'], 'swp0')
+        issues = validate_project(pid)
+        assert not any(i['code'] == 'CABLE_CONNECTOR_MISMATCH' for i in issues)
+        assert not any(i['code'] == 'CABLE_BREAKOUT_MISMATCH' for i in issues)

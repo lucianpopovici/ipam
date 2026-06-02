@@ -70,6 +70,12 @@ def get_template_set(tsid):
     return json.loads(raw) if raw else None
 
 
+def customer_vrfs(cid):
+    """Return all VRFs for a customer (lazy import to avoid circular)."""
+    from vrf import customer_vrfs as _cv  # pylint: disable=import-outside-toplevel
+    return _cv(cid)
+
+
 def customer_template_sets(cid):
     """Return all template sets for a customer, sorted newest first."""
     tsids = r.smembers(_customer_ts_index_key(cid))
@@ -140,10 +146,13 @@ def customer_detail(cid):
     projects = [p for pid in proj_ids if (p := get_project(pid))]
     projects.sort(key=lambda p: p.get('name', ''))
 
+    vrfs = customer_vrfs(cid)
+
     return render_template('customers/customer_detail.html',
                            customer=customer,
                            template_sets=template_sets,
-                           projects=projects)
+                           projects=projects,
+                           vrfs=vrfs)
 
 
 @customer_bp.route('/customers/<cid>/edit', methods=['GET', 'POST'])

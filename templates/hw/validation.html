@@ -44,6 +44,8 @@
 {% set code_descriptions = {
   'CONNECTOR_MISMATCH':    'Cable connector type is not compatible with the port it is plugged into.',
   'CABLE_PORT_TYPE_MISMATCH': 'Cable type does not match port type (e.g. power cable on data port).',
+  'CABLE_CONNECTOR_MISMATCH': 'Template declares a specific connector at end A or B, but the actual port connector is not compatible with it (checked via the connector compat matrix).',
+  'CABLE_BREAKOUT_MISMATCH': 'Cable template specifies breakout=true (or a specific fan-out count) but the cable instance disagrees, or vice versa.',
   'SPEED_MISMATCH':        'DAC/AOC cable speed does not match the connected port speeds.',
   'PORT_DOUBLE_CONNECTED': 'A port has more than one cable connected to it.',
   'CABLE_UNCONNECTED_A':   'Cable end A is not connected to any device/port.',

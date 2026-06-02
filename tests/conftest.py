@@ -37,7 +37,8 @@ def fake_redis(monkeypatch):
     import customer
     import checks_logic
     import services_logic
-    for mod in (db, ipam, ne, hw_logic, vmware, auth, customer, checks_logic):
+    import vrf
+    for mod in (db, ipam, ne, hw_logic, vmware, auth, customer, checks_logic, vrf):
         monkeypatch.setattr(mod, 'r', fake_r)
     # services_logic uses db.r (import db; db.r) — db is already patched above
 
@@ -77,7 +78,8 @@ def seeded_project(client):
     # Extract pid from redirect Location header
     location = resp.headers.get('Location', '')
     pid = location.rstrip('/').split('/')[-1]
-    return {'id': pid, 'name': 'Test Project', 'supernet': '10.0.0.0/8'}
+    return {'id': pid, 'name': 'Test Project', 'supernet': '10.0.0.0/8',
+            'legacy_supernet': '10.0.0.0/8'}
 
 
 @pytest.fixture

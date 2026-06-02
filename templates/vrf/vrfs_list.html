@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
+{% block title %}VRFs – {{ customer.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Customers', 'url': url_for('customer.customers_list')},
+  {'label': customer.name, 'url': url_for('customer.customer_detail', cid=customer.id)},
+  {'label': 'VRFs'}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">VRFs <small class="text-muted fs-6">{{ customer.name }}</small></h4>
+  <a href="{{ url_for('vrf.add_vrf', cid=customer.id) }}" class="btn btn-primary btn-sm">+ Add VRF</a>
+</div>
+
+{% if vrfs %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>RD</th>
+          <th>RT Import</th>
+          <th>RT Export</th>
+          <th>Description</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vrfs %}
+        <tr>
+          <td><strong>{{ v.name }}</strong> <code class="small text-muted">{{ v.id }}</code></td>
+          <td>{{ v.rd or '—' }}</td>
+          <td class="small">{{ v.rt_import | join(', ') or '—' }}</td>
+          <td class="small">{{ v.rt_export | join(', ') or '—' }}</td>
+          <td class="text-muted small">{{ v.description or '' }}</td>
+          <td class="text-end">
+            <a href="{{ url_for('vrf.edit_vrf', cid=customer.id, vid=v.id) }}"
+               class="btn btn-sm btn-outline-secondary">Edit</a>
+            {{ confirm_delete(
+                 url_for('vrf.delete_vrf_route', cid=customer.id, vid=v.id),
+                 v.name,
+                 url_for('vrf.api_vrf_impact', vid=v.id)
+               ) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+{{ empty_state(
+  icon='🔀',
+  title='No VRFs yet',
+  body='VRFs isolate routing tables for this customer. The global routing table (VRF = null) is always available without a record.',
+  primary_action={'label': '+ Add VRF', 'url': url_for('vrf.add_vrf', cid=customer.id)}
+) }}
+{% endif %}
+{% endblock %}

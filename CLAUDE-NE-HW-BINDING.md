@@ -11,9 +11,13 @@
 >
 > **Scope:** The unified model for mapping NE interfaces to hardware
 > ports. An NE rarely uses every port of a device. The user picks which
-> HW ports map to which NE interfaces; the binding can be a single port,
-> a LAG of N ports, an active/passive pair, or a rule that auto-materializes
-> against current inventory.
+> HW ports map to which NE interfaces, with a **filter-driven picker**
+> (port type, connector, port labels) where **cabling status is not a
+> binding constraint**. The binding can be a single port, a LAG of N
+> ports, an active/passive pair, or a rule that auto-materializes against
+> current inventory. Each binding attaches the NE iface's subnet to the
+> bound port and propagates it one hop through any attached cable.
+> Ports that require their own IP get one allocated from the same subnet.
 >
 > **Status:** Design — not yet implemented. Supersedes the simplistic
 > 1:1 `iface_bindings` shown in `CLAUDE-TENANTS-VRF-MAPPING.md` Phase 3.
@@ -138,36 +142,65 @@ wan             srv-01 / Eth1/1                   [Edit] [Unbind]
 lan             srv-01 / Eth1/2,3,4,5  (LAG)      [Edit] [Unbind]
 ```
 
-Clicking [+ Bind] opens a modal:
+Clicking [+ Bind] opens a modal. The picker is **filter-driven, not
+inventory-driven** — the user describes the kind of port they want and
+the candidate list narrows accordingly. **Cabling status is not a binding
+constraint:** a port can be bound to an NE iface regardless of whether
+it has a cable. Cabling is a separate physical concern; binding is a
+logical assignment.
 
 ```
 Bind iface 'mgmt'
-─────────────────────────────────────────
-Hardware instance       [▼ pick one ── ]
-   ↓ once selected:
+────────────────────────────────────────────────────────────
 Bind mode               (•) single  ( ) LAG  ( ) active-passive
-Ports                   [▢] Eth1/1   data   in use by NE wan-router
-                        [▢] Eth1/2   data
-                        [▢] Eth1/3   data
-                        [☑] iLO      mgmt   ← selected
-                        [▢] mgmt0    mgmt
-                        ...
-Filter                  [port_type: mgmt ▼]  [show: free ▼]
-                                                      [Cancel] [Bind]
+HW instance scope       [▼ all in project ──]   (filter typeahead)
+
+Port filters
+  Port type             [☑ mgmt]  [▢ data]  [▢ console]  [▢ power]  [▢ usb]
+  Connector             [▼ any (or pick: RJ45, SFP+, SFP28, …)         ]
+  Port labels           [▼ any (or any-of: ipmi, uplink, console, …)   ]
+  Exclude               [☑] bound to another NE iface (default on, recommended)
+                        [▢] cabled to a non-bound port
+
+Candidate ports (12 matched)
+   [▢] srv-001 / iLO       mgmt  RJ45  labels: ipmi
+   [☑] srv-001 / iDRAC     mgmt  RJ45  labels: ipmi
+   [▢] srv-001 / mgmt0     mgmt  RJ45                cabled → tor-01:Eth1/47
+   [▢] srv-002 / iLO       mgmt  RJ45  labels: ipmi
+   [▢] sw-tor-01 / mgmt0   mgmt  RJ45                bound by NE oob-mgmt
+   ...
+                                                          [Cancel] [Bind]
 ```
 
 Critical UX rules:
 
-- The port list **shows in-use ports greyed out** with the NE/iface that
-  owns them. Lets the user see context, but prevents accidental overlap.
-- A `port_type` filter dropdown defaults sensibly per iface (`mgmt` iface
-  defaults to filtering `mgmt` ports; `data` iface to `data`). User can
-  clear the filter.
-- `bind_mode='single'` greys out all checkboxes after the first is ticked.
-  `lag` allows multi-select.
-- The HW dropdown lists **all HW instances in the project** by default,
-  with a textual filter — not just instances in the same POD. Real
-  deployments cable across pods (e.g., to spine).
+- **Filters narrow; they don't gate.** Every filter is "show me ports
+  matching X" — clearing them all shows every port in the scope. No
+  filter is mandatory.
+- Filters compose with **AND between categories, OR within a category**
+  (e.g. port type = `mgmt` AND connector ∈ {`RJ45`, `SFP+`}).
+- The **port_type filter defaults sensibly per NE iface**: an iface
+  labeled `mgmt` opens the modal with port_type=`mgmt` pre-checked; a
+  `data` iface with port_type=`data`. The user can clear to see all
+  types. This is convenience, not enforcement.
+- The **"bound to another NE iface" exclude is on by default** — the
+  one occupancy concept that actually matters for binding. Turning it
+  off shows already-bound ports as informational rows (greyed out with
+  the owning NE name).
+- **Cabling is shown as a per-row badge** ("cabled → tor-01:Eth1/47" or
+  "uncabled"), purely informational. It is **not** a default exclusion
+  filter; the second exclude checkbox above lets the user opt in to
+  hiding cabled-but-unbound ports if they want to.
+- `bind_mode='single'` greys out all checkboxes after the first is
+  ticked. `lag` allows multi-select.
+- The **HW instance scope** dropdown lists every HW instance in the
+  project by default, with a textual filter — not just instances in the
+  same POD. Real deployments cable across pods.
+
+The candidate-list query is one call to a new endpoint
+`GET /api/projects/<pid>/ports/search?…` (see Routes below) that
+evaluates the filters server-side; the modal pages through results when
+the project is large.
 
 ### Workflow B — Pattern-to-pattern bulk bind
 
@@ -375,33 +408,46 @@ Updated atomically on binding save/unbind. Used by:
 
 ---
 
-## Free-port visibility
+## Port-state visibility
 
 A common operational question: "of this 48-port switch, which ports are
-free?" Surface it on the HW instance detail page:
+bound, cabled, and to what subnets?" Surface it on the HW instance detail
+page. **Cabling and binding are independent dimensions** — a port can be
+in any combination of cabled/uncabled and bound/unbound — so display them
+as separate badges, not a single status:
 
 ```
 hw-tor-01 — Dell-N9336C — 48 ports
-────────────────────────────────────
-Eth1/1     data    bound: NE pe-lon-01 / wan
-Eth1/2     data    bound: NE access-01 / access:0
-Eth1/3     data    bound: NE access-01 / access:1
-...
-Eth1/24    data    bound: NE access-01 / access:23
-Eth1/25    data    cabled (no NE) to srv-009
-Eth1/26    data    free
-...
-Eth1/47    data    LAG member (NE pe-lon-01 / spine-uplink)
-Eth1/48    data    LAG member (NE pe-lon-01 / spine-uplink)
-iLO        mgmt    bound: NE oob-mgmt / mgmt (via auto-rule)
+─────────────────────────────────────────────────────────────────────
+Port      Type  Connector  Binding                  Cable               Subnets attached
+Eth1/1    data  SFP+       NE pe-lon-01 / wan       → srv-001/Eth1/1    10.1.0.0/24 direct
+Eth1/2    data  SFP+       NE access-01 / access:0  → srv-002/Eth1/1    10.2.0.0/24 direct
+Eth1/3    data  SFP+       NE access-01 / access:1  uncabled            10.2.0.0/24 direct
+Eth1/24   data  SFP+       NE access-01 / access:23 → srv-024/Eth1/1    10.2.0.0/24 direct
+Eth1/25   data  SFP+       —                        → srv-009/Eth1/1    10.5.0.0/24 propagated
+Eth1/26   data  SFP+       —                        uncabled            —
+Eth1/47   data  QSFP28     NE pe-lon-01 / uplink (LAG)  → spine-01/Eth1/1  10.99.0.0/30 direct
+Eth1/48   data  QSFP28     NE pe-lon-01 / uplink (LAG)  → spine-02/Eth1/1  10.99.0.0/30 direct
+iLO       mgmt  RJ45       NE oob-mgmt / mgmt (auto-rule) uncabled       10.0.0.0/24 direct (IP: 10.0.0.5)
+mgmt0     mgmt  RJ45       —                        → tor-mgmt-sw/Eth1/3 —
 ```
 
-Three port states, color-coded:
-- **bound** (any mode) → muted blue, shows NE name and the binding mode badge
-- **cabled but unbound** → grey, shows cable peer
-- **free** → green
+Four independent badge columns:
 
-This view is the antidote to "I have no idea what's left on this switch."
+- **Binding**: empty, or `NE … / iface (mode)`. Auto-rule, single, lag,
+  active-passive each get a small badge.
+- **Cable**: `uncabled`, or `→ peer-instance/peer-port`.
+- **Subnets attached**: one or more rows showing the network and its
+  source (`direct` from this port's binding, or `propagated` via cable).
+  For ports with `requires_ip=true` and an allocated IP, the IP itself is
+  shown.
+
+A summary row at the top: `48 ports — 30 bound, 12 cabled-only, 6 free`.
+
+Filters at the top let the user narrow by any combination ("show only
+bound ports", "show only ports attached to subnet 10.1.0.0/24", "show
+only uncabled ports"). The filters are URL parameters so the view is
+linkable from elsewhere.
 
 ---
 
@@ -409,43 +455,185 @@ This view is the antidote to "I have no idea what's left on this switch."
 
 Extend `templates/hw/validation.html` with binding-specific codes:
 
-| Code                          | Severity | Trigger                                                  |
-|-------------------------------|----------|----------------------------------------------------------|
-| `NE_PORT_DOUBLE_BOUND`        | error    | Same `(hw_instance, port)` in two NE iface `ports[]`.    |
-| `NE_PORT_NOT_FOUND`           | error    | Binding references a port_id not in the HW template (after expansion). |
-| `NE_PORT_TYPE_MISMATCH`       | warning  | NE iface labeled `data` bound to `mgmt` port (or vice versa). |
-| `NE_LAG_SINGLE_PORT`          | warning  | `bind_mode='lag'` with only one port in `ports`.         |
-| `NE_LAG_SPEED_MISMATCH`       | warning  | LAG members have different `speed_gbps`.                 |
-| `NE_LAG_MIXED_HOSTS`          | info     | LAG spans multiple HW instances (probably MC-LAG; fine). |
-| `NE_RULE_EXPLICIT_OVERLAP`    | info     | Auto-rule match excluded due to an explicit binding on the same port. |
-| `NE_RULE_NO_MATCH`            | warning  | Auto-rule defined but materialized to zero ports.        |
-| `NE_RULE_UNRACKED_PORT`       | warning  | Auto-rule with `group_by:['rack']` matched a port whose HW instance has no rack. |
-| `NE_RULE_STALE`               | warning  | HW changed since the rule was last materialized — rematerialize to refresh. |
+| Code                                | Severity | Trigger                                                  |
+|-------------------------------------|----------|----------------------------------------------------------|
+| `NE_PORT_DOUBLE_BOUND`              | error    | Same `(hw_instance, port)` in two NE iface `ports[]`.    |
+| `NE_PORT_NOT_FOUND`                 | error    | Binding references a port_id not in the HW template (after expansion). |
+| `NE_PORT_TYPE_MISMATCH`             | warning  | NE iface labeled `data` bound to `mgmt` port (or vice versa). |
+| `NE_LAG_SINGLE_PORT`                | warning  | `bind_mode='lag'` with only one port in `ports`.         |
+| `NE_LAG_SPEED_MISMATCH`             | warning  | LAG members have different `speed_gbps`.                 |
+| `NE_LAG_MIXED_HOSTS`                | info     | LAG spans multiple HW instances (probably MC-LAG; fine). |
+| `NE_RULE_EXPLICIT_OVERLAP`          | info     | Auto-rule match excluded due to an explicit binding on the same port. |
+| `NE_RULE_NO_MATCH`                  | warning  | Auto-rule defined but materialized to zero ports.        |
+| `NE_RULE_UNRACKED_PORT`             | warning  | Auto-rule with `group_by:['rack']` matched a port whose HW instance has no rack. |
+| `NE_RULE_STALE`                     | warning  | HW changed since the rule was last materialized — rematerialize to refresh. |
+| `NE_SUBNET_CONFLICT_AT_CABLE_FAR_END` | error    | A cable's two ports have different attached subnets — a true L2 design error. |
+| `NE_PORT_NEEDS_IP_NO_SUBNET`        | error    | Port has `requires_ip=true` and is bound, but the NE iface has no allocated subnet to draw from. |
+| `NE_PORT_IP_OUTSIDE_SUBNET`         | error    | Port's `port_overrides.ip` is not within the bound NE iface's subnet (drift from earlier allocation, or manual edit). |
+| `NE_PORT_LABEL_FILTER_NO_MATCH`     | info     | A binding picker was filtered by labels yielding zero candidates — surfaced only in the picker, not stored. |
 
 The `NE_PORT_DOUBLE_BOUND` check uses the `hw:port_bound:` index — O(1).
+`NE_SUBNET_CONFLICT_AT_CABLE_FAR_END` is computed lazily by the
+validation route per cable, comparing `port_attached_subnets` at both
+ends.
 
 ---
 
-## Integration with VRFs and IP allocation
+## Subnet attachment, propagation, and port IPs
 
-Each iface binding carries (transitively, via the NE iface) a `vrf_id`.
-When `compute_requirements` runs for this NE instance, the emitted
-requirement is per-iface (not per-port) — multiple ports in a LAG share
-one logical iface and therefore one IP.
+A binding has three downstream effects that flow from the NE iface's
+allocated subnet to the physical world.
 
-The "Allocate IPs" action writes the IP into `port_overrides[port_id].ip`
-for **every port in the binding** (so it shows up on each port's view),
-but the IP is one and the same. Add a `port_overrides.shared_with: []` to
-make this auditable:
+### 1. Subnet attaches to the bound port
+
+When an NE iface with an allocated network (subnet) is bound to a HW
+port, that subnet is considered **attached** to the port. This is
+**derived state**, not stored:
+
+```python
+def port_attached_subnets(hw_instance_id, port_id, pid) -> list[dict]:
+    """
+    Return the subnets attached to this port, with their source.
+    [{network_id, network_cidr, source: 'direct'|'propagated',
+      ne_instance_id, iface_id}, ...]
+    """
+```
+
+A port can have **multiple** subnets attached when it's a member of
+LAGs across address families (rare but legal) or via cable propagation
+(below).
+
+### 2. Subnet propagates one hop through cables
+
+When the bound port has a cable, the **far-end port** also gets the same
+subnet attached, with `source='propagated'`. Single-hop only; ipam does
+not chase chains of switches. The reasoning: the far-end port is the
+device-side port that physically terminates this L2 domain, and the
+customer engineer needs to see "this subnet lands on switch X port Y" to
+configure the switch correctly.
+
+```
+NE iface 'data' (10.1.0.0/24, has IP 10.1.0.1)
+   │
+   │ bound to (direct)
+   ▼
+srv-001 / Eth1/1                 ← subnets attached: [10.1.0.0/24 direct via NE 'pe-lon-01' iface 'data']
+   │
+   │ cable
+   ▼
+tor-01 / Eth1/24                 ← subnets attached: [10.1.0.0/24 propagated via cable C-042]
+```
+
+If `tor-01:Eth1/24` is itself the *source* of another binding (e.g.
+it's also a member of a switch-management NE iface), both subnets
+appear on the port — both with their own `source` and origin.
+
+**Two different subnets meeting at the two ends of one cable is a
+design error** and surfaces as `NE_SUBNET_CONFLICT_AT_CABLE_FAR_END`
+(see Validation).
+
+### 3. IP allocation for ports that require one
+
+HW template ports carry an optional `requires_ip: bool` flag (see "Port
+data model additions" below). When a port with `requires_ip=true` is
+bound — directly or as a LAG member — ipam **automatically allocates an
+IP** for that port from the bound NE iface's subnet.
+
+Common cases:
+
+| Port           | port_type | requires_ip | Why                                                    |
+|----------------|-----------|-------------|--------------------------------------------------------|
+| `iLO`, `iDRAC`, `BMC` | `mgmt`    | true        | Each board has its own IP independent of the OS.       |
+| `mgmt0` (Linux server) | `mgmt`    | false       | OS-managed; the NE iface itself carries the IP.        |
+| `mgmt0` (Cisco switch) | `mgmt`    | true        | Switch's own management IP, distinct from any hosted NE.|
+| `console`              | `console` | false       | Serial console; no IP.                                  |
+| `Eth1/1` (data port)   | `data`    | false       | The NE/host owns the IP, not the port itself.           |
+
+The allocation is one IP per port-that-requires-one, stored in
+`port_overrides[port_id].ip`. This is **distinct** from the NE iface's
+primary IP — both come from the same subnet.
+
+**LAG semantics:**
+
+- For a LAG of N ports, the **iface** gets one primary IP (the bond/LAG
+  address). The members do not each get their own IP unless their
+  `requires_ip=true` (rare for data ports; common only when LAG members
+  individually require management addressing, almost never).
+- For mixed LAGs where one member requires an IP and another doesn't,
+  allocate only for the requiring members.
+
+**Auto-rule semantics:**
+
+- Each materialized port in `ports[]` is treated as an independent
+  binding for allocation purposes — i.e. one IP per port — because
+  auto-rule typically describes "every iLO across the project, each
+  one gets its own IP."
+- IPs come from the **bucket's** subnet, not a shared one. With
+  `group_by: ['rack']`, rack R-01's iLOs get IPs from the
+  `rack:R-01`-labeled subnet, R-02's from its own. This is the
+  per-bucket pool resolution already covered earlier.
+
+### Allocation route
+
+```
+POST /ne-instances/<nid>/bindings/<iface_id>/allocate-ips
+```
+
+Triggered explicitly by the user after binding. Idempotent: re-running
+is a no-op if every requires-IP port already has an IP in the subnet.
+The "Allocate" button appears on the NE instance detail page once the
+iface has a pushed subnet and at least one bound port that needs an IP.
+
+### Reverse view: "which subnets does this device see?"
+
+The HW instance detail page gains a new section listing every subnet
+attached to any of its ports, with the source and propagation marker.
+This is the answer to "which subnets terminate on tor-01?"
+
+```
+Subnets attached to tor-01
+──────────────────────────
+10.0.1.0/24   propagated   via cable C-042 from srv-001/Eth1/1
+10.0.2.0/24   propagated   via cable C-043 from srv-002/Eth1/1
+10.0.99.0/24  direct       NE oob-mgmt iface 'mgmt' on this device's mgmt0
+```
+
+Same data, computed via `port_attached_subnets` for each port and
+deduplicated by network_id.
+
+### Port data model additions
+
+These changes belong on the HW template `port` entry; they're called
+out here because the binding semantics depend on them. Coordinate with
+the implementation of `CLAUDE-NAME-PATTERNS.md` (which also touches
+ports) to land them in one migration:
 
 ```json
-"port_overrides": {
-  "Eth1:47": {"ip": "10.0.0.1", "shared_with": ["Eth1:46"], "lag_id": 1},
-  "Eth1:46": {"ip": "10.0.0.1", "shared_with": ["Eth1:47"], "lag_id": 1}
+{
+  "id": "iLO",
+  "name": "iLO",
+  "name_pattern": null,                  // see CLAUDE-NAME-PATTERNS.md
+  "port_type": "mgmt",
+  "connector": "RJ45",
+  "speed_gbps": 1,
+  "count": 1,
+  "labels": ["ipmi"],                    // NEW: free-form per-port labels
+  "requires_ip": true,                   // NEW: triggers automatic IP allocation when bound
+  "breakout_fan_out": 1,
+  "notes": ""
 }
 ```
 
-For single-port bindings, `shared_with` is empty.
+**Defaults** during migration: every existing port gets `labels: []`
+and `requires_ip` set by port_type heuristic:
+
+- `port_type='mgmt'` and `name` matches `^(iLO|iDRAC|BMC|ME)` → `true`
+- everything else → `false`
+
+The heuristic catches the common cases; users edit the few that the
+heuristic gets wrong. Conservative default: when in doubt, `false` —
+spurious IP allocation is worse than a missing one (it consumes
+addresses for nothing).
 
 ---
 
@@ -551,11 +739,14 @@ tests/e2e/test_ne_hw_binding.py                  NEW
 | POST   | `/ne-instances/<nid>/bindings/<iface_id>`                  | Create/update a binding (any mode) |
 | POST   | `/ne-instances/<nid>/bindings/<iface_id>/delete`           | Unbind                   |
 | POST   | `/ne-instances/<nid>/bindings/<iface_id>/rematerialize`    | Refresh auto-rule's `ports[]` |
+| POST   | `/ne-instances/<nid>/bindings/<iface_id>/allocate-ips`     | Allocate IPs for bound ports with `requires_ip=true` |
 | POST   | `/ne-instances/<nid>/bindings/bulk`                        | Workflow B               |
 | POST   | `/ne-instances/<nid>/bindings/autoresolve`                 | Workflow C (whole-device)|
 | POST   | `/projects/<pid>/rematerialize-rules`                      | Refresh every auto-rule binding in the project (e.g. after bulk HW import) |
-| GET    | `/api/projects/<pid>/hw/<hwid>/free-ports?type=mgmt`       | Picker datasource        |
-| GET    | `/api/projects/<pid>/hw/<hwid>/bindings`                   | Read-only HW-side view   |
+| GET    | `/api/projects/<pid>/ports/search`                         | Filter-driven port picker datasource for Workflow A. Params: `port_types[]`, `connectors[]`, `labels_any[]`, `hw_instance_id` (optional scope), `exclude_bound` (bool, default true), `exclude_cabled` (bool, default false), `page`, `page_size`. |
+| GET    | `/api/projects/<pid>/hw/<hwid>/bindings`                   | Read-only HW-side view: bindings + cabling + attached subnets per port |
+| GET    | `/api/projects/<pid>/ports/<hwid>:<port_id>/subnets`       | Subnets attached to a port (direct + propagated)        |
+| GET    | `/api/projects/<pid>/hw/<hwid>/subnets`                    | All subnets attached to any port on this HW instance — deduplicated, for the "subnets attached to tor-01" view |
 | POST   | `/api/projects/<pid>/rules/preview`                        | Workflow D preview (rule → buckets + counts, no save) |
 
 ---
@@ -572,8 +763,31 @@ tests/e2e/test_ne_hw_binding.py                  NEW
       bindings; preview shows them before commit.
 - [ ] An attempt to bind a port already used by another NE instance is
       refused at save time with a clear error citing the conflicting NE.
-- [ ] The HW instance detail page shows three port states (bound / cabled
-      / free) with correct counts.
+- [ ] The Workflow A picker filters candidates by **port type, connector,
+      and port labels** (AND between categories, OR within each); clearing
+      every filter shows every port in scope.
+- [ ] The picker shows cabled ports as bindable candidates by default —
+      cabling is informational, not a binding gate. The optional "exclude
+      cabled-but-unbound" toggle removes them when the user wants to.
+- [ ] The HW instance detail page shows binding and cabling as independent
+      columns (a port can be in any of the four binding × cabling
+      combinations); a separate "Subnets attached" column lists every
+      subnet attached to the port with its source (direct/propagated) and
+      the per-port allocated IP if any.
+- [ ] When NE iface `data` (allocated subnet `10.1.0.0/24`) is bound to
+      `srv-001/Eth1/1`, that port's "Subnets attached" shows
+      `10.1.0.0/24 direct`, **and** the cable's far-end port
+      (`tor-01/Eth1/24`) shows `10.1.0.0/24 propagated` — one hop only.
+- [ ] Binding an NE iface to a port with `requires_ip=true` and then
+      hitting "Allocate IPs" pops an IP from the iface's subnet into
+      `port_overrides[port_id].ip`. Re-running the allocate action is
+      idempotent.
+- [ ] Two NE bindings whose subnets terminate on the two ends of one
+      cable trigger `NE_SUBNET_CONFLICT_AT_CABLE_FAR_END` at validation
+      time, with both NE/iface origins cited.
+- [ ] A binding on a port with `requires_ip=true` when the NE iface has
+      no allocated subnet yet produces `NE_PORT_NEEDS_IP_NO_SUBNET` and
+      blocks the allocate-ips action with a clear message.
 - [ ] The OOB use case from the superseded selector doc works end-to-end:
       an `auto-rule` binding with `port_types=['mgmt']`, `group_by=['rack']`
       materializes per-rack `ports[]` entries and emits one IP requirement
@@ -584,10 +798,10 @@ tests/e2e/test_ne_hw_binding.py                  NEW
 - [ ] Adding a new HW instance and clicking `[↻ Re-evaluate rules]` adds
       its matching ports to the relevant `auto-rule` binding without
       manual intervention.
-- [ ] Allocating an IP for a LAG iface writes the same IP into every
-      bound port's `port_overrides`, with correct `shared_with` linkage.
-- [ ] Unbinding releases the port back to "cabled" or "free" state and
-      cleans the `hw:port_bound:` index entry atomically.
+- [ ] Unbinding releases the port (clears `port_overrides.ip` if it was
+      allocated by this binding) and the `hw:port_bound:` index entry
+      atomically; subnet attachments on the port and its cable far end
+      disappear from the next read.
 - [ ] Auto-resolve correctly matches `mgmt` ↔ `iLO`/`iDRAC`/`BMC` by the
       port_type fallback when names don't match exactly.
 

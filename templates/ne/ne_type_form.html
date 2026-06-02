@@ -193,8 +193,18 @@ function moveIface(i,d){ const j=i+d; if(j>=0&&j<ifaces.length){[ifaces[i],iface
 
 function toggleSubnet(i, ver){
   if(ifaces[i][ver]) ifaces[i][ver]=null;
-  else ifaces[i][ver]={prefix_len: ver==='ipv4'?24:64};
+  else ifaces[i][ver]={address_count: 1, min_prefix: null};
   render();
+}
+
+function _ifaceAddrCount(spec, ver){
+  if(spec.address_count != null) return spec.address_count;
+  // Legacy prefix_len → display address_count
+  const pl = spec.prefix_len || (ver==='ipv4'?24:64);
+  if(ver==='ipv6') return pl>=128?1:Math.pow(2,128-pl);
+  if(pl>=32) return 1;
+  if(pl===31) return 2;
+  return Math.max(1, Math.pow(2,32-pl)-2);
 }
 
 function renderParamInputs(iface, i){
@@ -265,14 +275,16 @@ function render(){
             <input class="form-check-input" type="checkbox" id="ipv4_${i}"
                    ${iface.ipv4?'checked':''}
                    onchange="toggleSubnet(${i},'ipv4')">
-            <label class="form-check-label small" for="ipv4_${i}">IPv4 subnet</label>
+            <label class="form-check-label small" for="ipv4_${i}">IPv4 addresses</label>
           </div>
           ${iface.ipv4?`
-          <div class="input-group input-group-sm" style="width:110px">
-            <span class="input-group-text">/</span>
-            <input type="number" class="form-control" min="1" max="32"
-                   value="${iface.ipv4.prefix_len}"
-                   oninput="ifaces[${i}].ipv4={prefix_len:parseInt(this.value)||24}">
+          <div class="d-flex gap-1 align-items-center">
+            <div class="input-group input-group-sm" style="width:130px">
+              <span class="input-group-text small">count</span>
+              <input type="number" class="form-control" min="1" max="65534"
+                     value="${_ifaceAddrCount(iface.ipv4,'ipv4')}"
+                     oninput="ifaces[${i}].ipv4={address_count:parseInt(this.value)||1,min_prefix:ifaces[${i}].ipv4.min_prefix||null}">
+            </div>
           </div>`:''}
         </div>
         {# IPv6 subnet #}
@@ -281,14 +293,16 @@ function render(){
             <input class="form-check-input" type="checkbox" id="ipv6_${i}"
                    ${iface.ipv6?'checked':''}
                    onchange="toggleSubnet(${i},'ipv6')">
-            <label class="form-check-label small" for="ipv6_${i}">IPv6 subnet</label>
+            <label class="form-check-label small" for="ipv6_${i}">IPv6 addresses</label>
           </div>
           ${iface.ipv6?`
-          <div class="input-group input-group-sm" style="width:120px">
-            <span class="input-group-text">/</span>
-            <input type="number" class="form-control" min="1" max="128"
-                   value="${iface.ipv6.prefix_len}"
-                   oninput="ifaces[${i}].ipv6={prefix_len:parseInt(this.value)||64}">
+          <div class="d-flex gap-1 align-items-center">
+            <div class="input-group input-group-sm" style="width:130px">
+              <span class="input-group-text small">count</span>
+              <input type="number" class="form-control" min="1"
+                     value="${_ifaceAddrCount(iface.ipv6,'ipv6')}"
+                     oninput="ifaces[${i}].ipv6={address_count:parseInt(this.value)||1,min_prefix:ifaces[${i}].ipv6.min_prefix||null}">
+            </div>
           </div>`:''}
         </div>
         {# Sharing level #}

@@ -2,3 +2,10 @@ ne_kinds:       [CNF, VNF, PNF, VM, Container]
 field_types:    [text, number, textarea, dropdown, multi-select, checkbox]
 sharing_levels: [project, site, pod, ne, interface]
 entity_types:   [site, pod, ne, interface]
+
+label_categories:
+  env:         {scope: [subnet, ne, hw],  multi_valued: false}
+  role:        {scope: [subnet, ne, hw],  multi_valued: true}
+  tier:        {scope: [subnet, ne],      multi_valued: false}
+  criticality: {scope: [subnet],          multi_valued: false}
+  tag:         {scope: [subnet, ne, hw],  multi_valued: true}

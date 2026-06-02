@@ -41,10 +41,12 @@
 
         <div class="mb-1 d-flex justify-content-between align-items-center">
           <label class="form-label fw-semibold mb-0">Rules</label>
-          <div class="d-flex gap-2">
+          <div class="d-flex gap-2 flex-wrap">
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addRule('from_start')">+ From Start</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addRule('from_end')">+ From End</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addRule('range')">+ Range</button>
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="addRule('per_hw')">+ Per HW</button>
+            <button type="button" class="btn btn-sm btn-outline-info" onclick="addRule('per_ne')">+ Per NE</button>
             <button type="button" class="btn btn-sm btn-outline-light border" onclick="loadExample()">Example</button>
           </div>
         </div>
@@ -90,27 +92,48 @@
 <script>
 let rules = {{ (tmpl.rules if tmpl else []) | tojson }};
 const STATUSES = ['reserved', 'allocated', 'dhcp'];
+const OFFSET_KINDS = ['fixed', 'after_previous'];
 const DEFAULTS = {
-  from_start: {type:'from_start', offset:1,  role:'gateway',  status:'reserved'},
-  from_end:   {type:'from_end',   count:1,   role:'reserved', status:'reserved'},
-  range:      {type:'range',      from:10,   to:20,           role:'dhcp-pool', status:'dhcp'},
+  from_start: {type:'from_start', offset:1,                            role:'gateway',  status:'reserved'},
+  from_end:   {type:'from_end',   count:1,                             role:'reserved', status:'reserved'},
+  range:      {type:'range',      from:10,   to:20,                    role:'dhcp-pool', status:'dhcp'},
+  per_hw:     {type:'per_hw',     offset:{kind:'fixed',value:0}, max_count:10, role:'server',  status:'reserved', selectors:[]},
+  per_ne:     {type:'per_ne',     offset:{kind:'fixed',value:0}, max_count:10, role:'ne-host', status:'reserved', ne_filter:{}, per_ne_count:1},
 };
+
+function _offsetStr(o){
+  if(typeof o === 'number') return `fixed @${o}`;
+  if(!o||!o.kind) return 'fixed @0';
+  return o.kind==='fixed'?`fixed @${o.value||0}`:`after_prev +${o.gap||0}`;
+}
+function _setOffset(i, kind, val){
+  const cur = rules[i].offset;
+  if(kind==='kind') rules[i].offset = {kind: val, value: (cur&&cur.value)||0, gap: (cur&&cur.gap)||0};
+  else if(kind==='value') rules[i].offset = {...(cur||{}), value: parseInt(val)||0};
+  else if(kind==='gap')   rules[i].offset = {...(cur||{}), gap:   parseInt(val)||0};
+  render();
+}
 
 function addRule(type)       { rules.push(JSON.parse(JSON.stringify(DEFAULTS[type]))); render(); }
 function removeRule(i)       { rules.splice(i,1); render(); }
 function moveRule(i,dir)     { const j=i+dir; if(j<0||j>=rules.length) return; [rules[i],rules[j]]=[rules[j],rules[i]]; render(); }
-function updateField(i,f,v)  { rules[i][f]=['offset','count','from','to'].includes(f)?parseInt(v)||0:v; syncToRaw(); }
+function updateField(i,f,v)  { rules[i][f]=['count','from','to','max_count','per_ne_count'].includes(f)?parseInt(v)||0:v; syncToRaw(); }
 
 function render() {
   const el = document.getElementById('ruleBuilder');
   if (!rules.length) { el.innerHTML='<p class="text-muted small">No rules yet.</p>'; syncToRaw(); return; }
-  el.innerHTML = rules.map((rule,i) => `
+  el.innerHTML = rules.map((rule,i) => {
+    const isDynamic = rule.type==='per_hw'||rule.type==='per_ne';
+    const off = rule.offset||{};
+    const offKind = (typeof off==='object'&&off.kind)||'fixed';
+    return `
     <div class="card mb-2 border-0 bg-white shadow-sm">
       <div class="card-body py-2 px-3 d-flex align-items-center gap-2 flex-wrap">
-        <span class="badge bg-secondary" style="min-width:76px">${rule.type.replace('_',' ')}</span>
+        <span class="badge ${isDynamic?'bg-info text-dark':'bg-secondary'}" style="min-width:76px">${rule.type.replace(/_/g,' ')}</span>
         ${rule.type==='from_start'?`
           <label class="small mb-0">Offset</label>
-          <input type="number" class="form-control form-control-sm" style="width:70px" value="${rule.offset}" min="1"
+          <input type="number" class="form-control form-control-sm" style="width:70px"
+                 value="${typeof rule.offset==='number'?rule.offset:1}" min="1"
                  oninput="updateField(${i},'offset',this.value)">
         `:''}
         ${rule.type==='from_end'?`
@@ -126,6 +149,33 @@ function render() {
           <input type="number" class="form-control form-control-sm" style="width:70px" value="${rule.to}" min="1"
                  oninput="updateField(${i},'to',this.value)">
         `:''}
+        ${isDynamic?`
+          <label class="small mb-0">Offset kind</label>
+          <select class="form-select form-select-sm" style="width:140px" onchange="_setOffset(${i},'kind',this.value)">
+            ${OFFSET_KINDS.map(k=>`<option value="${k}"${k===offKind?' selected':''}>${k}</option>`).join('')}
+          </select>
+          ${offKind==='fixed'?`
+            <label class="small mb-0">@</label>
+            <input type="number" class="form-control form-control-sm" style="width:65px" min="0"
+                   value="${(typeof off==='object'?off.value:0)||0}"
+                   oninput="_setOffset(${i},'value',this.value)">
+          `:`
+            <label class="small mb-0">gap</label>
+            <input type="number" class="form-control form-control-sm" style="width:65px" min="0"
+                   value="${(typeof off==='object'?off.gap:0)||0}"
+                   oninput="_setOffset(${i},'gap',this.value)">
+          `}
+          <label class="small mb-0">max</label>
+          <input type="number" class="form-control form-control-sm" style="width:65px" min="0"
+                 value="${rule.max_count||0}"
+                 oninput="updateField(${i},'max_count',this.value)">
+          ${rule.type==='per_ne'?`
+            <label class="small mb-0">per_ne</label>
+            <input type="number" class="form-control form-control-sm" style="width:60px" min="1"
+                   value="${rule.per_ne_count||1}"
+                   oninput="updateField(${i},'per_ne_count',this.value)">
+          `:''}
+        `:''}
         <label class="small mb-0">Role</label>
         <input type="text" class="form-control form-control-sm" style="width:110px" value="${rule.role}"
                oninput="updateField(${i},'role',this.value)">
@@ -139,7 +189,8 @@ function render() {
           <button class="btn btn-sm btn-outline-danger    py-0 px-1" onclick="removeRule(${i})">✕</button>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   syncToRaw();
 }
 

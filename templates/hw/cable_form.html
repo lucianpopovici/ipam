@@ -29,13 +29,25 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Asset Tag</label>
-          <input type="text" name="asset_tag" class="form-control"
+          <input type="text" name="asset_tag" id="assetTagInput" class="form-control"
                  value="{{ cable.asset_tag if cable else '' }}" placeholder="e.g. DAC-001">
+          <div id="asset_tag_preview_row" class="form-text small text-muted mt-1" style="display:none">
+            Preview: <span id="asset_tag_preview" class="font-monospace"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1"
+                    title="Copy preview to field"
+                    onclick="document.getElementById('assetTagInput').value=document.getElementById('asset_tag_preview').textContent">&#x1F504;</button>
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Label / Description</label>
-          <input type="text" name="label" class="form-control"
+          <input type="text" name="label" id="labelInput" class="form-control"
                  value="{{ cable.label if cable else '' }}" placeholder="e.g. TOR1 port 1 → srv-001 eth0">
+          <div id="label_preview_row" class="form-text small text-muted mt-1" style="display:none">
+            Preview: <span id="label_preview" class="font-monospace"></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1"
+                    title="Copy preview to field"
+                    onclick="document.getElementById('labelInput').value=document.getElementById('label_preview').textContent">&#x1F504;</button>
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Length (m)</label>
@@ -47,7 +59,7 @@
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="breakout" id="breakoutCb"
                      value="1" {% if cable and cable.breakout %}checked{% endif %}
-                     onchange="document.getElementById('fanOutRow').style.display=this.checked?'':'none'; document.getElementById('breakoutFanOut').min=this.checked?2:1">
+                     onchange="this.dataset.touched='1'; document.getElementById('fanOutRow').style.display=this.checked?'':'none'; document.getElementById('breakoutFanOut').min=this.checked?2:1">
               <label class="form-check-label" for="breakoutCb">Breakout cable</label>
             </div>
           </div>
@@ -121,6 +133,20 @@ const PRELOAD_PA    = {{ (cable.end_a.port_id     if cable and cable.end_a else 
 const PRELOAD_END_B = {{ (cable.end_b.instance_id if cable and cable.end_b else '') | tojson }};
 const PRELOAD_PB    = {{ (cable.end_b.port_id     if cable and cable.end_b else '') | tojson }};
 
+// Cable templates indexed by id (injected from server)
+const CABLE_TMPLS_BY_ID = {};
+{% for t in cable_tmpls %}
+CABLE_TMPLS_BY_ID[{{ t.id | tojson }}] = {{ t | tojson }};
+{% endfor %}
+
+// Instance asset tags indexed by id
+{% set _imap = {} %}
+{% for inst in instances %}{% set _ = _imap.update({inst.id: inst.asset_tag or ''}) %}{% endfor %}
+const INSTANCES_MAP = {{ _imap | tojson }};
+
+// Port data cache: instance_id → [port, ...]
+const portDataCache = {};
+
 async function loadPorts(prefix, instanceId, preselect){
   const sel  = document.getElementById(`${prefix}_port_select`);
   const hint = document.getElementById(`${prefix}_port_hint`);
@@ -128,6 +154,7 @@ async function loadPorts(prefix, instanceId, preselect){
   if(!instanceId){ sel.innerHTML='<option value="">— select device first —</option>'; return; }
   const resp  = await fetch(`/api/projects/${PROJ_ID}/hw/instance-ports/${instanceId}`);
   const ports = await resp.json();
+  portDataCache[instanceId] = ports;
   sel.innerHTML = '<option value="">— select port —</option>' +
     ports.map(p => {
       const inUse = p.in_use && p.id !== (preselect||'');
@@ -138,10 +165,106 @@ async function loadPorts(prefix, instanceId, preselect){
       </option>`;
     }).join('');
   hint.textContent = `${ports.length} port(s)`;
+  refreshPreviews();
 }
+
+function renderPattern(pattern, ctx) {
+  if (!pattern) return '';
+  return pattern
+    .replace(/\{(a|b)\.(asset_tag|port|port_type|connector)\}/g,
+             (_, side, attr) => (ctx[side] && ctx[side][attr]) || '')
+    .replace(/\{cable_type\}/g, ctx.cable_type || '')
+    .replace(/\{seq\}/g, '???');
+}
+
+function buildContext() {
+  const aInstId = document.querySelector('[name="end_a_instance"]').value;
+  const aPortId = document.getElementById('end_a_port_select').value;
+  const bInstId = document.querySelector('[name="end_b_instance"]').value;
+  const bPortId = document.getElementById('end_b_port_select').value;
+  const tid     = document.getElementById('cableTmplSelect').value;
+  const tmpl    = tid ? CABLE_TMPLS_BY_ID[tid] : null;
+
+  const aPorts = portDataCache[aInstId] || [];
+  const bPorts = portDataCache[bInstId] || [];
+  const portA  = aPortId ? aPorts.find(p => p.id === aPortId) : null;
+  const portB  = bPortId ? bPorts.find(p => p.id === bPortId) : null;
+
+  return {
+    a: {
+      asset_tag: aInstId ? (INSTANCES_MAP[aInstId] || '') : '',
+      port:      portA ? portA.name      : '',
+      port_type: portA ? portA.port_type : '',
+      connector: portA ? portA.connector : '',
+    },
+    b: {
+      asset_tag: bInstId ? (INSTANCES_MAP[bInstId] || '') : '',
+      port:      portB ? portB.name      : '',
+      port_type: portB ? portB.port_type : '',
+      connector: portB ? portB.connector : '',
+    },
+    cable_type: tmpl ? (tmpl.cable_type || '') : '',
+  };
+}
+
+function refreshPreviews() {
+  const tid  = document.getElementById('cableTmplSelect').value;
+  const tmpl = tid ? CABLE_TMPLS_BY_ID[tid] : null;
+
+  const hasAtPat  = tmpl && tmpl.asset_tag_pattern;
+  const hasLblPat = tmpl && tmpl.label_pattern;
+
+  if (!hasAtPat && !hasLblPat) {
+    document.getElementById('asset_tag_preview_row').style.display = 'none';
+    document.getElementById('label_preview_row').style.display     = 'none';
+    return;
+  }
+
+  const ctx = buildContext();
+
+  if (hasAtPat) {
+    const preview = renderPattern(tmpl.asset_tag_pattern, ctx);
+    document.getElementById('asset_tag_preview').textContent = preview;
+    document.getElementById('asset_tag_preview_row').style.display = '';
+  } else {
+    document.getElementById('asset_tag_preview_row').style.display = 'none';
+  }
+
+  if (hasLblPat) {
+    const preview = renderPattern(tmpl.label_pattern, ctx);
+    document.getElementById('label_preview').textContent = preview;
+    document.getElementById('label_preview_row').style.display = '';
+  } else {
+    document.getElementById('label_preview_row').style.display = 'none';
+  }
+
+  // Apply breakout defaults from template if user hasn't manually changed them
+  if (tmpl && !document.getElementById('breakoutCb').dataset.touched) {
+    const cb = document.getElementById('breakoutCb');
+    if (tmpl.breakout !== undefined) {
+      cb.checked = !!tmpl.breakout;
+      document.getElementById('fanOutRow').style.display = tmpl.breakout ? '' : 'none';
+      document.getElementById('breakoutFanOut').min = tmpl.breakout ? 2 : 1;
+    }
+    if (tmpl.breakout && tmpl.breakout_fan_out) {
+      document.getElementById('breakoutFanOut').value = tmpl.breakout_fan_out;
+    }
+  }
+}
+
+// Wire events
+document.getElementById('cableTmplSelect').addEventListener('change', function() {
+  document.getElementById('breakoutCb').removeAttribute('data-touched');
+  refreshPreviews();
+});
+document.getElementById('end_a_port_select').addEventListener('change', refreshPreviews);
+document.getElementById('end_b_port_select').addEventListener('change', refreshPreviews);
 
 // Pre-load ports on edit
 if(PRELOAD_END_A) loadPorts('end_a', PRELOAD_END_A, PRELOAD_PA);
 if(PRELOAD_END_B) loadPorts('end_b', PRELOAD_END_B, PRELOAD_PB);
+
+// Initial preview (in case template is pre-selected on edit)
+refreshPreviews();
 </script>
 {% endblock %}
