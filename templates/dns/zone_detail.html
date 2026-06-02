@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, confirm_delete %}
+{% block title %}{{ zone.name }} — DNS Zone{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'DNS Zones', 'url': url_for('dns.dns_list')},
+  {'label': zone.name}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">
+      {{ zone.name }}
+      <span class="badge bg-{% if zone.kind=='forward' %}primary{% else %}secondary{% endif %} ms-1">{{ zone.kind }}</span>
+      {% if not zone.enabled %}<span class="badge bg-danger ms-1">disabled</span>{% endif %}
+    </h4>
+    <div class="text-muted small">Serial: <span class="font-monospace">{{ zone.serial_current or '(not yet exported)' }}</span>
+      · Policy: {{ zone.serial_policy }}</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dns.export_zone_file_route', zid=zone.id) }}" class="btn btn-sm btn-outline-secondary">⬇ .zone</a>
+    <a href="{{ url_for('dns.export_zone_json_route', zid=zone.id) }}" class="btn btn-sm btn-outline-secondary">⬇ .json</a>
+    <a href="{{ url_for('dns.edit_dns_zone', zid=zone.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+    {{ confirm_delete(url_for('dns.delete_dns_zone', zid=zone.id), zone.name) }}
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>Records preview</strong>
+        <span class="badge bg-secondary">{{ records | length }}</span>
+      </div>
+      {% if records %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover font-monospace mb-0" style="font-size:.8rem">
+          <thead class="table-light">
+            <tr><th>Name</th><th>TTL</th><th>Type</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            {% for rec in records %}
+            <tr>
+              <td>{{ rec.name }}</td>
+              <td class="text-muted">{{ rec.ttl }}</td>
+              <td><span class="badge bg-light text-dark">{{ rec.type }}</span></td>
+              <td>{{ rec.value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted small">No records match the current scope. Check label filters and CIDR ranges.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Zone file preview</strong></div>
+      <div class="card-body p-0">
+        <pre class="m-0 p-3" style="font-size:.75rem;max-height:400px;overflow:auto">{{ preview }}</pre>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Scope</strong></div>
+      <div class="card-body small">
+        {% set scope = zone.scope or {} %}
+        {% if scope.include_label_sets %}
+        <div class="mb-1"><strong>Include labels:</strong>
+          {% for ls in scope.include_label_sets %}
+          <span class="badge bg-primary me-1">{{ ls | join(', ') }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if scope.exclude_label_sets %}
+        <div class="mb-1"><strong>Exclude labels:</strong>
+          {% for ls in scope.exclude_label_sets %}
+          <span class="badge bg-danger me-1">{{ ls | join(', ') }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if scope.include_cidrs %}
+        <div class="mb-1"><strong>Include CIDRs:</strong>
+          {% for c in scope.include_cidrs %}
+          <code class="me-1">{{ c }}</code>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if scope.exclude_cidrs %}
+        <div class="mb-1"><strong>Exclude CIDRs:</strong>
+          {% for c in scope.exclude_cidrs %}
+          <code class="me-1">{{ c }}</code>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if not (scope.include_label_sets or scope.include_cidrs) %}
+        <span class="text-muted">No scope filters — all subnets with hostnames are included.</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

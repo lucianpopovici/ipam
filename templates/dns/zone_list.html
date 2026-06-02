@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
+{% block title %}DNS Zones{% endblock %}
+{% block content %}
+{{ breadcrumbs([{'label': 'DNS Zones'}]) }}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">DNS Zones</h4>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dns.export_all_zones_route') }}" class="btn btn-sm btn-outline-secondary">
+      ⬇ Export all zones (.tar.gz)
+    </a>
+    <a href="{{ url_for('dns.add_dns_zone') }}" class="btn btn-sm btn-primary">+ Add Zone</a>
+  </div>
+</div>
+
+{% if not zones %}
+{{ empty_state(
+  icon='🌐',
+  title='No DNS zones yet',
+  body='Define forward zones to export A/AAAA records from IP hostnames, or reverse zones to export PTR records.',
+  primary_action={'label': '+ Add Zone', 'url': url_for('dns.add_dns_zone')}
+) }}
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Zone</th>
+        <th>Kind</th>
+        <th class="text-center">Records</th>
+        <th class="text-center">Serial</th>
+        <th class="text-center">Enabled</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for z in zones %}
+      <tr>
+        <td>
+          <a href="{{ url_for('dns.zone_detail', zid=z.id) }}" class="fw-semibold text-decoration-none">
+            {{ z.name }}
+          </a>
+        </td>
+        <td><span class="badge bg-{% if z.kind=='forward' %}primary{% else %}secondary{% endif %}">{{ z.kind }}</span></td>
+        <td class="text-center">{{ counts[z.id] }}</td>
+        <td class="text-center text-muted small font-monospace">{{ z.serial_current or '—' }}</td>
+        <td class="text-center">
+          <form method="post" action="{{ url_for('dns.toggle_dns_zone', zid=z.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-link p-0 border-0"
+                    title="{% if z.enabled %}Disable{% else %}Enable{% endif %} zone">
+              {% if z.enabled %}✅{% else %}❌{% endif %}
+            </button>
+          </form>
+        </td>
+        <td class="text-end">
+          <div class="d-flex gap-1 justify-content-end flex-wrap">
+            <a href="{{ url_for('dns.export_zone_file_route', zid=z.id) }}"
+               class="btn btn-sm btn-outline-secondary" title="Download .zone file">⬇ .zone</a>
+            <a href="{{ url_for('dns.export_zone_json_route', zid=z.id) }}"
+               class="btn btn-sm btn-outline-secondary" title="Download JSON">⬇ .json</a>
+            <a href="{{ url_for('dns.edit_dns_zone', zid=z.id) }}"
+               class="btn btn-sm btn-outline-primary">Edit</a>
+            {{ confirm_delete(url_for('dns.delete_dns_zone', zid=z.id), z.name) }}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

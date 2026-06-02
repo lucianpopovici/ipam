@@ -3,6 +3,8 @@
 > Task file for **Claude Code** (or any agent following step-by-step
 > instructions). Single focused bug fix. Not a design document.
 >
+> **Status:** Implemented (2026-06-02).
+>
 > **Bug:** On `/admin/hw/connectors`, clicking a compatibility-matrix cell
 > only ever enables compatibility (❌ → ✅), never disables it (✅ → ❌).
 >

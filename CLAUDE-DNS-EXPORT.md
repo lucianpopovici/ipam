@@ -8,7 +8,7 @@
 > just file generation and an API.
 > **Scope:** new `dns.py` blueprint, a Zone object in Redis, two
 > templates, one route per output format.
-> **Status:** Design — not yet implemented.
+> **Status:** Implemented (2026-06-02).
 
 ---
 

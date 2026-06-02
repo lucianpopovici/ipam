@@ -16,6 +16,7 @@ from documents import documents_bp
 from checks import checks_bp
 from services import services_bp
 from vrf import vrf_bp
+from dns import dns_bp
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-local-use-only')
@@ -91,6 +92,7 @@ app.register_blueprint(documents_bp)
 app.register_blueprint(checks_bp)
 app.register_blueprint(services_bp)
 app.register_blueprint(vrf_bp)
+app.register_blueprint(dns_bp)
 api.register_blueprint(api_v1_bp)
 
 with app.app_context():

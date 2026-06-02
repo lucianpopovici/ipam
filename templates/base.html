@@ -133,6 +133,8 @@
                    href="{{ url_for('checks.list_check_templates') }}">✓ Check Templates</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><h6 class="dropdown-header">Integrations</h6></li>
+            <li><a class="dropdown-item{% if is_active('dns.') %} active{% endif %}"
+                   href="{{ url_for('dns.dns_list') }}">🌐 DNS Zones</a></li>
             <li><a class="dropdown-item{% if is_active('vmware.') %} active{% endif %}"
                    href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a></li>
           </ul>
