@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}{{ proj.name }} — Topology{% endblock %}
+
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Topology', 'url': url_for('topology.topology_overview')},
+  {'label': proj.name}
+]) }}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">{{ proj.name }} — Topology</h4>
+    {% if truncated %}
+    <div class="text-warning small mt-1">
+      ⚠ Graph truncated at {{ max_nodes }} nodes.
+      <a href="{{ url_for('topology.download_dot', pid=proj.id, view=view) }}">Download DOT</a> for the full graph.
+    </div>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('topology.download_mermaid', pid=proj.id, view=view) }}"
+       class="btn btn-sm btn-outline-secondary">⬇ .mermaid</a>
+    <a href="{{ url_for('topology.download_dot', pid=proj.id, view=view) }}"
+       class="btn btn-sm btn-outline-secondary">⬇ .dot</a>
+  </div>
+</div>
+
+{# ── View tabs + filter bar ── #}
+<div class="card shadow-sm mb-3">
+  <div class="card-header">
+    <ul class="nav nav-tabs card-header-tabs">
+      <li class="nav-item">
+        <a class="nav-link {% if view == 'l3' %}active{% endif %}"
+           href="{{ url_for('topology.project_topology_mermaid', pid=proj.id, view='l3', labels=labels, max_nodes=max_nodes) }}">
+          L3 Logical
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if view == 'l1' %}active{% endif %}"
+           href="{{ url_for('topology.project_topology_mermaid', pid=proj.id, view='l1', max_nodes=max_nodes) }}">
+          L1 Physical
+        </a>
+      </li>
+    </ul>
+  </div>
+  <div class="card-body py-2">
+    <form method="get" class="row g-2 align-items-end">
+      <input type="hidden" name="view" value="{{ view }}">
+      {% if view == 'l3' %}
+      <div class="col-auto">
+        <label class="form-label small mb-0">Label filter</label>
+        <input type="text" name="labels" class="form-control form-control-sm"
+               value="{{ labels }}" placeholder="e.g. prod,mgmt">
+      </div>
+      {% endif %}
+      <div class="col-auto">
+        <label class="form-label small mb-0">Max nodes</label>
+        <input type="number" name="max_nodes" class="form-control form-control-sm"
+               value="{{ max_nodes }}" min="10" max="200" style="width:80px">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+        <a href="{{ url_for('topology.project_topology_mermaid', pid=proj.id, view=view) }}"
+           class="btn btn-sm btn-outline-secondary ms-1">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Legend ── #}
+<div class="mb-2 small text-muted">
+  {% if view == 'l3' %}
+  <strong>Legend:</strong>
+  <span class="font-monospace">([…])</span> = subnet &nbsp;·&nbsp;
+  <span class="font-monospace">[…]</span> = allocated IP &nbsp;·&nbsp;
+  Arrow = IP belongs to subnet
+  {% else %}
+  <strong>Legend:</strong>
+  Subgraphs = racks &nbsp;·&nbsp;
+  Boxes = hardware instances &nbsp;·&nbsp;
+  Lines = cables
+  {% endif %}
+</div>
+
+{# ── Mermaid graph ── #}
+<div class="card shadow-sm">
+  <div class="card-body p-3" style="overflow-x:auto;min-height:300px">
+    {% if graph and 'empty' not in graph %}
+    <pre class="mermaid" style="text-align:left">{{ graph }}</pre>
+    {% else %}
+    <div class="text-muted small p-3">
+      No data to display for this view. Add subnets with allocated IPs (L3) or hardware instances with cables (L1).
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Raw source (collapsible) ── #}
+<details class="mt-2">
+  <summary class="text-muted small" style="cursor:pointer">Show Mermaid source</summary>
+  <pre class="mt-1 p-2 bg-light border rounded small font-monospace" style="white-space:pre-wrap">{{ graph }}</pre>
+</details>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'default' });
+</script>
+{% endblock %}

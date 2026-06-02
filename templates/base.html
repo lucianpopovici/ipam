@@ -94,6 +94,10 @@
           <a class="nav-link text-white-50{% if is_active('ipam.pool_ui') %} active{% endif %}"
              href="{{ url_for('ipam.pool_ui') }}">Pool Query</a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link text-white-50{% if is_active('topology.') %} active{% endif %}"
+             href="{{ url_for('topology.topology_overview') }}">Topology</a>
+        </li>
 
         {# ── ⚙ Admin dropdown ── #}
         <li class="nav-item dropdown">

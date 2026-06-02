@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
+{% block title %}Topology Overview{% endblock %}
+{% block content %}
+{{ breadcrumbs([{'label': 'Topology'}]) }}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Topology</h4>
+</div>
+
+{% if not projects %}
+{{ empty_state(
+  icon='🗺',
+  title='No projects yet',
+  body='Create a project first, then use topology to visualise its subnets and hardware.',
+  primary_action={'label': '+ New Project', 'url': url_for('ipam.add_project')}
+) }}
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Project</th>
+        <th class="text-center">Subnets</th>
+        <th class="text-center">Devices</th>
+        <th class="text-center">Cables</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in projects %}
+      <tr>
+        <td class="fw-semibold">{{ p.name }}</td>
+        <td class="text-center">{{ p.subnets }}</td>
+        <td class="text-center">{{ p.devices }}</td>
+        <td class="text-center">{{ p.cables }}</td>
+        <td class="text-end">
+          <div class="d-flex gap-2 justify-content-end">
+            <a href="{{ url_for('topology.project_topology_mermaid', pid=p.id, view='l3') }}"
+               class="btn btn-sm btn-outline-primary">L3 Logical</a>
+            <a href="{{ url_for('topology.project_topology_mermaid', pid=p.id, view='l1') }}"
+               class="btn btn-sm btn-outline-secondary">L1 Physical</a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

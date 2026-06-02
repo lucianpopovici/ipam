@@ -8,7 +8,7 @@
 > Mermaid graphs (and optionally GraphViz DOT for larger views).
 > **Scope:** new `topology.py` blueprint, one render module, panel
 > integrations on NE / project / BGP session pages.
-> **Status:** Design — not yet implemented.
+> **Status:** Implemented (2026-06-02).
 
 ---
 
