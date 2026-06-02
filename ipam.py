@@ -1597,8 +1597,16 @@ def add_ip(net_id):
             'hostname': request.form.get('hostname', ''),
             'description': request.form.get('description', ''),
             'status': request.form.get('status', 'allocated'),
-            'network_id': net_id
+            'network_id': net_id,
         }
+        from dhcp import normalize_mac as _nm  # pylint: disable=import-outside-toplevel
+        raw_mac = request.form.get('mac_address', '').strip()
+        if raw_mac:
+            norm = _nm(raw_mac)
+            if norm:
+                addr_data['mac_address'] = norm
+            else:
+                flash(f'Invalid MAC address: {raw_mac}', 'warning')
 
         if not claim_ip_atomic(addr_data, net['cidr']):
             flash(f'{ip_str} is already allocated or was just snatched.', 'warning')
@@ -1630,6 +1638,16 @@ def edit_ip(ip_str):
         addr['hostname']    = request.form.get('hostname', '')
         addr['description'] = request.form.get('description', '')
         addr['status']      = request.form.get('status', 'allocated')
+        from dhcp import normalize_mac as _nm  # pylint: disable=import-outside-toplevel
+        raw_mac = request.form.get('mac_address', '').strip()
+        if raw_mac:
+            norm = _nm(raw_mac)
+            if norm:
+                addr['mac_address'] = norm
+            else:
+                flash(f'Invalid MAC address: {raw_mac}', 'warning')
+        else:
+            addr.pop('mac_address', None)
         r.set(ip_key(ip_str), json.dumps(addr))
         flash(f'{ip_str} updated.', 'success')
         return redirect(url_for('ipam.network_detail', net_id=addr['network_id']))

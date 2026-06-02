@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}DHCP Options — {{ net.cidr }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'DHCP Scopes', 'url': url_for('dhcp.dhcp_list')},
+  {'label': net.cidr, 'url': url_for('dhcp.scope_detail', net_id=net.id)},
+  {'label': 'Options'}
+]) }}
+<h4 class="mb-3">DHCP Options — <code>{{ net.cidr }}</code></h4>
+
+<form method="post">
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Enable &amp; Gateway</strong></div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" name="dhcp_enabled" id="dhcpEnabledCb"
+                   value="1" {% if net.dhcp_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="dhcpEnabledCb">DHCP enabled</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small">Gateway IP <span class="text-muted">(option routers)</span></label>
+          <input type="text" name="gateway" class="form-control form-control-sm font-monospace"
+                 value="{{ opts.gateway or '' }}" placeholder="auto-detect from reserved IPs if blank">
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>DNS &amp; NTP</strong></div>
+      <div class="card-body">
+        <div class="mb-2">
+          <label class="form-label small">Domain name</label>
+          <input type="text" name="domain_name" class="form-control form-control-sm"
+                 value="{{ opts.domain_name or '' }}" placeholder="lab.example.net">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">DNS servers <span class="text-muted">(comma or newline)</span></label>
+          <textarea name="domain_name_servers" class="form-control form-control-sm font-monospace" rows="2"
+            placeholder="10.0.0.53&#10;10.0.0.54">{{ opts.domain_name_servers | join('\n') }}</textarea>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">NTP servers</label>
+          <textarea name="ntp_servers" class="form-control form-control-sm font-monospace" rows="2"
+            placeholder="10.0.0.123">{{ opts.ntp_servers | join('\n') }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Lease times &amp; MTU</strong></div>
+      <div class="card-body">
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label small">Default lease (s)</label>
+            <input type="number" name="lease_default" class="form-control form-control-sm"
+                   value="{{ opts.lease_default or 3600 }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Max lease (s)</label>
+            <input type="number" name="lease_max" class="form-control form-control-sm"
+                   value="{{ opts.lease_max or 7200 }}">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Interface MTU <span class="text-muted">(0 = omit)</span></label>
+          <input type="number" name="interface_mtu" class="form-control form-control-sm"
+                 value="{{ opts.interface_mtu or 0 }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Passthrough</strong></div>
+      <div class="card-body">
+        <textarea name="passthrough" class="form-control form-control-sm font-monospace" rows="5"
+          placeholder="option tftp-server-name &quot;10.0.0.5&quot;;&#10;option bootfile-name &quot;pxelinux.0&quot;;">{{ opts.passthrough or '' }}</textarea>
+        <div class="form-text small">Raw text appended inside the scope block. Not validated.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mt-3 d-flex gap-2">
+  <button type="submit" class="btn btn-primary">Save Options</button>
+  <a href="{{ url_for('dhcp.scope_detail', net_id=net.id) }}" class="btn btn-secondary">Cancel</a>
+</div>
+</form>
+{% endblock %}

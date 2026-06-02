@@ -8,7 +8,7 @@
 > records. Pure read path; no DHCP daemon control.
 > **Scope:** new `dhcp.py` blueprint (or share with `dns.py`), two
 > serializers, MAC-address linkage on iface records.
-> **Status:** Design — not yet implemented.
+> **Status:** Implemented (2026-06-02).
 
 ---
 

@@ -25,7 +25,12 @@
       </span>
     {% endif %}
   </div>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dhcp.scope_detail', net_id=net.id) }}"
+       class="btn btn-sm {% if net.dhcp_enabled %}btn-success{% else %}btn-outline-secondary{% endif %}"
+       title="{% if net.dhcp_enabled %}DHCP enabled — click to view scope{% else %}DHCP disabled{% endif %}">
+      🔌 DHCP{% if net.dhcp_enabled %} ✓{% endif %}
+    </a>
     {% if current_user.role == 'editor' %}
     <a href="{{ url_for('ipam.apply_template', net_id=net.id) }}" class="btn btn-sm btn-outline-secondary">📐 Template</a>
     <a href="{{ url_for('ipam.add_ip', net_id=net.id) }}"         class="btn btn-sm btn-primary">+ Allocate IP</a>

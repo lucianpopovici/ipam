@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}DHCP — {{ net.cidr }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'DHCP Scopes', 'url': url_for('dhcp.dhcp_list')},
+  {'label': net.cidr}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">
+      <code>{{ net.cidr }}</code>
+      <span class="text-muted fs-6">{{ net.name }}</span>
+      {% if net.dhcp_enabled %}
+        <span class="badge bg-success ms-1">DHCP enabled</span>
+      {% else %}
+        <span class="badge bg-secondary ms-1">DHCP disabled</span>
+      {% endif %}
+    </h4>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="{{ url_for('dhcp.toggle_dhcp', net_id=net.id) }}" class="d-inline">
+      <button type="submit" class="btn btn-sm {% if net.dhcp_enabled %}btn-warning{% else %}btn-success{% endif %}">
+        {% if net.dhcp_enabled %}Disable DHCP{% else %}Enable DHCP{% endif %}
+      </button>
+    </form>
+    <a href="{{ url_for('dhcp.edit_dhcp_options', net_id=net.id) }}" class="btn btn-sm btn-outline-primary">⚙ Options</a>
+    {% if net.dhcp_enabled %}
+    <a href="{{ url_for('dhcp.export_isc_conf') }}" class="btn btn-sm btn-outline-secondary">⬇ dhcpd.conf</a>
+    <a href="{{ url_for('dhcp.export_kea_json') }}" class="btn btn-sm btn-outline-secondary">⬇ kea.json</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if scope %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    {# ── Scope summary ── #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Scope</strong></div>
+      <div class="card-body small">
+        <div class="row g-2">
+          <div class="col-6"><strong>Subnet</strong></div><div class="col-6 font-monospace">{{ scope.network }}/{{ scope.prefix_len }}</div>
+          <div class="col-6"><strong>Netmask</strong></div><div class="col-6 font-monospace">{{ scope.netmask }}</div>
+          <div class="col-6"><strong>Gateway</strong></div><div class="col-6 font-monospace">{{ scope.gateway or '—' }}</div>
+          <div class="col-6"><strong>Pool ranges</strong></div>
+          <div class="col-6">
+            {% if scope.pool_ranges %}
+              {% for start, end in scope.pool_ranges %}
+              <code class="d-block">{{ start }} – {{ end }}</code>
+              {% endfor %}
+            {% else %}—{% endif %}
+          </div>
+          <div class="col-6"><strong>Static hosts</strong></div><div class="col-6">{{ scope.static_hosts | length }}</div>
+        </div>
+      </div>
+    </div>
+
+    {# ── Static hosts ── #}
+    {% if scope.static_hosts %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>Static reservations</strong></div>
+      <table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>Hostname</th><th>MAC</th><th>IP</th></tr></thead>
+        <tbody>
+          {% for h in scope.static_hosts %}
+          <tr>
+            <td>{{ h.hostname }}</td>
+            <td class="font-monospace small">{{ h.mac }}</td>
+            <td class="font-monospace small">{{ h.ip }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-7">
+    {# ── ISC conf preview ── #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header"><strong>ISC dhcpd.conf preview</strong></div>
+      <div class="card-body p-0">
+        <pre class="m-0 p-3" style="font-size:.75rem;max-height:350px;overflow:auto">{{ isc }}</pre>
+      </div>
+    </div>
+    {# ── Kea JSON preview ── #}
+    <div class="card shadow-sm">
+      <div class="card-header"><strong>Kea JSON preview</strong></div>
+      <div class="card-body p-0">
+        <pre class="m-0 p-3" style="font-size:.75rem;max-height:250px;overflow:auto">{{ kea }}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+  DHCP is not enabled for this subnet.
+  <a href="{{ url_for('dhcp.edit_dhcp_options', net_id=net.id) }}" class="alert-link">Enable and configure</a>.
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
+{% block title %}DHCP Scopes{% endblock %}
+{% block content %}
+{{ breadcrumbs([{'label': 'DHCP Scopes'}]) }}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">DHCP Scopes</h4>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dhcp.export_isc_conf') }}" class="btn btn-sm btn-outline-secondary">⬇ dhcpd.conf</a>
+    <a href="{{ url_for('dhcp.export_kea_json') }}" class="btn btn-sm btn-outline-secondary">⬇ kea.json</a>
+    <a href="{{ url_for('dhcp.export_bundle') }}"   class="btn btn-sm btn-outline-secondary">⬇ bundle.tar.gz</a>
+  </div>
+</div>
+
+{% if not scopes %}
+{{ empty_state(
+  icon='🔌',
+  title='No DHCP scopes yet',
+  body='Enable DHCP on a subnet from its detail page. Once enabled, the subnet\'s gateway, pool ranges, and static reservations are exported as dhcpd.conf or Kea JSON.',
+  primary_action={'label': '→ Subnets', 'url': url_for('ipam.index')}
+) }}
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-light">
+      <tr>
+        <th>Subnet</th>
+        <th>Name</th>
+        <th>Version</th>
+        <th>Gateway</th>
+        <th class="text-center">Pool ranges</th>
+        <th class="text-center">Static hosts</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in scopes %}
+      <tr>
+        <td><code>{{ s.cidr }}</code></td>
+        <td class="text-muted small">{{ s.name }}</td>
+        <td class="text-center"><span class="badge bg-light text-dark">IPv{{ s.version }}</span></td>
+        <td class="font-monospace small">{{ s.gateway or '—' }}</td>
+        <td class="text-center">
+          {% if s.pool_ranges %}
+            {% for start, end in s.pool_ranges %}
+            <code class="small d-block">{{ start }}–{{ end }}</code>
+            {% endfor %}
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-center">{{ s.static_hosts | length }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('dhcp.scope_detail', net_id=s.net_id) }}"
+             class="btn btn-sm btn-outline-primary">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

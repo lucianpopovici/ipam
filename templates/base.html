@@ -135,6 +135,8 @@
             <li><h6 class="dropdown-header">Integrations</h6></li>
             <li><a class="dropdown-item{% if is_active('dns.') %} active{% endif %}"
                    href="{{ url_for('dns.dns_list') }}">🌐 DNS Zones</a></li>
+            <li><a class="dropdown-item{% if is_active('dhcp.') %} active{% endif %}"
+                   href="{{ url_for('dhcp.dhcp_list') }}">🔌 DHCP Scopes</a></li>
             <li><a class="dropdown-item{% if is_active('vmware.') %} active{% endif %}"
                    href="{{ url_for('vmware.vmware_index') }}">☁️ VMware</a></li>
           </ul>
