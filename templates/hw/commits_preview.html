@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}Pending Changes — {{ proj.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Commit Log', 'url': url_for('hw.project_commit_log', pid=proj.id)},
+  {'label': 'Pending Changes'}
+]) }}
+
+<h4 class="mb-1">Pending Changes</h4>
+<p class="text-muted small mb-3">
+  Diff of current template + BoM state against the last commit
+  {% if head_commit %}<code>{{ head_commit.id }}</code> ({{ head_commit.created_at[:10] }}){% else %}(no commits yet){% endif %}.
+</p>
+
+{% if not pending.has_changes %}
+<div class="alert alert-success">
+  <strong>Nothing to commit.</strong> Current state matches the last commit.
+</div>
+{% else %}
+
+{# ── Summary ── #}
+<div class="d-flex gap-3 mb-3 flex-wrap small">
+  {% set ds = pending.diff_summary %}
+  <span class="badge bg-success">{{ ds.bom_added|length }} BoM added</span>
+  <span class="badge bg-warning text-dark">{{ ds.bom_edited|length }} BoM changed</span>
+  <span class="badge bg-danger">{{ ds.bom_deleted|length }} BoM removed</span>
+  <span class="badge bg-info text-dark">{{ ds.templates_edited|length }} template changed</span>
+</div>
+
+{# ── BoM changes ── #}
+{% if ds.bom_added or ds.bom_edited or ds.bom_deleted %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2"><strong>BoM changes</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for item in ds.bom_added %}
+      <li class="list-group-item py-2 text-success">
+        <strong>+ New line:</strong> {{ item.get('tag_prefix','?') }} × {{ item.get('qty',1) }}
+        (template {{ item.get('template_id','?') }})
+      </li>
+      {% endfor %}
+      {% for item in ds.bom_edited %}
+      <li class="list-group-item py-2 text-warning">
+        <strong>~ Changed:</strong> BoM line <code>{{ item.id }}</code>
+        — {{ item.fields | join(', ') }} changed
+      </li>
+      {% endfor %}
+      {% for iid in ds.bom_deleted %}
+      <li class="list-group-item py-2 text-danger">
+        <strong>− Removed:</strong> BoM line <code>{{ iid }}</code>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Template changes ── #}
+{% if ds.templates_edited or ds.templates_added or ds.templates_deleted %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2"><strong>Template changes</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for tid in ds.templates_added %}
+      <li class="list-group-item py-2 text-success"><strong>+ New template:</strong> <code>{{ tid }}</code></li>
+      {% endfor %}
+      {% for item in ds.templates_edited %}
+      <li class="list-group-item py-2 text-warning">
+        <strong>~ Changed:</strong> template <code>{{ item.id }}</code> — {{ item.fields | join(', ') }}
+        <div class="text-muted small">Existing instances will be updated via 3-way merge on next generate.</div>
+      </li>
+      {% endfor %}
+      {% for tid in ds.templates_deleted %}
+      <li class="list-group-item py-2 text-danger"><strong>− Removed:</strong> template <code>{{ tid }}</code></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<div class="alert alert-info small">
+  To apply these changes, generate from the BoM page. Each generate run creates a commit that records what was created, updated, or deleted.
+</div>
+
+<a href="{{ url_for('hw.project_bom', pid=proj.id) }}" class="btn btn-primary btn-sm">⚙ Go to BoM</a>
+<a href="{{ url_for('hw.project_commit_log', pid=proj.id) }}" class="btn btn-outline-secondary btn-sm ms-2">← Commit Log</a>
+
+{% endif %}
+{% endblock %}

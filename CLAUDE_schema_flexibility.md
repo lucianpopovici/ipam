@@ -1,7 +1,6 @@
 ## Planned Architecture — Schema Flexibility
 
-> **Status:** Design agreed, not yet implemented. New code should be written
-> in line with this direction; existing code is migrated in phases (see below).
+> **Status:** Phases 1–4 implemented (2026-06-03): app_config.yaml, core/relations.py, core/derivations.py, core/entity_blueprint.py all present. Phase 5 (generalise compute_requirements) deferred.
 > The goal is **declarative entity definitions and links**, not a full
 > meta-model engine.
 

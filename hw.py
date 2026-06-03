@@ -249,6 +249,9 @@ def project_bom(pid):
 @editor_required
 def generate_from_bom(pid):
     """Generate hardware instances from a single BoM line."""
+    from flask_login import current_user
+    import generate_commits as gc
+
     proj = get_project(pid)
     if not proj:
         abort(404)
@@ -259,8 +262,13 @@ def generate_from_bom(pid):
         flash('BoM line not found.', 'danger')
         return redirect(url_for('hw.project_bom', pid=pid))
     try:
-        created = generate_instances_from_bom_line(pid, item)
-        flash(f'{len(created)} instance(s) created from BoM line.', 'success')
+        user = getattr(current_user, 'id', 'system')
+        cid, created = gc.generate_with_commit(
+            pid=pid, user=user, kind='bom-line',
+            trigger={'bom_line_id': item_id},
+            work_fn=lambda: generate_instances_from_bom_line(pid, item),
+        )
+        flash(f'{len(created)} instance(s) created from BoM line (commit {cid}).', 'success')
     except ValueError as e:
         flash(str(e), 'danger')
     return redirect(url_for('hw.project_inventory', pid=pid))
@@ -270,9 +278,14 @@ def generate_from_bom(pid):
 @editor_required
 def generate_all_from_bom(pid):
     """Generate instances for all BoM lines. JSON POST triggers async job."""
+    from flask_login import current_user
+    import generate_commits as gc
+
     proj = get_project(pid)
     if not proj:
         abort(404)
+
+    user = getattr(current_user, 'id', 'system')
 
     if request.is_json:
         from core.jobs import create_job, run_job, update_job
@@ -280,33 +293,103 @@ def generate_all_from_bom(pid):
         job_id   = create_job()
         app      = current_app._get_current_object()  # pylint: disable=protected-access
 
-        def _work(job_id, pid, bom_snap):
+        def _work(job_id, pid, bom_snap, user):
             total_items = len(bom_snap)
-            created_total = 0
+            all_created = []
             for i, item in enumerate(bom_snap):
                 update_job(job_id, i, total_items, message=f'Processing item {i + 1}/{total_items}…')
                 try:
-                    created_total += len(generate_instances_from_bom_line(pid, item))
+                    all_created.extend(generate_instances_from_bom_line(pid, item))
                 except ValueError:
                     pass
+            # One commit for all lines
+            try:
+                gc.generate_with_commit(
+                    pid=pid, user=user, kind='bom-all', trigger={},
+                    work_fn=lambda: all_created,
+                )
+            except Exception:
+                pass
             update_job(job_id, total_items, total_items,
-                       message=f'{created_total} instance(s) generated', status='done',
-                       result={'created': created_total})
+                       message=f'{len(all_created)} instance(s) generated', status='done',
+                       result={'created': len(all_created)})
 
-        run_job(app, job_id, _work, pid, bom_snap)
+        run_job(app, job_id, _work, pid, bom_snap, user)
         return jsonify({'job_id': job_id})
 
     # Sync path (form submit / tests)
     bom = get_bom(pid)
-    total = 0
+    all_created = []
     for item in bom:
         try:
-            created = generate_instances_from_bom_line(pid, item)
-            total += len(created)
+            all_created.extend(generate_instances_from_bom_line(pid, item))
         except ValueError:
             pass
-    flash(f'{total} instance(s) generated from full BoM.', 'success')
+    if all_created:
+        try:
+            cid, _ = gc.generate_with_commit(
+                pid=pid, user=user, kind='bom-all', trigger={},
+                work_fn=lambda: all_created,
+            )
+            flash(f'{len(all_created)} instance(s) generated from full BoM (commit {cid}).', 'success')
+        except Exception:
+            flash(f'{len(all_created)} instance(s) generated from full BoM.', 'success')
+    else:
+        flash('No instances generated (BoM may be empty or all slots filled).', 'info')
     return redirect(url_for('hw.project_inventory', pid=pid))
+
+
+# ── Commit log routes ──────────────────────────────────────────────────────────
+
+@hw_bp.route('/projects/<pid>/commits')
+def project_commit_log(pid):
+    """List all generate commits for a project."""
+    import generate_commits as gc
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    commits = gc.project_commits(pid, limit=50)
+    return render_template('hw/commit_log.html', proj=proj, commits=commits)
+
+
+@hw_bp.route('/projects/<pid>/commits/preview')
+def project_commits_preview(pid):
+    """Show pending changes (diff current state vs HEAD) before committing."""
+    import generate_commits as gc
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    pending = gc.compute_pending(pid)
+    head    = gc.get_project_head(pid)
+    head_commit = gc.get_generate_commit(head) if head else None
+    return render_template('hw/commits_preview.html', proj=proj,
+                           pending=pending, head_commit=head_commit)
+
+
+@hw_bp.route('/projects/<pid>/commits/<cid>')
+def commit_detail(pid, cid):
+    """Show the detail of one generate commit."""
+    import generate_commits as gc
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    commit = gc.get_generate_commit(cid)
+    if not commit or commit.get('project_id') != pid:
+        abort(404)
+    return render_template('hw/commit_detail.html', proj=proj, commit=commit)
+
+
+@hw_bp.route('/projects/<pid>/commits/init', methods=['POST'])
+@editor_required
+def init_project_commit(pid):
+    """Create the initial commit for a project (migration / first-time setup)."""
+    import generate_commits as gc
+    proj = get_project(pid)
+    if not proj:
+        abort(404)
+    cid = gc.create_initial_commit(pid)
+    flash(f'Initial commit created: {cid}', 'success')
+    return redirect(url_for('hw.project_commit_log', pid=pid))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -479,6 +562,11 @@ def edit_hw_instance(pid, iid):
         inst['asset_tag'] = request.form.get('asset_tag', '').strip()
         inst['serial'] = request.form.get('serial', '').strip()
         inst['status'] = request.form.get('status', 'in-stock')
+        merge_mode = request.form.get('merge_mode', '').strip()
+        if merge_mode in ('3way', 'frozen', 'overwrite'):
+            inst['merge_mode'] = merge_mode
+        elif merge_mode == '':
+            inst['merge_mode'] = None
         save_hw_instance(inst)
         flash('Instance updated.', 'success')
         return redirect(url_for('hw.project_inventory', pid=pid))

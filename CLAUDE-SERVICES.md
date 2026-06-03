@@ -12,9 +12,7 @@
 > input modes (text / list / dynamic template). Extends the requirements
 > page with non-IP rows alongside the existing IP rows.
 >
-> **Status:** Design — not yet implemented. One new blueprint, one new
-> entity, one new declared relation, extensions to `compute_requirements`
-> and the requirements UI. No new dependencies.
+> **Status:** Implemented (2026-06-03). services.py, services_logic.py, templates/services/, and tests all present.
 
 ---
 

@@ -45,6 +45,19 @@
           {% endfor %}
         </select>
       </div>
+      {% if inst and inst.created_in_commit %}
+      <div class="mb-3">
+        <label class="form-label">Merge mode
+          <span class="text-muted small">(how template changes are applied on generate)</span>
+        </label>
+        <select name="merge_mode" class="form-select">
+          <option value="" {% if not inst.merge_mode %}selected{% endif %}>3way (inherit project default)</option>
+          <option value="3way"      {% if inst.merge_mode == '3way' %}selected{% endif %}>3way — keep local edits with warning</option>
+          <option value="frozen"    {% if inst.merge_mode == 'frozen' %}selected{% endif %}>frozen — skip on every generate</option>
+          <option value="overwrite" {% if inst.merge_mode == 'overwrite' %}selected{% endif %}>overwrite — always take template value</option>
+        </select>
+      </div>
+      {% endif %}
     </div>
     <div class="card-footer d-flex gap-2">
       <button type="submit" class="btn btn-primary">{% if inst %}Update{% else %}Add{% endif %}</button>

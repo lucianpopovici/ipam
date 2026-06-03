@@ -12,9 +12,7 @@
 > anything — it generates checklists, tracks reported results, and
 > produces signed-off reports.
 >
-> **Status:** Design — not yet implemented. Recommended to land after
-> `CLAUDE-DOCUMENT-GENERATION.md` since checklists are a kind of
-> artifact built on top of that pipeline.
+> **Status:** Implemented (2026-06-03). checks.py, checks_logic.py, templates/checks/, and tests all present.
 
 ---
 

@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs, empty_state %}
+{% block title %}Commit Log — {{ proj.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Commit Log'}
+]) }}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">Commit Log</h4>
+    <div class="text-muted small">Generate history — each entry records what was created, updated, or deleted.</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('hw.project_commits_preview', pid=proj.id) }}" class="btn btn-sm btn-outline-primary">⟳ Pending changes</a>
+    {% if not commits %}
+    <form method="post" action="{{ url_for('hw.init_project_commit', pid=proj.id) }}" class="d-inline">
+      <button class="btn btn-sm btn-outline-secondary">⬆ Create initial commit</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if not commits %}
+{{ empty_state(
+  icon='🗂',
+  title='No commits yet',
+  body='Generate hardware instances from the BoM to create the first commit. Or click "Create initial commit" to baseline the current state.',
+  primary_action={'label': '⚙ Manage BoM', 'url': url_for('hw.project_bom', pid=proj.id)}
+) }}
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Commit</th>
+          <th>When</th>
+          <th>User</th>
+          <th>Kind</th>
+          <th>Created</th>
+          <th>Updated</th>
+          <th>Deleted</th>
+          <th>Conflicts</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in commits %}
+        {% set imp = c.impact %}
+        <tr>
+          <td><code class="small">{{ c.id }}</code></td>
+          <td class="small text-muted">{{ c.created_at[:19].replace('T',' ') }}</td>
+          <td class="small">{{ c.user }}</td>
+          <td><span class="badge bg-secondary">{{ c.kind }}</span></td>
+          <td class="text-success">{{ imp.hw_created|length }}</td>
+          <td>{{ imp.hw_updated|length }}</td>
+          <td class="{% if imp.hw_deleted %}text-danger{% endif %}">{{ imp.hw_deleted|length }}</td>
+          <td class="{% if imp.conflicts %}text-warning{% endif %}">{{ imp.conflicts|length }}</td>
+          <td>
+            <a href="{{ url_for('hw.commit_detail', pid=proj.id, cid=c.id) }}" class="btn btn-sm btn-outline-secondary">Detail</a>
+          </td>
+        </tr>
+        {% if c.notes %}
+        <tr class="table-light">
+          <td colspan="9" class="ps-3 small text-muted fst-italic">{{ c.notes }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

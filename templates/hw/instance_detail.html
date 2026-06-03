@@ -200,4 +200,48 @@
   </div>
 </div>
 {% endif %}
+
+{# ── Commit history ── #}
+{% if inst.history %}
+<div class="card shadow-sm mt-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <strong>Provenance</strong>
+    {% if inst.created_in_commit %}
+    <small class="text-muted">Created in
+      <a href="{{ url_for('hw.commit_detail', pid=proj.id, cid=inst.created_in_commit) }}">
+        <code>{{ inst.created_in_commit }}</code>
+      </a>
+    </small>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0 small">
+      <thead class="table-light">
+        <tr><th>Commit</th><th>When</th><th>Field</th><th>Change</th><th>Reason</th></tr>
+      </thead>
+      <tbody>
+        {% for h in inst.history | reverse %}
+        <tr>
+          <td>
+            {% if h.commit_id %}
+            <a href="{{ url_for('hw.commit_detail', pid=proj.id, cid=h.commit_id) }}">
+              <code>{{ h.commit_id }}</code>
+            </a>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-muted">{{ h.ts[:16].replace('T',' ') }}</td>
+          <td><code>{{ h.field or '—' }}</code></td>
+          <td>
+            {% if h.old is not none and h.new is not none %}
+              <span class="text-muted">{{ h.old }}</span> → {{ h.new }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted fst-italic">{{ h.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

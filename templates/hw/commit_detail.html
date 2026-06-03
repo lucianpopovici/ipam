@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
+{% block title %}Commit {{ commit.id }} — {{ proj.name }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Commit Log', 'url': url_for('hw.project_commit_log', pid=proj.id)},
+  {'label': commit.id}
+]) }}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0 font-monospace">{{ commit.id }}</h4>
+    <div class="text-muted small">
+      {{ commit.created_at[:19].replace('T',' ') }} · {{ commit.user }}
+      · <span class="badge bg-secondary">{{ commit.kind }}</span>
+      {% if commit.parent_commit %}
+      · parent <a href="{{ url_for('hw.commit_detail', pid=proj.id, cid=commit.parent_commit) }}"><code>{{ commit.parent_commit }}</code></a>
+      {% endif %}
+    </div>
+    {% if commit.notes %}
+    <div class="text-muted small fst-italic mt-1">{{ commit.notes }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{% set imp = commit.impact %}
+
+{# ── Impact summary ── #}
+<div class="d-flex gap-3 mb-3 flex-wrap small">
+  <span class="badge bg-success fs-6">{{ imp.hw_created|length }} created</span>
+  <span class="badge bg-primary fs-6">{{ imp.hw_updated|length }} updated</span>
+  <span class="badge {% if imp.hw_deleted %}bg-danger{% else %}bg-secondary{% endif %} fs-6">{{ imp.hw_deleted|length }} deleted</span>
+  {% if imp.conflicts %}
+  <span class="badge bg-warning text-dark fs-6">{{ imp.conflicts|length }} conflicts</span>
+  {% endif %}
+  {% if imp.ne_rematerialized %}
+  <span class="badge bg-info text-dark fs-6">{{ imp.ne_rematerialized|length }} NE rebindings</span>
+  {% endif %}
+</div>
+
+{# ── Created ── #}
+{% if imp.hw_created %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 text-success"><strong>Created ({{ imp.hw_created|length }})</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for iid in imp.hw_created %}
+      <li class="list-group-item py-1"><code>{{ iid }}</code></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Updated ── #}
+{% if imp.hw_updated %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2"><strong>Updated ({{ imp.hw_updated|length }})</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for iid in imp.hw_updated %}
+      <li class="list-group-item py-1"><code>{{ iid }}</code></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Deleted ── #}
+{% if imp.hw_deleted %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 text-danger"><strong>Deleted ({{ imp.hw_deleted|length }})</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for item in imp.hw_deleted %}
+      <li class="list-group-item py-1">
+        {% if item is mapping %}
+          <code>{{ item.id }}</code>
+          {% if item.get('released_ips') %} · released IPs: {{ item.released_ips | join(', ') }}{% endif %}
+          {% if item.get('deleted_cables') %} · cables: {{ item.deleted_cables | join(', ') }}{% endif %}
+        {% else %}
+          <code>{{ item }}</code>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+{# ── Conflicts ── #}
+{% if imp.conflicts %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 text-warning"><strong>Merge conflicts ({{ imp.conflicts|length }})</strong></div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Instance</th><th>Field</th><th>Template value</th><th>Local value kept</th><th>Mode</th></tr>
+      </thead>
+      <tbody>
+        {% for c in imp.conflicts %}
+        <tr>
+          <td><code>{{ c.instance_id }}</code></td>
+          <td><code>{{ c.field }}</code></td>
+          <td class="text-muted">{{ c.remote }}</td>
+          <td>{{ c.local }}</td>
+          <td><span class="badge bg-secondary">{{ c.merge_mode }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── NE rematerialized ── #}
+{% if imp.ne_rematerialized %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2"><strong>NE auto-rule rebindings</strong></div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for r in imp.ne_rematerialized %}
+      <li class="list-group-item py-1">
+        NE <code>{{ r.ne_id }}</code> iface <code>{{ r.iface_id }}</code>:
+        {% if r.added %}+{{ r.added | join(', ') }}{% endif %}
+        {% if r.removed %} −{{ r.removed | join(', ') }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<a href="{{ url_for('hw.project_commit_log', pid=proj.id) }}" class="btn btn-sm btn-outline-secondary">← Commit Log</a>
+{% endblock %}

@@ -22,6 +22,7 @@
 {% set in_cables   = ep in ['hw.cable_list','hw.add_cable','hw.edit_cable','hw.cable_trace'] %}
 {% set in_hwtmpls  = ep in ['hw.project_hw_templates_route','hw.add_hw_template','hw.edit_hw_template'] %}
 {% set in_validate = ep in ['hw.hw_validate','hw.api_hw_validate'] %}
+{% set in_commits  = ep in ['hw.project_commit_log','hw.project_commits_preview','hw.commit_detail','hw.init_project_commit'] %}
 {% set in_checks   = ep in ['checks.project_checklists_list','checks.create_checklist',
                              'checks.checklist_detail','checks.update_checklist',
                              'checks.transition_cl','checks.signoff_checklist',
@@ -68,6 +69,7 @@
     <a class="pnav-link{% if in_cables  %} pnav-active{% endif %}" href="{{ url_for('hw.cable_list',                 pid=pid) }}">Cables</a>
     <a class="pnav-link{% if in_hwtmpls %} pnav-active{% endif %}" href="{{ url_for('hw.project_hw_templates_route', pid=pid) }}">HW Templates</a>
     <a class="pnav-link{% if in_validate%} pnav-active{% endif %}" href="{{ url_for('hw.hw_validate',                pid=pid) }}">Validate</a>
+    <a class="pnav-link{% if in_commits %} pnav-active{% endif %}" href="{{ url_for('hw.project_commit_log',          pid=pid) }}">Commits</a>
     <a class="pnav-link{% if in_checks  %} pnav-active{% endif %}" href="{{ url_for('checks.project_checklists_list', pid=pid) }}">Checklists</a>
     <a class="pnav-link{% if in_docs    %} pnav-active{% endif %}" href="{{ url_for('documents.project_artifacts',    pid=pid) }}">Artifacts</a>
   </div>

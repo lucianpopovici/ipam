@@ -8,7 +8,7 @@
 > hyphenation. Sibling to `CLAUDE-CROSS-PROJECT-LINT.md`.
 > **Scope:** add to the existing `lint.py` blueprint (or new
 > `label_lint.py`), one section on the fleet lint page, one JSON API.
-> **Status:** Design — not yet implemented.
+> **Status:** L1, L3, L4 implemented (2026-06-03). L2 (pool queries) deferred — pool system not built. L5 (coverage) deferred — pool system not built.
 
 ---
 

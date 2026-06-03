@@ -19,8 +19,7 @@
 > bound port and propagates it one hop through any attached cable.
 > Ports that require their own IP get one allocated from the same subnet.
 >
-> **Status:** Design — not yet implemented. Supersedes the simplistic
-> 1:1 `iface_bindings` shown in `CLAUDE-TENANTS-VRF-MAPPING.md` Phase 3.
+> **Status:** Implemented (2026-06-03). rules.py, ne.py binding routes, templates, and tests all present.
 
 ---
 
