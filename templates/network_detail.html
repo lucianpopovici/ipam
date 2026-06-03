@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}{{ net.cidr }}{% endblock %}
 {% block content %}
 
@@ -117,10 +117,7 @@
             </form>
           {% else %}
             <a href="{{ url_for('ipam.edit_ip', ip_str=a.ip) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-            <form class="d-inline" action="{{ url_for('ipam.delete_ip', ip_str=a.ip) }}" method="post"
-                  onsubmit="return confirm('Release {{ a.ip }}?')">
-              <button class="btn btn-sm btn-outline-danger">Release</button>
-            </form>
+            {{ confirm_delete(url_for('ipam.delete_ip', ip_str=a.ip), a.ip) }}
           {% endif %}
         {% endif %}
       </td>
@@ -129,7 +126,12 @@
   </tbody>
 </table>
 {% else %}
-<p class="text-muted text-center py-4">No IPs allocated yet.</p>
+{{ empty_state(
+  icon='🔢',
+  title='No IPs allocated yet',
+  body='Allocate IPs manually or apply a subnet template to pre-populate reserved slots.',
+  primary_action={'label': '+ Add IP', 'url': url_for('ipam.add_ip', net_id=net.id)}
+) }}
 {% endif %}
 
 <button class="btn btn-sm btn-outline-secondary mt-1" onclick="fetchNext()">🔍 Next Available</button>

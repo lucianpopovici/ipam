@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, confirm_delete %}
 {% block title %}HW Templates – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -41,10 +41,7 @@
         {% if editable %}
         <td class="text-end text-nowrap">
           <a href="{{ url_for('hw.edit_hw_template', tid=t.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_template_route', tid=t.id) }}"
-                onsubmit="return confirm('Delete?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          {{ confirm_delete(url_for('hw.delete_hw_template_route', tid=t.id), t.name) }}
         </td>
         {% endif %}
       </tr>

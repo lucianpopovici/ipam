@@ -1,7 +1,7 @@
 ## Planned UX Improvements — Trust, Feedback, Empty States
 
-> **Status:** Design agreed, not yet implemented. New views should follow
-> this direction; existing pages migrate in phases.
+> **Status:** Phases 1–6 infrastructure complete (2026-06-03). Remaining:
+> redirect-on-error in hw.py forms; mobile e2e from nav spec.
 > Stack stays **Bootstrap 5.3 + Jinja2** — same as the navigation doc.
 > Some items depend on the schema-flexibility and navigation plans; see
 > "Dependencies" at the end.

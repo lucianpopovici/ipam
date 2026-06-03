@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs, empty_state %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}Inventory – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -69,10 +69,7 @@
         <td class="text-end text-nowrap">
           {% if current_user.role == 'editor' %}
           <a href="{{ url_for('hw.edit_hw_instance', pid=proj.id, iid=inst.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_instance_route', pid=proj.id, iid=inst.id) }}"
-                onsubmit="return confirm('Delete instance {{ inst.asset_tag }}?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          {{ confirm_delete(url_for('hw.delete_hw_instance_route', pid=proj.id, iid=inst.id), inst.asset_tag) }}
           {% endif %}
         </td>
       </tr>

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}Hardware Templates{% endblock %}
 {% block content %}
 {{ breadcrumbs([{'label': 'HW Templates'}]) }}
@@ -47,10 +47,7 @@
         </td>
         <td class="text-end text-nowrap">
           <a href="{{ url_for('hw.edit_hw_template', tid=t.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" method="post" action="{{ url_for('hw.delete_hw_template_route', tid=t.id) }}"
-                onsubmit="return confirm('Delete {{ t.name }}?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          {{ confirm_delete(url_for('hw.delete_hw_template_route', tid=t.id), t.name) }}
         </td>
       </tr>
       {% endfor %}
@@ -62,8 +59,12 @@
 {% endfor %}
 
 {% if not global_tmpls %}
-<div class="text-center py-5 text-muted">
-  No hardware templates yet. <a href="{{ url_for('hw.add_hw_template') }}">Create one.</a>
-</div>
+{{ empty_state(
+  icon='🖥',
+  title='No hardware templates yet',
+  body='Hardware templates define device types — servers, switches, PDUs, racks. Create one to start placing devices in racks and cabling them.',
+  primary_action={'label': '+ New Template', 'url': url_for('hw.add_hw_template')},
+  secondary=[{'label': '🔌 Connectors', 'url': url_for('hw.hw_connectors')}]
+) }}
 {% endif %}
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card, confirm_delete, breadcrumbs %}
+{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card, confirm_delete, breadcrumbs, empty_state %}
 {% block title %}{{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -152,7 +152,13 @@
 </table>
 </div>
 {% else %}
-<p class="text-muted text-center py-4">No subnets yet. Add one manually or use Bulk Add.</p>
+{{ empty_state(
+  icon='🌐',
+  title='No subnets yet',
+  body='Add subnets manually or use Bulk Add to create many at once from a CIDR list.',
+  primary_action={'label': '+ Add Subnet', 'url': url_for('ipam.add_subnet', pid=proj.id)},
+  secondary=[{'label': '⚡ Bulk Add', 'url': url_for('ipam.bulk_add_subnets', pid=proj.id)}]
+) }}
 {% endif %}
 
 {# ── Hardware Management section ── #}

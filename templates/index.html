@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import confirm_delete %}
+{% from '_macros.html' import confirm_delete, empty_state %}
 {% block title %}Projects{% endblock %}
 {% block content %}
 
@@ -93,8 +93,16 @@
   {% endfor %}
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  No projects yet. {% if current_user.role == 'editor' %}<a href="{{ url_for('ipam.add_project') }}">Create your first project.</a>{% endif %}
-</div>
+{{ empty_state(
+  icon='🗺️',
+  title='No projects yet',
+  body='A project holds a supernet and organises subnets, sites, PODs, and hardware. Create your first one to get started.',
+  primary_action={'label': '+ New Project', 'url': url_for('ipam.add_project')}
+) if current_user.role == 'editor' else empty_state(
+  icon='🗺️',
+  title='No projects yet',
+  body='No projects have been created. Ask an editor to set one up.',
+  primary_action={'label': 'Overview', 'url': url_for('ipam.overview')}
+) }}
 {% endif %}
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs, empty_state %}
+{% from '_macros.html' import breadcrumbs, empty_state, confirm_delete %}
 {% block title %}Cable Plant – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -56,10 +56,7 @@
         <td class="text-end text-nowrap">
           <a href="{{ url_for('hw.cable_trace', pid=proj.id, cid=cable.id) }}" class="btn btn-sm btn-outline-info">Trace</a>
           <a href="{{ url_for('hw.edit_cable', pid=proj.id, cid=cable.id) }}" class="btn btn-sm btn-outline-secondary">Edit</a>
-          <form class="d-inline" method="post" action="{{ url_for('hw.delete_cable_route', pid=proj.id, cid=cable.id) }}"
-                onsubmit="return confirm('Delete cable {{ cable.asset_tag }}?')">
-            <button class="btn btn-sm btn-outline-danger">Del</button>
-          </form>
+          {{ confirm_delete(url_for('hw.delete_cable_route', pid=proj.id, cid=cable.id), cable.asset_tag) }}
         </td>
       </tr>
       {% endfor %}

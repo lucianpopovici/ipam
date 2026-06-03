@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import breadcrumbs %}
+{% from '_macros.html' import breadcrumbs, confirm_delete %}
 {% block title %}Templates – {{ proj.name }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([
@@ -53,10 +53,7 @@
         </div>
         <div class="card-footer d-flex gap-2 py-2">
           <a href="{{ url_for('ipam.edit_template', tid=tmpl.id) }}" class="btn btn-sm btn-outline-secondary flex-fill">Edit</a>
-          <form action="{{ url_for('ipam.delete_template_route', tid=tmpl.id) }}" method="post"
-                onsubmit="return confirm('Delete \'{{ tmpl.name }}\'?')">
-            <button class="btn btn-sm btn-outline-danger">Delete</button>
-          </form>
+          {{ confirm_delete(url_for('ipam.delete_template_route', tid=tmpl.id), tmpl.name) }}
         </div>
       </div>
       {% endfor %}
