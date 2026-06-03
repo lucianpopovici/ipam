@@ -7,6 +7,9 @@
   {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
   {'label': 'BoM'}
 ]) }}
+{% if errors and errors.bom_json %}
+<div class="alert alert-danger">{{ errors.bom_json }}</div>
+{% endif %}
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <h4 class="mb-0">📋 Bill of Materials <small class="text-muted fs-6">{{ proj.name }}</small></h4>
   <div class="d-flex gap-2">

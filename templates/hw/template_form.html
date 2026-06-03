@@ -18,6 +18,9 @@
 <h4 class="mb-3">{% if tmpl %}Edit: {{ tmpl.name }}{% else %}New Hardware Template{% endif %}</h4>
 
 <form method="post" onsubmit="return prepareSubmit()">
+{% if errors and errors.__all__ is defined %}
+<div class="alert alert-danger">{{ errors.__all__ }}</div>
+{% endif %}
 <div class="row g-4">
   <div class="col-lg-5">
     <div class="card shadow-sm mb-3">
@@ -26,8 +29,11 @@
         <div class="row g-2 mb-2">
           <div class="col-8">
             <label class="form-label small">Name *</label>
-            <input type="text" name="name" class="form-control form-control-sm" required
-                   value="{{ tmpl.name if tmpl else '' }}" placeholder="e.g. Dell PowerEdge R650">
+            <input type="text" name="name"
+                   class="form-control form-control-sm {% if errors and errors.name %}is-invalid{% endif %}" required
+                   value="{{ form_values.name if form_values else (tmpl.name if tmpl else '') }}"
+                   placeholder="e.g. Dell PowerEdge R650">
+            {% if errors and errors.name %}<div class="invalid-feedback">{{ errors.name }}</div>{% endif %}
           </div>
           <div class="col-4">
             <label class="form-label small">Category</label>
@@ -121,6 +127,9 @@
       </div>
     </div>
     <input type="hidden" name="ports_json" id="portsJson">
+    {% if errors and errors.ports_json %}
+    <div class="alert alert-danger mt-2">{{ errors.ports_json }}</div>
+    {% endif %}
   </div>
 </div>
 

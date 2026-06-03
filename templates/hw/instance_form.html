@@ -16,16 +16,21 @@
     <div class="card-body">
       <div class="mb-3">
         <label class="form-label">Hardware Template *</label>
-        <select name="template_id" class="form-select" required {% if inst %}disabled{% endif %}>
+        <select name="template_id"
+                class="form-select {% if errors and errors.template_id %}is-invalid{% endif %}"
+                required {% if inst %}disabled{% endif %}>
           <option value="">— select —</option>
           {% for t in templates %}
           <option value="{{ t.id }}"
-            {% if inst and inst.template_id == t.id %}selected{% endif %}>
+            {% if inst and inst.template_id == t.id %}selected
+            {% elif form_values and form_values.template_id == t.id %}selected
+            {% endif %}>
             [{{ t.category }}] {{ t.name }}{% if t.vendor %} ({{ t.vendor }}){% endif %}
           </option>
           {% endfor %}
         </select>
         {% if inst %}<input type="hidden" name="template_id" value="{{ inst.template_id }}">{% endif %}
+        {% if errors and errors.template_id %}<div class="invalid-feedback">{{ errors.template_id }}</div>{% endif %}
       </div>
       <div class="mb-3">
         <label class="form-label">Asset Tag *</label>

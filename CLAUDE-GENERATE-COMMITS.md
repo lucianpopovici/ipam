@@ -16,7 +16,7 @@
 > template+BoM state, materializes elements from it, and records who/what/
 > when so every generated element knows which commit gave it which value.
 >
-> **Status:** Design — not yet implemented.
+> **Status:** Implemented (2026-06-03). generate_commits.py module, hw.py integration, commit log/preview/detail templates, per-instance history + merge_mode, 19 unit tests. Full 3-way merge for existing instances on template changes is in apply_template_changes(); qty-shrink deletion deferred to a follow-up.
 
 ---
 

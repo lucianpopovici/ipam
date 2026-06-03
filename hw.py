@@ -89,15 +89,22 @@ def add_hw_template(pid=None):
     proj = get_project(pid) if pid else None
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
-        if not name:
-            flash('Name is required.', 'danger')
-            return redirect(request.url)
         ports_raw = request.form.get('ports_json', '[]')
+        errors = {}
+        ports = []
+        if not name:
+            errors['name'] = 'Name is required.'
         try:
             ports = json.loads(ports_raw)
         except json.JSONDecodeError as e:
-            flash(f'Invalid ports JSON: {e}', 'danger')
-            return redirect(request.url)
+            errors['ports_json'] = f'Invalid ports JSON: {e}'
+        if errors:
+            return render_template('hw/template_form.html',
+                                   tmpl=None, proj=proj, errors=errors,
+                                   form_values=request.form,
+                                   categories=CATEGORIES, form_factors=FORM_FACTORS,
+                                   port_types=PORT_TYPES, cable_types=CABLE_TYPES,
+                                   connectors=all_connectors())
         tmpl = {
             'id': new_id(),
             'name': name,
@@ -125,13 +132,17 @@ def add_hw_template(pid=None):
         try:
             save_hw_template(tmpl)
         except ValueError as e:
-            flash(str(e), 'danger')
-            return redirect(request.url)
+            return render_template('hw/template_form.html',
+                                   tmpl=tmpl, proj=proj, errors={'__all__': str(e)},
+                                   form_values=request.form,
+                                   categories=CATEGORIES, form_factors=FORM_FACTORS,
+                                   port_types=PORT_TYPES, cable_types=CABLE_TYPES,
+                                   connectors=all_connectors())
         flash(f'Hardware template "{name}" saved.', 'success')
         return redirect(url_for('hw.project_hw_templates_route', pid=pid) if pid
                         else url_for('hw.hw_templates_list'))
     return render_template('hw/template_form.html',
-                           tmpl=None, proj=proj,
+                           tmpl=None, proj=proj, errors={}, form_values={},
                            categories=CATEGORIES, form_factors=FORM_FACTORS,
                            port_types=PORT_TYPES, cable_types=CABLE_TYPES,
                            connectors=all_connectors())
@@ -148,11 +159,13 @@ def edit_hw_template(tid):
     proj = get_project(pid) if pid else None
     if request.method == 'POST':
         ports_raw = request.form.get('ports_json', '[]')
+        errors = {}
+        ports = []
         try:
             ports = json.loads(ports_raw)
         except json.JSONDecodeError as e:
-            flash(f'Invalid ports JSON: {e}', 'danger')
-            return redirect(request.url)
+            errors['ports_json'] = f'Invalid ports JSON: {e}'
+        # Mutate tmpl with form values so re-render shows submitted data
         tmpl['name'] = request.form.get('name', tmpl['name']).strip()
         tmpl['vendor'] = request.form.get('vendor', '').strip()
         tmpl['model'] = request.form.get('model', '').strip()
@@ -172,16 +185,27 @@ def edit_hw_template(tid):
         tmpl['breakout_fan_out'] = int(request.form.get('breakout_fan_out', 1) or 1)
         tmpl['asset_tag_pattern'] = request.form.get('asset_tag_pattern', '').strip()
         tmpl['label_pattern'] = request.form.get('label_pattern', '').strip()
+        if errors:
+            return render_template('hw/template_form.html',
+                                   tmpl=tmpl, proj=proj, errors=errors,
+                                   form_values=request.form,
+                                   categories=CATEGORIES, form_factors=FORM_FACTORS,
+                                   port_types=PORT_TYPES, cable_types=CABLE_TYPES,
+                                   connectors=all_connectors())
         try:
             save_hw_template(tmpl)
         except ValueError as e:
-            flash(str(e), 'danger')
-            return redirect(request.url)
+            return render_template('hw/template_form.html',
+                                   tmpl=tmpl, proj=proj, errors={'__all__': str(e)},
+                                   form_values=request.form,
+                                   categories=CATEGORIES, form_factors=FORM_FACTORS,
+                                   port_types=PORT_TYPES, cable_types=CABLE_TYPES,
+                                   connectors=all_connectors())
         flash(f'Template "{tmpl["name"]}" updated.', 'success')
         return redirect(url_for('hw.project_hw_templates_route', pid=pid) if pid
                         else url_for('hw.hw_templates_list'))
     return render_template('hw/template_form.html',
-                           tmpl=tmpl, proj=proj,
+                           tmpl=tmpl, proj=proj, errors={}, form_values={},
                            categories=CATEGORIES, form_factors=FORM_FACTORS,
                            port_types=PORT_TYPES, cable_types=CABLE_TYPES,
                            connectors=all_connectors())
@@ -225,24 +249,26 @@ def project_bom(pid):
     proj = get_project(pid)
     if not proj:
         abort(404)
+    bom = bom_with_templates(pid)
+    templates = all_hw_templates_for_project(pid)
     if request.method == 'POST':
         bom_raw = request.form.get('bom_json', '[]')
         try:
-            bom = json.loads(bom_raw)
+            new_bom = json.loads(bom_raw)
         except json.JSONDecodeError as e:
-            flash(f'Invalid BoM JSON: {e}', 'danger')
-            return redirect(request.url)
-        # Ensure all lines have an id
-        for item in bom:
+            return render_template('hw/bom.html', proj=proj, bom=bom,
+                                   templates=templates, categories=CATEGORIES,
+                                   errors={'bom_json': f'Invalid BoM JSON: {e}'},
+                                   form_values=request.form)
+        for item in new_bom:
             if not item.get('id'):
                 item['id'] = new_id()
-        save_bom(pid, bom)
+        save_bom(pid, new_bom)
         flash('Bill of Materials saved.', 'success')
         return redirect(url_for('hw.project_bom', pid=pid))
-    bom = bom_with_templates(pid)
-    templates = all_hw_templates_for_project(pid)
     return render_template('hw/bom.html', proj=proj, bom=bom,
-                           templates=templates, categories=CATEGORIES)
+                           templates=templates, categories=CATEGORIES,
+                           errors={}, form_values={})
 
 
 @hw_bp.route('/projects/<pid>/bom/generate', methods=['POST'])
@@ -527,11 +553,16 @@ def add_hw_instance(pid):
     proj = get_project(pid)
     if not proj:
         abort(404)
+    templates = all_hw_templates_for_project(pid)
     if request.method == 'POST':
         tid = request.form.get('template_id', '').strip()
+        errors = {}
         if not tid:
-            flash('Select a template.', 'danger')
-            return redirect(request.url)
+            errors['template_id'] = 'Select a template.'
+        if errors:
+            return render_template('hw/instance_form.html', proj=proj,
+                                   inst=None, templates=templates,
+                                   errors=errors, form_values=request.form)
         inst = {
             'id': new_id(),
             'template_id': tid,
@@ -545,9 +576,8 @@ def add_hw_instance(pid):
         save_hw_instance(inst)
         flash(f'Instance {inst["asset_tag"] or inst["id"]} added.', 'success')
         return redirect(url_for('hw.project_inventory', pid=pid))
-    templates = all_hw_templates_for_project(pid)
     return render_template('hw/instance_form.html', proj=proj,
-                           inst=None, templates=templates)
+                           inst=None, templates=templates, errors={}, form_values={})
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>/edit', methods=['GET', 'POST'])
