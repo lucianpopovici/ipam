@@ -429,6 +429,79 @@ def compute_requirements(pid: str) -> list:  # pylint: disable=too-many-locals,t
                     )
                     service_reqs.extend(r_ for r_ in svc_rows if r_.get('kind') == 'service')
 
+    # ── Auto-rule per-bucket requirements ─────────────────────────────────────
+    # For NE instances with auto-rule bindings, emit one requirement per
+    # (ne_instance, iface, bucket, ip_version) — unique scope_val keeps these
+    # separate from type-based groups and from each other.
+    for ne_inst in all_insts:
+        ne_type = get_ne_type(ne_inst.get('ne_type_id', ''))
+        if not ne_type:
+            continue
+        ifaces_by_id = {i['id']: i for i in ne_type.get('interfaces', [])}
+
+        for iface_id, binding in ne_inst.get('iface_bindings', {}).items():
+            if binding.get('bind_mode') != 'auto-rule':
+                continue
+            iface = ifaces_by_id.get(iface_id)
+            if not iface:
+                continue
+
+            # Group materialized ports by bucket (list of 'kind:value' strings)
+            buckets_map: dict = {}
+            for port in binding.get('ports', []):
+                bkey = tuple(sorted(port.get('bucket', [])))
+                buckets_map.setdefault(bkey, []).append(port)
+
+            if not buckets_map:
+                continue  # Not yet materialized; skip silently
+
+            iface_labels = set(iface.get('labels', []))
+
+            for bucket_key, bucket_ports in buckets_map.items():
+                bucket_labels_set = set(bucket_key)
+                all_labels = frozenset(iface_labels | bucket_labels_set)
+                addr_cnt = len(bucket_ports)
+
+                for ip_ver in ('ipv4', 'ipv6'):
+                    spec = iface.get(ip_ver)
+                    if not spec:
+                        continue
+
+                    fam_int  = family_int[ip_ver]
+                    vrf_id   = iface.get('vrf_id')
+                    min_pf   = spec.get('min_prefix')
+                    scope_val = (f'auto-rule:{ne_inst["id"]}:{iface_id}:'
+                                 f'{"_".join(sorted(bucket_key))}:{ip_ver}')
+                    gkey = (fam_int, vrf_id, all_labels, scope_val)
+                    if gkey in groups:
+                        continue  # Idempotent if already emitted
+
+                    groups[gkey] = {
+                        'kind':          'ip',
+                        'family':        fam_int,
+                        'ip_version':    ip_ver,
+                        'vrf_id':        vrf_id,
+                        'site_id':       '',
+                        'site_name':     '',
+                        'pod_id':        '',
+                        'pod_name':      '',
+                        'ne_type_id':    ne_type['id'],
+                        'ne_type_name':  ne_type.get('name', ''),
+                        'ne_kind':       ne_type.get('kind', ''),
+                        'iface_id':      iface_id,
+                        'iface_name':    iface.get('name', ''),
+                        'sharing':       'project',
+                        'labels':        sorted(all_labels),
+                        'address_count': addr_cnt,
+                        'min_prefix':    min_pf,
+                        'iface_refs':    [f'{ne_type.get("name", "")}/{iface.get("name", "")}'],
+                        'count':         1,
+                        'key':           f'grp:{hash(gkey) & 0xFFFFFFFF:08x}',
+                        'pushed':        False,
+                        'auto_rule':     True,
+                        'bucket':        sorted(bucket_key),
+                    }
+
     # Compute min_prefix for each group based on address_count
     reqs: list = []
     for g in groups.values():

@@ -563,6 +563,146 @@ class TestComputeRequirements:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# compute_requirements — auto-rule bucket emission
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAutoRuleRequirements:
+    """Auto-rule bindings on NE instances emit per-bucket IP requirements."""
+
+    def _make_project(self):
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        return pid
+
+    def _make_ne_type(self):
+        from ne import save_ne_type
+        ne_type = {
+            'id': new_id(), 'name': 'OOB-Mgmt', 'kind': 'VNF',
+            'description': '', 'labels': [], 'params': {},
+            'interfaces': [
+                {'id': 'mgmt-iface', 'name': 'mgmt', 'labels': ['oob'],
+                 'ipv4': {'prefix_len': 29}, 'ipv6': None,
+                 'sharing': 'project', 'params': {}},
+            ],
+            'scope': 'global', 'project_id': '',
+        }
+        save_ne_type(ne_type)
+        return ne_type
+
+    def _make_ne_instance(self, pid, ne_type_id, ports):
+        """Create an NE instance with an auto-rule binding pre-materialized."""
+        from ne import save_ne_instance
+        inst = {
+            'id': new_id(), 'ne_type_id': ne_type_id, 'project_id': pid,
+            'name': 'oob-mgmt-01', 'description': '', 'labels': [], 'params': {},
+            'iface_bindings': {
+                'mgmt-iface': {
+                    'bind_mode': 'auto-rule',
+                    'rule': {'port_types': ['mgmt'], 'group_by': ['rack']},
+                    'ports': ports,
+                    'rule_materialized_at': '2026-06-03T00:00:00+00:00',
+                },
+            },
+        }
+        save_ne_instance(inst)
+        return inst
+
+    def test_two_buckets_emit_two_requirements(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        ports = [
+            {'hw_instance_id': 'srv-1', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+            {'hw_instance_id': 'srv-2', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+            {'hw_instance_id': 'srv-3', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-02']},
+        ]
+        self._make_ne_instance(pid, ne_type['id'], ports)
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        assert len(auto) == 2
+
+    def test_bucket_labels_in_requirement(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        ports = [
+            {'hw_instance_id': 'srv-1', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+        ]
+        self._make_ne_instance(pid, ne_type['id'], ports)
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        assert len(auto) == 1
+        assert 'rack:R-01' in auto[0]['labels']
+        assert 'oob' in auto[0]['labels']
+
+    def test_address_count_equals_port_count_per_bucket(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        ports = [
+            {'hw_instance_id': 'srv-1', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+            {'hw_instance_id': 'srv-2', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+            {'hw_instance_id': 'srv-3', 'port_id': 'ilo', 'role': 'primary',
+             'bucket': ['rack:R-01']},
+        ]
+        self._make_ne_instance(pid, ne_type['id'], ports)
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        assert len(auto) == 1
+        assert auto[0]['address_count'] == 3
+
+    def test_empty_ports_emits_no_requirements(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        self._make_ne_instance(pid, ne_type['id'], [])
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        assert auto == []
+
+    def test_non_auto_rule_bindings_not_emitted(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        # Binding with bind_mode='single' should not produce auto-rule requirements
+        from ne import save_ne_instance
+        inst = {
+            'id': new_id(), 'ne_type_id': ne_type['id'], 'project_id': pid,
+            'name': 'oob-01', 'description': '', 'labels': [], 'params': {},
+            'iface_bindings': {
+                'mgmt-iface': {
+                    'bind_mode': 'single',
+                    'ports': [{'hw_instance_id': 'srv-1', 'port_id': 'ilo',
+                               'role': 'primary'}],
+                },
+            },
+        }
+        save_ne_instance(inst)
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        assert auto == []
+
+    def test_requirement_meta_fields(self):
+        pid = self._make_project()
+        ne_type = self._make_ne_type()
+        ports = [{'hw_instance_id': 'srv-1', 'port_id': 'ilo', 'role': 'primary',
+                  'bucket': ['rack:R-01']}]
+        self._make_ne_instance(pid, ne_type['id'], ports)
+        reqs = compute_requirements(pid)
+        auto = [r for r in reqs if r.get('auto_rule')]
+        req = auto[0]
+        assert req['kind'] == 'ip'
+        assert req['ip_version'] == 'ipv4'
+        assert req['ne_type_name'] == 'OOB-Mgmt'
+        assert req['iface_name'] == 'mgmt'
+        assert req['sharing'] == 'project'
+        assert req['count'] == 1
+        assert req['pushed'] is False
+        assert 'key' in req
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # collect_params
 # ══════════════════════════════════════════════════════════════════════════════
 
