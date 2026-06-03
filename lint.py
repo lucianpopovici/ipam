@@ -4,10 +4,9 @@ Detects fleet-wide hazards that per-project validators cannot see:
   Rule 1: CIDR overlaps across projects within the same VRF
   Rule 2: Exact-CIDR collisions (strict subset of Rule 1)
   Rule 5: Subnets falling inside operator-declared reserved ranges
-
-Rules 3 (cross-VRF leak) and 4 (label collision heuristic) are planned;
-they live in separate modules when ready. The framework here already
-supports them — just add more rule functions to run_all_rules().
+  Rule L1: Orphan labels (defined but on no subnets)
+  Rule L3: Probable label typos (Levenshtein ≤ 2 with ratio threshold)
+  Rule L4: Label case/separator drift (same label, different casing or -/_)
 """
 import hashlib
 import ipaddress
@@ -22,7 +21,8 @@ from flask import (
 
 import db
 from auth import editor_required
-from ipam import new_id, all_networks, get_project
+from ipam import (new_id, all_networks, get_project, all_projects,
+                  global_labels, project_labels, get_network_labels)
 
 lint_bp = Blueprint('lint', __name__, url_prefix='')
 r = db.r
@@ -184,6 +184,140 @@ def find_reserved_overlaps() -> list:
     return findings
 
 
+# ── Label lint helpers ───────────────────────────────────────────────────────────
+
+def label_usage_counts() -> dict:
+    """Return {label: count_of_subnets} for every known label across the fleet."""
+    counts: dict = {}
+    for lbl in global_labels():
+        counts.setdefault(lbl, db.r.scard(f'label:{lbl}:nets'))
+    for proj in all_projects():
+        for lbl in project_labels(proj['id']):
+            counts.setdefault(lbl, db.r.scard(f'label:{lbl}:nets'))
+    for net in all_networks():
+        for lbl in get_network_labels(net['id']):
+            counts.setdefault(lbl, db.r.scard(f'label:{lbl}:nets'))
+    return counts
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for ch_a in a:
+        curr = [prev[0] + 1]
+        for j, ch_b in enumerate(b):
+            curr.append(min(curr[-1] + 1, prev[j + 1] + 1, prev[j] + (ch_a != ch_b)))
+        prev = curr
+    return prev[-1]
+
+
+def find_label_orphans() -> list:
+    """
+    Rule L1: Global labels used on zero subnets (warning — pool queries will
+    silently match nothing). Project labels used on no subnets in their
+    project (info).
+    """
+    label_to_pids: dict = defaultdict(set)
+    for net in all_networks():
+        pid = net.get('project_id', '')
+        for lbl in get_network_labels(net['id']):
+            label_to_pids[lbl].add(pid)
+
+    findings = []
+    for lbl in global_labels():
+        if db.r.scard(f'label:{lbl}:nets') == 0:
+            findings.append({
+                'id':       finding_id('orphan_global_label', lbl),
+                'rule':     'orphan_global_label',
+                'label':    lbl,
+                'severity': 'warning',
+            })
+
+    for proj in all_projects():
+        pid = proj['id']
+        for lbl in project_labels(pid):
+            if pid not in label_to_pids.get(lbl, set()):
+                findings.append({
+                    'id':           finding_id('orphan_project_label', pid, lbl),
+                    'rule':         'orphan_project_label',
+                    'label':        lbl,
+                    'project_id':   pid,
+                    'project_name': proj.get('name', pid),
+                    'severity':     'info',
+                })
+
+    return findings
+
+
+def find_label_typos(typo_ratio: int = 5) -> list:
+    """
+    Rule L3: Labels within Levenshtein distance ≤ 2 where one label is at
+    least typo_ratio× more common than the other.
+    """
+    counts = label_usage_counts()
+    active  = [lbl for lbl, c in counts.items() if c > 0]
+
+    findings = []
+    seen: set = set()
+
+    for i, a in enumerate(active):
+        for b in active[i + 1:]:
+            if abs(len(a) - len(b)) > 2:
+                continue
+            d = _levenshtein(a, b)
+            if d < 1 or d > 2:
+                continue
+            ca, cb = counts[a], counts[b]
+            if max(ca, cb) < typo_ratio * max(min(ca, cb), 1):
+                continue
+            rare, common = (a, b) if ca <= cb else (b, a)
+            pair = (min(rare, common), max(rare, common))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            findings.append({
+                'id':            finding_id('probable_label_typo', rare, common),
+                'rule':          'probable_label_typo',
+                'rare_label':    rare,
+                'rare_count':    counts[rare],
+                'common_label':  common,
+                'common_count':  counts[common],
+                'edit_distance': d,
+                'severity':      'warning',
+            })
+
+    return findings
+
+
+def find_label_case_drift() -> list:
+    """
+    Rule L4: Labels that differ only in case or hyphen vs. underscore.
+    Info-level because some teams use both deliberately.
+    """
+    counts = label_usage_counts()
+    groups: dict = defaultdict(list)
+    for lbl in counts:
+        key = lbl.casefold().replace('-', '_')
+        groups[key].append(lbl)
+
+    findings = []
+    for variants in groups.values():
+        if len(variants) < 2:
+            continue
+        findings.append({
+            'id':       finding_id('label_case_drift', *sorted(variants)),
+            'rule':     'label_case_drift',
+            'variants': sorted(variants, key=lambda v: counts.get(v, 0), reverse=True),
+            'counts':   {v: counts.get(v, 0) for v in variants},
+            'severity': 'info',
+        })
+
+    return findings
+
+
 # ── Combined runner + cache ─────────────────────────────────────────────────────
 
 def run_all_rules() -> list:
@@ -191,6 +325,9 @@ def run_all_rules() -> list:
     findings = []
     findings.extend(find_cidr_overlaps())
     findings.extend(find_reserved_overlaps())
+    findings.extend(find_label_orphans())
+    findings.extend(find_label_typos())
+    findings.extend(find_label_case_drift())
     return findings
 
 

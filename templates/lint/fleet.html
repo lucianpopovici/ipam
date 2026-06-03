@@ -24,7 +24,7 @@
 {{ empty_state(
   icon='✅',
   title='No lint issues',
-  body='No cross-project CIDR overlaps or reserved-range violations found.',
+  body='No CIDR overlaps, reserved-range violations, or label hygiene issues found.',
   primary_action={'label': '↻ Refresh', 'url': url_for('lint.lint_fleet', refresh=1)}
 ) }}
 {% else %}
@@ -65,6 +65,28 @@
         falls inside
         <code>{{ f.reserved.cidr }}</code> — {{ f.reserved.name }}
         {% if f.description %}<div class="text-muted small">{{ f.description }}</div>{% endif %}
+      {% elif f.rule == 'orphan_global_label' %}
+        <strong class="text-warning">Orphan global label</strong>:
+        <code>{{ f.label }}</code> is defined but not used on any subnet.
+        <div class="text-muted small">Pool queries referencing this label will silently match nothing.</div>
+      {% elif f.rule == 'orphan_project_label' %}
+        <strong>Orphan project label</strong>:
+        <code>{{ f.label }}</code> in project <strong>{{ f.project_name }}</strong>
+        is defined but not used on any subnet in that project.
+      {% elif f.rule == 'probable_label_typo' %}
+        <strong class="text-warning">Probable label typo</strong>:
+        <code>{{ f.rare_label }}</code>
+        ({{ f.rare_count }} subnet{% if f.rare_count != 1 %}s{% endif %})
+        looks like a typo of
+        <code>{{ f.common_label }}</code>
+        ({{ f.common_count }} subnet{% if f.common_count != 1 %}s{% endif %},
+        edit distance {{ f.edit_distance }}).
+      {% elif f.rule == 'label_case_drift' %}
+        <strong>Label case / separator drift</strong>:
+        {% for v in f.variants %}
+        <code>{{ v }}</code> ({{ f.counts[v] }}){% if not loop.last %},{% endif %}
+        {% endfor %}
+        — may be the same label written differently.
       {% else %}
         <code>{{ f.rule }}</code>
       {% endif %}
