@@ -1,7 +1,6 @@
 ## Planned UI Improvements — Navigation & Responsiveness
 
-> **Status:** Design agreed, not yet implemented. New templates should follow
-> this direction; existing pages migrate in phases.
+> **Status:** Phases 1–4 implemented (2026-06-03). Phase 5 (mobile e2e) pending.
 > Stack stays **Bootstrap 5.3 + Jinja2** — no SPA rewrite, no JS framework.
 
 ### Design principles (and what we explicitly rejected)

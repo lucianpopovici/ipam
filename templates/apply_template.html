@@ -1,10 +1,13 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Assign Template – {{ net.cidr }}{% endblock %}
 {% block content %}
-<div class="mb-2">
-  {% if proj %}<a href="{{ url_for('ipam.project_detail', pid=proj.id) }}" class="text-muted small">← {{ proj.name }}</a> /{% endif %}
-  <a href="{{ url_for('ipam.network_detail', net_id=net.id) }}" class="text-muted small"> {{ net.cidr }}</a>
-</div>
+{{ breadcrumbs([
+  {'label': 'Projects',   'url': url_for('ipam.index')},
+  {'label': proj.name,    'url': url_for('ipam.project_detail', pid=proj.id)} if proj else {'label': 'Project'},
+  {'label': net.cidr,     'url': url_for('ipam.network_detail', net_id=net.id)},
+  {'label': 'Assign Template'}
+]) }}
 <h4 class="mb-3">Assign Template to <code>{{ net.cidr }}</code></h4>
 
 <div class="row g-4">

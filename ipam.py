@@ -1521,6 +1521,7 @@ def edit_network(net_id):
         flash('Subnet updated.', 'success')
         return redirect(url_for('ipam.project_detail', pid=pid) if pid else url_for('ipam.index'))
     return render_template('subnet_edit_form.html', net=net_stats(net),
+                           proj=get_project(pid) if pid else None,
                            current_labels=','.join(get_network_labels(net_id)),
                            labels=available_labels_for_project(pid) if pid
                                   else {'global': global_labels(), 'project': []},
@@ -1622,7 +1623,8 @@ def add_ip(net_id):
 
         flash(f'{ip_str} allocated.', 'success')
         return redirect(url_for('ipam.network_detail', net_id=net_id))
-    return render_template('ip_form.html', net=net)
+    return render_template('ip_form.html', net=net,
+                           proj=get_project(net.get('project_id')) if net.get('project_id') else None)
 
 
 @ipam_bp.route('/ip/<path:ip_str>/edit', methods=['GET', 'POST'])
@@ -1654,7 +1656,8 @@ def edit_ip(ip_str):
         r.set(ip_key(ip_str), json.dumps(addr))
         flash(f'{ip_str} updated.', 'success')
         return redirect(url_for('ipam.network_detail', net_id=addr['network_id']))
-    return render_template('ip_form.html', net=net, addr=addr)
+    return render_template('ip_form.html', net=net, addr=addr,
+                           proj=get_project(net.get('project_id')) if net.get('project_id') else None)
 
 
 @ipam_bp.route('/ip/<path:ip_str>/delete', methods=['POST'])

@@ -1,10 +1,16 @@
 {% extends "base.html" %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Cable Trace - {{ proj.name }}{% endblock %}
 
 {% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Cables',   'url': url_for('hw.cable_list', pid=proj.id)},
+  {'label': 'Trace'}
+]) }}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Cable Trace</h1>
-    <a href="{{ url_for('hw.cable_list', pid=proj.id) }}" class="btn btn-outline-secondary">Back to Cables</a>
 </div>
 
 <div class="card shadow-sm">

@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Subnet Templates{% endblock %}
 {% block content %}
+{{ breadcrumbs([{'label': 'Subnet Templates'}]) }}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0">📐 Global Subnet Templates</h4>
   <a href="{{ url_for('ipam.add_template') }}" class="btn btn-primary btn-sm">+ New Global Template</a>

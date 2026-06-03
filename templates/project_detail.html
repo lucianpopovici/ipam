@@ -1,7 +1,11 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card, confirm_delete %}
+{% from '_macros.html' import label_pill, label_pills, utilization_bar, summary_card, confirm_delete, breadcrumbs %}
 {% block title %}{{ proj.name }}{% endblock %}
 {% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name}
+]) }}
 
 {# ── Header ── #}
 <div class="d-flex justify-content-between align-items-center mb-1">

@@ -1,6 +1,11 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}New Project{% endblock %}
 {% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': 'New Project'}
+]) }}
 <div class="row justify-content-center"><div class="col-md-6">
   <div class="card shadow-sm">
     <div class="card-header"><strong>New Project</strong></div>

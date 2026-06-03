@@ -1,6 +1,15 @@
 {% extends 'base.html' %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}{% if addr %}Edit{% else %}Allocate{% endif %} IP{% endblock %}
 {% block content %}
+{% if proj %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': net.cidr,   'url': url_for('ipam.network_detail', net_id=net.id)},
+  {'label': 'Edit ' ~ addr.ip if addr else 'Add IP'}
+]) }}
+{% endif %}
 <div class="row justify-content-center"><div class="col-md-6">
   <div class="card shadow-sm">
     <div class="card-header"><strong>{% if addr %}Edit {{ addr.ip }}{% else %}Allocate IP in {{ net.cidr }}{% endif %}</strong></div>

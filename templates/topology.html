@@ -1,7 +1,13 @@
 {% extends "base.html" %}
+{% from '_macros.html' import breadcrumbs %}
 {% block title %}Topology - {{ proj.name }}{% endblock %}
 
 {% block content %}
+{{ breadcrumbs([
+  {'label': 'Projects', 'url': url_for('ipam.index')},
+  {'label': proj.name,  'url': url_for('ipam.project_detail', pid=proj.id)},
+  {'label': 'Topology'}
+]) }}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>Topology Visualization</h1>
     <div class="btn-group">
