@@ -1,7 +1,8 @@
 ## Planned UX Improvements — Trust, Feedback, Empty States
 
-> **Status:** Phases 1–6 infrastructure complete (2026-06-03). Remaining:
-> redirect-on-error in hw.py forms; mobile e2e from nav spec.
+> **Status:** Fully implemented (2026-06-03). All redirect-on-error patterns
+> fixed in hw.py forms (add/edit template, add instance, BoM save). Mobile e2e
+> from nav spec remains low-priority.
 > Stack stays **Bootstrap 5.3 + Jinja2** — same as the navigation doc.
 > Some items depend on the schema-flexibility and navigation plans; see
 > "Dependencies" at the end.

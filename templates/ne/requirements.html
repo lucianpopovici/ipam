@@ -55,13 +55,16 @@
           <input type="checkbox" class="req-check" value="{{ req.key }}">
           {% endif %}
         </td>
-        <td>{{ req.site_name }}</td>
-        <td>{{ req.pod_name }}</td>
+        <td>{{ req.site_name or ('—' if req.auto_rule else '') }}</td>
+        <td>{{ req.pod_name or ('—' if req.auto_rule else '') }}</td>
         <td>
           <strong>{{ req.ne_type_name }}</strong>
           <span class="badge bg-secondary">{{ req.ne_kind }}</span>
         </td>
-        <td><code>{{ req.iface_name }}</code></td>
+        <td>
+          <code>{{ req.iface_name }}</code>
+          {% if req.auto_rule %}<span class="badge bg-info text-dark ms-1" style="font-size:.6rem">auto-rule</span>{% endif %}
+        </td>
         <td><span class="badge bg-light text-dark border">{{ req.ip_version or ('ipv4' if req.family == 4 else 'ipv6') }}</span></td>
         <td class="text-end">{{ req.address_count or '—' }}</td>
         <td><code>{% if req.min_prefix %}/{{ req.min_prefix }}{% else %}—{% endif %}</code></td>

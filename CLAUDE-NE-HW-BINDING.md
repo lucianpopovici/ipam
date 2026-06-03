@@ -20,6 +20,7 @@
 > Ports that require their own IP get one allocated from the same subnet.
 >
 > **Status:** Implemented (2026-06-03). rules.py, ne.py binding routes, templates, and tests all present.
+> Auto-rule → compute_requirements per-bucket emission implemented (2026-06-03).
 
 ---
 
