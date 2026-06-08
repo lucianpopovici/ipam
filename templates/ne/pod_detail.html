@@ -75,6 +75,78 @@
   </div>
 </div>
 
+{# ── NE Instances (concrete fill of planned slots) ── #}
+<div class="card shadow-sm mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <strong>NE Instances</strong>
+    <span class="text-muted small">Concrete instances filling this POD's planned slots</span>
+  </div>
+  <div class="card-body">
+    {% if fill %}
+    <div class="table-responsive">
+    <table class="table table-sm align-middle mb-3">
+      <thead class="table-light">
+        <tr><th>NE Type</th><th style="width:90px">Fill</th><th>Assigned instances</th></tr>
+      </thead>
+      <tbody>
+        {% for row in fill %}
+        <tr>
+          <td>
+            {% if row.ne_type %}<span class="badge bg-light text-dark border">{{ row.ne_type.kind }}</span>{% endif %}
+            {{ row.name }}
+          </td>
+          <td>
+            <span class="badge {% if row.gap %}bg-warning text-dark{% elif row.surplus %}bg-info text-dark{% else %}bg-success{% endif %}">
+              {{ row.assigned }}/{{ row.needed }}
+            </span>
+          </td>
+          <td>
+            {% if row.instances %}
+            <div class="d-flex flex-wrap gap-2">
+              {% for inst in row.instances %}
+              <span class="badge bg-light text-dark border d-inline-flex align-items-center gap-1">
+                <a href="{{ url_for('ne.ne_instance_detail', pid=proj.id, nid=inst.id) }}"
+                   class="text-decoration-none">{{ inst.name }}</a>
+                <form method="post" class="d-inline"
+                      action="{{ url_for('ne.unassign_instance_from_pod_route', pid=proj.id, pod_id=pod.id) }}">
+                  <input type="hidden" name="instance_id" value="{{ inst.id }}">
+                  <button class="btn btn-link text-danger p-0 lh-1 border-0" style="font-size:.7rem"
+                          title="Unassign">✕</button>
+                </form>
+              </span>
+              {% endfor %}
+            </div>
+            {% else %}<span class="text-muted small">none assigned</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    {% if assignable %}
+    <form method="post" class="d-flex gap-2 flex-wrap align-items-center"
+          action="{{ url_for('ne.assign_instance_to_pod_route', pid=proj.id, pod_id=pod.id) }}">
+      <select name="instance_id" class="form-select form-select-sm" style="max-width:280px">
+        {% for inst in assignable %}
+        <option value="{{ inst.id }}">{{ inst.name }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary">Assign instance</button>
+    </form>
+    {% else %}
+    <p class="text-muted small mb-0">
+      No unassigned instances match this POD's planned NE types.
+      <a href="{{ url_for('ne.add_ne_instance', pid=proj.id) }}">Create one</a>.
+    </p>
+    {% endif %}
+
+    {% else %}
+    <p class="text-muted small mb-0">Add NE slots above first — instances can only fill planned slot types.</p>
+    {% endif %}
+  </div>
+</div>
+
 <script>
 const POD_ID   = {{ pod.id | tojson }};
 const PROJ_ID  = {{ proj.id | tojson }};

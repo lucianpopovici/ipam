@@ -28,6 +28,7 @@
         <th>Name</th>
         <th>NE Type</th>
         <th>Kind</th>
+        <th>POD</th>
         <th>Bound ifaces</th>
         <th></th>
       </tr>
@@ -52,6 +53,12 @@
           {% endif %}
         </td>
         <td>{{ inst.ne_type.kind if inst.ne_type else '—' }}</td>
+        <td>
+          {% if inst.pod %}
+          <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=inst.pod.id) }}"
+             class="text-decoration-none">📦 {{ inst.pod.name }}</a>
+          {% else %}<span class="text-muted small">—</span>{% endif %}
+        </td>
         <td>
           {% if total_ifaces %}
           <span class="badge {% if bound_count == total_ifaces %}bg-success{% elif bound_count > 0 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">

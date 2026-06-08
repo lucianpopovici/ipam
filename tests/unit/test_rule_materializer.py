@@ -255,6 +255,74 @@ def test_materialize_group_by_hw_template(_fake_r):
 
 
 @pytest.mark.unit
+def test_materialize_port_label_filter(_fake_r):
+    # Two data ports; only one carries the 'uplink' label.
+    _make_template(_fake_r, 't_lbl', category='switch',
+                   ports=[
+                       {'id': 'eth1', 'name': 'Eth1', 'port_type': 'data',
+                        'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                        'breakout_fan_out': 1, 'notes': '', 'labels': ['uplink']},
+                       {'id': 'eth2', 'name': 'Eth2', 'port_type': 'data',
+                        'connector': 'SFP28', 'speed_gbps': 25, 'count': 1,
+                        'breakout_fan_out': 1, 'notes': '', 'labels': ['access']},
+                   ])
+    _make_instance(_fake_r, 'i_lbl', 'pid_lbl', 't_lbl')
+
+    ports = R.materialize_binding({'port_labels': ['uplink']}, 'pid_lbl')
+    assert len(ports) == 1
+    assert ports[0]['port_id'] == 'eth1'
+
+
+@pytest.mark.unit
+def test_materialize_port_label_any_of(_fake_r):
+    # A rule listing multiple labels matches ports carrying ANY of them.
+    _make_template(_fake_r, 't_lbl2', category='switch',
+                   ports=[
+                       {'id': 'eth1', 'name': 'Eth1', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['uplink']},
+                       {'id': 'eth2', 'name': 'Eth2', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['peering']},
+                       {'id': 'eth3', 'name': 'Eth3', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['access']},
+                   ])
+    _make_instance(_fake_r, 'i_lbl2', 'pid_lbl2', 't_lbl2')
+
+    ports = R.materialize_binding({'port_labels': ['uplink', 'peering']}, 'pid_lbl2')
+    assert {p['port_id'] for p in ports} == {'eth1', 'eth2'}
+
+
+@pytest.mark.unit
+def test_materialize_no_labels_matches_all(_fake_r):
+    # Empty port_labels keeps prior behavior: no label filtering.
+    _make_template(_fake_r, 't_lbl3', category='switch',
+                   ports=[
+                       {'id': 'eth1', 'name': 'Eth1', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['uplink']},
+                       {'id': 'eth2', 'name': 'Eth2', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': []},
+                   ])
+    _make_instance(_fake_r, 'i_lbl3', 'pid_lbl3', 't_lbl3')
+
+    ports = R.materialize_binding({'port_types': ['data']}, 'pid_lbl3')
+    assert {p['port_id'] for p in ports} == {'eth1', 'eth2'}
+
+
+@pytest.mark.unit
+def test_preview_port_label_filter(_fake_r):
+    _make_template(_fake_r, 't_lbl4', category='switch',
+                   ports=[
+                       {'id': 'eth1', 'name': 'Eth1', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['uplink']},
+                       {'id': 'eth2', 'name': 'Eth2', 'port_type': 'data',
+                        'connector': 'SFP28', 'count': 1, 'labels': ['access']},
+                   ])
+    _make_instance(_fake_r, 'i_lbl4', 'pid_lbl4', 't_lbl4')
+
+    result = R.preview_binding({'port_labels': ['uplink']}, 'pid_lbl4')
+    assert result['total_ports'] == 1
+
+
+@pytest.mark.unit
 def test_preview_binding_empty(_fake_r):
     result = R.preview_binding({}, 'pid-empty2')
     assert result == {'total_ports': 0, 'buckets': []}

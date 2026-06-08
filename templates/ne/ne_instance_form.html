@@ -17,7 +17,9 @@
       {% if not inst %}
       <div class="mb-3">
         <label class="form-label">NE Type *</label>
-        <select name="ne_type_id" class="form-select {% if errors.ne_type_id %}is-invalid{% endif %}" required>
+        <select name="ne_type_id" id="neTypeSelect"
+                class="form-select {% if errors.ne_type_id %}is-invalid{% endif %}"
+                required onchange="refreshPods()">
           <option value="">— select —</option>
           {% for t in ne_types %}
           <option value="{{ t.id }}"
@@ -29,6 +31,16 @@
         {% if errors.ne_type_id %}<div class="invalid-feedback">{{ errors.ne_type_id }}</div>{% endif %}
       </div>
       {% endif %}
+
+      <div class="mb-3">
+        <label class="form-label">POD <small class="text-muted">(optional)</small></label>
+        <select name="pod_id" id="podSelect"
+                class="form-select {% if errors.pod_id %}is-invalid{% endif %}">
+          <option value="">— none —</option>
+        </select>
+        <div class="form-text">Only PODs that plan for the selected NE type are listed.</div>
+        {% if errors.pod_id %}<div class="invalid-feedback">{{ errors.pod_id }}</div>{% endif %}
+      </div>
 
       <div class="mb-3">
         <label class="form-label">Name *</label>
@@ -59,4 +71,27 @@
   </div>
 </form>
 </div></div>
+
+<script>
+const POD_LIST     = {{ pods | tojson }};
+const FIXED_TYPE   = {{ (inst.ne_type_id if inst else '') | tojson }};
+const INITIAL_POD  = {{ (form_values.pod_id or (inst.pod_id if inst else '')) | tojson }};
+
+function currentTypeId(){
+  const sel = document.getElementById('neTypeSelect');
+  return sel ? sel.value : FIXED_TYPE;   // type select absent on edit
+}
+
+function refreshPods(){
+  const tid    = currentTypeId();
+  const podSel = document.getElementById('podSelect');
+  const prev   = podSel.value || INITIAL_POD;
+  const opts   = POD_LIST.filter(p => tid && p.type_ids.includes(tid));
+  podSel.innerHTML = '<option value="">— none —</option>' +
+    opts.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  if ([...podSel.options].some(o => o.value === prev)) podSel.value = prev;
+}
+
+refreshPods();
+</script>
 {% endblock %}

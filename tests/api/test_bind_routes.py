@@ -268,6 +268,47 @@ def test_bind_auto_rule(client, project, ne_type, hw_instance):
 
 
 @pytest.mark.api
+def test_bind_auto_rule_by_port_label(client, project, ne_type):
+    """Binding resolves to physical ports carrying a given label, not a picked port."""
+    import db as db_mod
+    from db import new_id
+    # Template with two data ports; only 'p_up' carries the 'uplink' label.
+    tmpl = {
+        'id': new_id(), 'name': 'SW', 'vendor': '', 'model': '',
+        'category': 'switch', 'form_factor': '19"', 'u_size': 1,
+        'cable_type': '', 'description': '', 'scope': 'global', 'project_id': '',
+        'ports': [
+            {'id': 'p_up', 'name': 'Eth1', 'port_type': 'data', 'connector': 'SFP28',
+             'speed_gbps': 25, 'count': 1, 'breakout_fan_out': 1, 'notes': '',
+             'labels': ['uplink']},
+            {'id': 'p_acc', 'name': 'Eth2', 'port_type': 'data', 'connector': 'SFP28',
+             'speed_gbps': 25, 'count': 1, 'breakout_fan_out': 1, 'notes': '',
+             'labels': ['access']},
+        ],
+    }
+    db_mod.r.set(f'hw:template:{tmpl["id"]}', json.dumps(tmpl))
+    db_mod.r.sadd('hw:templates:index', tmpl['id'])
+    iid = new_id()
+    db_mod.r.set(f'hw:instance:{iid}', json.dumps({
+        'id': iid, 'template_id': tmpl['id'], 'project_id': project,
+        'asset_tag': 'sw-001', 'serial': '', 'status': 'deployed',
+        'location': {}, 'port_overrides': {}, 'labels': [],
+    }))
+    db_mod.r.sadd('hw:instances:index', iid)
+    db_mod.r.sadd(f'project:{project}:hw:instances', iid)
+
+    nid  = _create_ne_inst(client, project, ne_type)
+    rule = {'categories': ['switch'], 'port_labels': ['uplink']}
+    r = client.post(f'/ne-instances/{nid}/bindings/iface-1',
+                    data={'bind_mode': 'auto-rule', 'rule_json': json.dumps(rule)},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    import ne as ne_mod
+    binding = ne_mod.get_ne_instance(nid)['iface_bindings']['iface-1']
+    assert {p['port_id'] for p in binding['ports']} == {'p_up'}
+
+
+@pytest.mark.api
 def test_rematerialize_auto_rule(client, project, ne_type, hw_instance):
     nid = _create_ne_inst(client, project, ne_type)
     rule = {'port_types': ['mgmt'], 'name_regex': '.*', 'categories': ['server'],

@@ -201,10 +201,70 @@ function _ifaceAddrCount(spec, ver){
   if(spec.address_count != null) return spec.address_count;
   // Legacy prefix_len → display address_count
   const pl = spec.prefix_len || (ver==='ipv4'?24:64);
+  return _prefixToCount(pl, ver);
+}
+
+// Usable address count for a prefix length (mirrors ipam.address_count_from_prefix)
+function _prefixToCount(pl, ver){
   if(ver==='ipv6') return pl>=128?1:Math.pow(2,128-pl);
   if(pl>=32) return 1;
-  if(pl===31) return 2;
+  if(pl===31) return 2;   // RFC 3021 P2P
   return Math.max(1, Math.pow(2,32-pl)-2);
+}
+
+// A spec is sized "by prefix" when it carries an explicit min_prefix.
+function _specMode(spec){ return (spec && spec.min_prefix != null) ? 'prefix' : 'count'; }
+
+function setSpecMode(i, ver, mode){
+  const spec = ifaces[i][ver] || {};
+  if(mode==='prefix'){
+    const pl = (spec.min_prefix != null) ? spec.min_prefix : (ver==='ipv4'?24:64);
+    ifaces[i][ver] = {min_prefix: pl, address_count: _prefixToCount(pl, ver)};
+  } else {
+    ifaces[i][ver] = {address_count: spec.address_count || 1, min_prefix: null};
+  }
+  render();
+}
+
+function setSpecCount(i, ver, v){
+  ifaces[i][ver] = {address_count: parseInt(v)||1, min_prefix: null};
+}
+
+function setSpecPrefix(i, ver, v){
+  const max = ver==='ipv4'?32:128;
+  let pl = parseInt(v);
+  if(isNaN(pl)) pl = (ver==='ipv4'?24:64);
+  pl = Math.min(max, Math.max(1, pl));
+  ifaces[i][ver] = {min_prefix: pl, address_count: _prefixToCount(pl, ver)};
+}
+
+// Render the count/prefix selector + sized input for one IP family.
+function renderIpSpec(iface, i, ver){
+  const spec = iface[ver];
+  if(!spec) return '';
+  const mode    = _specMode(spec);
+  const prefMax = (ver==='ipv4') ? 32 : 128;
+  const maxAttr = (ver==='ipv4') ? 'max="16777214"' : '';
+  const sel = `
+    <select class="form-select form-select-sm" style="width:80px"
+            onchange="setSpecMode(${i},'${ver}',this.value)">
+      <option value="count"${mode==='count'?' selected':''}>count</option>
+      <option value="prefix"${mode==='prefix'?' selected':''}>prefix</option>
+    </select>`;
+  const input = (mode==='prefix') ? `
+    <div class="input-group input-group-sm" style="width:96px">
+      <span class="input-group-text small">/</span>
+      <input type="number" class="form-control" min="1" max="${prefMax}"
+             value="${spec.min_prefix}"
+             oninput="setSpecPrefix(${i},'${ver}',this.value)">
+    </div>` : `
+    <div class="input-group input-group-sm" style="width:130px">
+      <span class="input-group-text small">count</span>
+      <input type="number" class="form-control" min="1" ${maxAttr}
+             value="${_ifaceAddrCount(spec,ver)}"
+             oninput="setSpecCount(${i},'${ver}',this.value)">
+    </div>`;
+  return `<div class="d-flex gap-1 align-items-center">${sel}${input}</div>`;
 }
 
 function renderParamInputs(iface, i){
@@ -277,15 +337,7 @@ function render(){
                    onchange="toggleSubnet(${i},'ipv4')">
             <label class="form-check-label small" for="ipv4_${i}">IPv4 addresses</label>
           </div>
-          ${iface.ipv4?`
-          <div class="d-flex gap-1 align-items-center">
-            <div class="input-group input-group-sm" style="width:130px">
-              <span class="input-group-text small">count</span>
-              <input type="number" class="form-control" min="1" max="65534"
-                     value="${_ifaceAddrCount(iface.ipv4,'ipv4')}"
-                     oninput="ifaces[${i}].ipv4={address_count:parseInt(this.value)||1,min_prefix:ifaces[${i}].ipv4.min_prefix||null}">
-            </div>
-          </div>`:''}
+          ${renderIpSpec(iface,i,'ipv4')}
         </div>
         {# IPv6 subnet #}
         <div>
@@ -295,15 +347,7 @@ function render(){
                    onchange="toggleSubnet(${i},'ipv6')">
             <label class="form-check-label small" for="ipv6_${i}">IPv6 addresses</label>
           </div>
-          ${iface.ipv6?`
-          <div class="d-flex gap-1 align-items-center">
-            <div class="input-group input-group-sm" style="width:130px">
-              <span class="input-group-text small">count</span>
-              <input type="number" class="form-control" min="1"
-                     value="${_ifaceAddrCount(iface.ipv6,'ipv6')}"
-                     oninput="ifaces[${i}].ipv6={address_count:parseInt(this.value)||1,min_prefix:ifaces[${i}].ipv6.min_prefix||null}">
-            </div>
-          </div>`:''}
+          ${renderIpSpec(iface,i,'ipv6')}
         </div>
         {# Sharing level #}
         <div>

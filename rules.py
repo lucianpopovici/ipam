@@ -32,6 +32,7 @@ def materialize_binding(rule: dict, pid: str,
     categories = set(rule.get('categories') or _ALL_CATEGORIES)
     name_re    = _re.compile(rule.get('name_regex') or '.*', _re.IGNORECASE)
     group_by   = rule.get('group_by') or []
+    port_labels = set(rule.get('port_labels') or [])   # match ports carrying any
 
     buckets: dict = {}
     for inst in project_instances(pid):
@@ -40,6 +41,8 @@ def materialize_binding(rule: dict, pid: str,
             continue
         for port in tmpl.get('ports', []):
             if port.get('port_type') not in port_types:
+                continue
+            if port_labels and not (set(port.get('labels') or []) & port_labels):
                 continue
             count = int(port.get('count', 1))
             for n in range(count):
@@ -85,6 +88,7 @@ def preview_binding(rule: dict, pid: str,
     categories = set(rule.get('categories') or _ALL_CATEGORIES)
     name_re    = _re.compile(rule.get('name_regex') or '.*', _re.IGNORECASE)
     group_by   = rule.get('group_by') or []
+    port_labels = set(rule.get('port_labels') or [])   # match ports carrying any
 
     bucket_counts: dict[str, int]  = {}
     bucket_unracked: dict[str, bool] = {}
@@ -95,6 +99,8 @@ def preview_binding(rule: dict, pid: str,
             continue
         for port in tmpl.get('ports', []):
             if port.get('port_type') not in port_types:
+                continue
+            if port_labels and not (set(port.get('labels') or []) & port_labels):
                 continue
             count = int(port.get('count', 1))
             for n in range(count):

@@ -5,7 +5,7 @@ Consolidates checks for subnets, hardware, and logical requirements.
 """
 import ipaddress
 from ipam import project_networks, net_stats
-from ne import compute_requirements, load_requirements
+from ne import compute_requirements, load_requirements, project_pods, pod_slot_fill
 from hw_logic import project_cables, validate_project
 
 def check_project_health(pid: str) -> list:
@@ -32,6 +32,34 @@ def check_project_health(pid: str) -> list:
     # 5. Service field gaps
     issues.extend(_check_service_field_gaps(pid))
 
+    # 6. POD composition gaps (assigned NE instances vs planned slots)
+    issues.extend(_check_pod_composition_gaps(pid))
+
+    return issues
+
+def _check_pod_composition_gaps(pid: str) -> list:
+    """Flag PODs whose assigned NE instances don't match their planned slots."""
+    issues = []
+    for pod in project_pods(pid):
+        for row in pod_slot_fill(pod['id']):
+            if row['gap']:
+                issues.append({
+                    'type': 'composition',
+                    'severity': 'warning',
+                    'message': (f"POD {pod['name']}: planned {row['needed']}x "
+                                f"{row['name']}, {row['assigned']} assigned "
+                                f"({row['gap']} missing)."),
+                    'context': {'pod_id': pod['id'], 'ne_type_id': row['ne_type_id']},
+                })
+            elif row['surplus']:
+                issues.append({
+                    'type': 'composition',
+                    'severity': 'warning',
+                    'message': (f"POD {pod['name']}: {row['assigned']}x {row['name']} "
+                                f"assigned but only {row['needed']} planned "
+                                f"({row['surplus']} over)."),
+                    'context': {'pod_id': pod['id'], 'ne_type_id': row['ne_type_id']},
+                })
     return issues
 
 def _check_subnet_utilization(pid: str) -> list:

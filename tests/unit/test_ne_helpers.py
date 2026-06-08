@@ -12,6 +12,8 @@ from ne import (
     get_site, save_site, delete_site, project_sites, site_pods,
     get_pod, save_pod, delete_pod, project_pods, pod_sites,
     get_pod_slots, save_pod_slots,
+    pod_allowed_type_ids, pod_allows_type, pod_ne_instances, pod_slot_fill,
+    save_ne_instance, get_ne_instance,
     assign_pod_to_site, unassign_pod_from_site,
     compute_requirements, save_requirements, load_requirements,
     _sharing_count, collect_params,
@@ -538,6 +540,36 @@ class TestComputeRequirements:
         assert len(reqs) == 1
         assert reqs[0]['count'] == 1
 
+    def test_explicit_min_prefix_honored(self):
+        """An interface sized by slash notation (min_prefix) is carved at that
+        exact prefix, regardless of what its address_count would imply."""
+        pid  = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        ne = {
+            'id': new_id(), 'name': 'R', 'kind': 'PNF',
+            'description': '', 'labels': [], 'params': {},
+            'interfaces': [
+                # address_count 254 → /24, but min_prefix forces /22
+                {'id': 'i1', 'name': 'data', 'labels': [], 'params': {},
+                 'ipv4': {'address_count': 254, 'min_prefix': 22}, 'ipv6': None,
+                 'sharing': 'interface'},
+            ],
+            'scope': 'global', 'project_id': '',
+        }
+        save_ne_type(ne)
+        site = {'id': new_id(), 'name': 'S', 'project_id': pid,
+                'description': '', 'labels': [], 'params': {}}
+        save_site(site)
+        pod = {'id': new_id(), 'name': 'P', 'project_id': pid,
+               'description': '', 'labels': [], 'params': {}}
+        save_pod(pod)
+        assign_pod_to_site(pod['id'], site['id'])
+        save_pod_slots(pod['id'], [{'ne_type_id': ne['id'], 'count': 1, 'label_override': []}])
+
+        req = compute_requirements(pid)[0]
+        assert req['min_prefix'] == 22
+        assert req['prefix_len'] == 22
+
     def test_no_sites_returns_empty(self):
         """Verify empty requirements for project with no sites."""
         pid = new_id()
@@ -742,3 +774,66 @@ class TestCollectParams:
         form = ImmutableMultiDict([('ms', 'A'), ('ms', 'B')])
         result = collect_params(schema, form)
         assert sorted(result['ms']) == ['A', 'B']
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NE instance ↔ POD linkage
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPodInstanceLink:
+    """pod_allows_type / pod_ne_instances / pod_slot_fill and delete cascade."""
+
+    def _setup(self, slot_count=2):
+        pid = new_id()
+        save_project({'id': pid, 'name': 'P', 'supernet': '10.0.0.0/8'})
+        ne = {'id': new_id(), 'name': 'Router', 'kind': 'VNF', 'scope': 'project',
+              'project_id': pid, 'interfaces': [], 'labels': [], 'params': {}}
+        save_ne_type(ne)
+        pod = {'id': new_id(), 'name': 'POD-A', 'project_id': pid}
+        save_pod(pod)
+        save_pod_slots(pod['id'], [{'ne_type_id': ne['id'], 'count': slot_count,
+                                    'label_override': []}])
+        return pid, ne, pod
+
+    def _inst(self, pid, ne_type_id, pod_id='', name='inst'):
+        inst = {'id': new_id(), 'ne_type_id': ne_type_id, 'project_id': pid,
+                'pod_id': pod_id, 'name': name, 'description': '', 'labels': [],
+                'params': {}, 'iface_bindings': {}}
+        save_ne_instance(inst)
+        return inst
+
+    def test_allowed_type_ids(self):
+        _pid, ne, pod = self._setup()
+        assert pod_allowed_type_ids(pod['id']) == {ne['id']}
+
+    def test_allows_type_true_false(self):
+        _pid, ne, pod = self._setup()
+        assert pod_allows_type(pod['id'], ne['id']) is True
+        assert pod_allows_type(pod['id'], 'nope') is False
+        assert pod_allows_type(pod['id'], '') is False
+
+    def test_pod_ne_instances_filters_by_pod(self):
+        pid, ne, pod = self._setup()
+        a = self._inst(pid, ne['id'], pod_id=pod['id'], name='a')
+        self._inst(pid, ne['id'], pod_id='', name='b')          # unassigned
+        ids = {i['id'] for i in pod_ne_instances(pod['id'])}
+        assert ids == {a['id']}
+
+    def test_slot_fill_gap(self):
+        pid, ne, pod = self._setup(slot_count=2)
+        self._inst(pid, ne['id'], pod_id=pod['id'], name='a')   # 1 of 2
+        row = pod_slot_fill(pod['id'])[0]
+        assert (row['needed'], row['assigned'], row['gap'], row['surplus']) == (2, 1, 1, 0)
+
+    def test_slot_fill_exact_and_surplus(self):
+        pid, ne, pod = self._setup(slot_count=1)
+        self._inst(pid, ne['id'], pod_id=pod['id'], name='a')
+        self._inst(pid, ne['id'], pod_id=pod['id'], name='b')   # 2 of 1
+        row = pod_slot_fill(pod['id'])[0]
+        assert (row['needed'], row['assigned'], row['gap'], row['surplus']) == (1, 2, 0, 1)
+
+    def test_delete_pod_reverts_instances(self):
+        pid, ne, pod = self._setup()
+        inst = self._inst(pid, ne['id'], pod_id=pod['id'])
+        delete_pod(pod['id'])
+        assert get_ne_instance(inst['id'])['pod_id'] == ''
