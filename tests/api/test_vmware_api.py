@@ -1,3 +1,4 @@
+# pylint: disable=duplicate-code
 """
 API tests for vmware.py routes using the Flask test client.
 Every test gets a fresh fakeredis via the autouse fixture in conftest.py.
