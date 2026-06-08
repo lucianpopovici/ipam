@@ -218,6 +218,9 @@ def delete_pod(pod_id):
     pod = get_pod(pod_id)
     if not pod:
         return
+    # Revert any NE instances that were assigned to this POD
+    for inst in pod_ne_instances(pod_id):
+        save_ne_instance({**inst, 'pod_id': ''})
     r.srem(_proj_pods_key(pod['project_id']), pod_id)
     relations.clear_entity('pod_of_site', pod_id)
     r.delete(_pod_slots_key(pod_id))
@@ -248,6 +251,60 @@ def assign_pod_to_site(pod_id, sid):
 def unassign_pod_from_site(pod_id, sid):
     """Disassociate a POD from a site."""
     relations.unrelate('pod_of_site', pod_id, sid)
+
+def pod_allowed_type_ids(pod_id) -> set:
+    """Return the set of NE type IDs this POD's slots plan for."""
+    return {s['ne_type_id'] for s in get_pod_slots(pod_id) if s.get('ne_type_id')}
+
+def pod_allows_type(pod_id, ne_type_id) -> bool:
+    """True if the POD has at least one slot for the given NE type."""
+    return bool(ne_type_id) and ne_type_id in pod_allowed_type_ids(pod_id)
+
+def pod_ne_instances(pod_id) -> list:
+    """Return all NE instances assigned to a specific POD, sorted by name."""
+    pod = get_pod(pod_id)
+    if not pod:
+        return []
+    return sorted([i for i in project_ne_instances(pod['project_id'])
+                   if i.get('pod_id') == pod_id],
+                  key=lambda i: i.get('name', ''))
+
+def pod_slot_fill(pod_id) -> list:
+    """Per-NE-type fill summary: planned slot count vs assigned instances.
+
+    Returns a list (sorted by type name) of dicts:
+      {ne_type_id, ne_type, name, needed, assigned, instances, gap, surplus}
+    """
+    planned: dict = {}
+    for slot in get_pod_slots(pod_id):
+        tid = slot.get('ne_type_id')
+        if tid:
+            planned[tid] = planned.get(tid, 0) + int(slot.get('count', 1))
+    assigned: dict = {}
+    for inst in pod_ne_instances(pod_id):
+        assigned.setdefault(inst.get('ne_type_id', ''), []).append(inst)
+    rows = []
+    for tid, needed in planned.items():
+        insts   = assigned.get(tid, [])
+        ne_type = get_ne_type(tid)
+        rows.append({
+            'ne_type_id': tid,
+            'ne_type':    ne_type,
+            'name':       ne_type['name'] if ne_type else tid,
+            'needed':     needed,
+            'assigned':   len(insts),
+            'instances':  insts,
+            'gap':        max(0, needed - len(insts)),
+            'surplus':    max(0, len(insts) - needed),
+        })
+    return sorted(rows, key=lambda x: x['name'])
+
+def _pods_for_assign(pid) -> list:
+    """POD options for the instance form, each tagged with the NE type IDs its
+    slots plan for, so the form can filter selectable PODs by instance type."""
+    return [{'id': p['id'], 'name': p['name'],
+             'type_ids': sorted(pod_allowed_type_ids(p['id']))}
+            for p in project_pods(pid)]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Bulk site creation from pattern
@@ -1179,11 +1236,18 @@ def pod_detail(pid, pod_id):
     assigned_site_ids = {s['id'] for s in assigned_sites}
     available_sites  = [s for s in project_sites(pid) if s['id'] not in assigned_site_ids]
     available_types  = available_ne_types(pid)
+    # NE instance fill: planned slots vs assigned instances, plus the pool of
+    # unassigned instances whose type this POD actually plans for.
+    fill        = pod_slot_fill(pod_id)
+    allowed_ids = pod_allowed_type_ids(pod_id)
+    assignable  = [i for i in project_ne_instances(pid)
+                   if not i.get('pod_id') and i.get('ne_type_id') in allowed_ids]
     return render_template('ne/pod_detail.html', proj=proj, pod=pod,
                            schema=schema, slots=enriched,
                            assigned_sites=assigned_sites,
                            available_sites=available_sites,
-                           available_types=available_types)
+                           available_types=available_types,
+                           fill=fill, assignable=assignable)
 
 
 @ne_bp.route('/projects/<pid>/pods/<pod_id>/slots', methods=['POST'])
@@ -1225,6 +1289,36 @@ def unassign_site_from_pod_route(pid, pod_id):
     return redirect(url_for('ne.pod_detail', pid=pid, pod_id=pod_id))
 
 
+@ne_bp.route('/projects/<pid>/pods/<pod_id>/assign-instance', methods=['POST'])
+@editor_required
+def assign_instance_to_pod_route(pid, pod_id):
+    """Assign an NE instance to a POD. The instance's type must match a
+    planned slot on the POD (hard-enforced type match)."""
+    get_pod(pod_id) or abort(404)
+    nid  = request.form.get('instance_id', '').strip()
+    inst = get_ne_instance(nid) if nid else None
+    if not inst or inst.get('project_id') != pid:
+        flash('Unknown NE instance.', 'danger')
+    elif not pod_allows_type(pod_id, inst.get('ne_type_id', '')):
+        flash('That POD has no slot planned for this NE type.', 'danger')
+    else:
+        save_ne_instance({**inst, 'pod_id': pod_id})
+        flash(f'Instance "{inst["name"]}" assigned to POD.', 'success')
+    return redirect(url_for('ne.pod_detail', pid=pid, pod_id=pod_id))
+
+
+@ne_bp.route('/projects/<pid>/pods/<pod_id>/unassign-instance', methods=['POST'])
+@editor_required
+def unassign_instance_from_pod_route(pid, pod_id):
+    """Remove an NE instance from a POD."""
+    nid  = request.form.get('instance_id', '').strip()
+    inst = get_ne_instance(nid) if nid else None
+    if inst and inst.get('pod_id') == pod_id:
+        save_ne_instance({**inst, 'pod_id': ''})
+        flash('Instance unassigned from POD.', 'info')
+    return redirect(url_for('ne.pod_detail', pid=pid, pod_id=pod_id))
+
+
 @ne_bp.route('/projects/<pid>/topology')
 def topology_page(pid):
     """Render the topology visualization page."""
@@ -1261,7 +1355,9 @@ def topology_data(pid):
             })
 
     all_pods = project_pods(pid)
+    pod_ids  = set()
     for p in all_pods:
+        pod_ids.add(p['id'])
         nodes.append({
             'data': {'id': f"pod_{p['id']}", 'label': p['name'], 'type': 'pod'}
         })
@@ -1279,6 +1375,33 @@ def topology_data(pid):
                         'parent': f"pod_{p['id']}"
                     }
                 })
+
+    # 1b. Logical: NE instances (concrete fill), nested in their POD when assigned
+    for ne_inst in project_ne_instances(pid):
+        netype = get_ne_type(ne_inst.get('ne_type_id', ''))
+        data = {
+            'id':    f"ne_inst_{ne_inst['id']}",
+            'label': ne_inst.get('name', ne_inst['id']),
+            'type':  'ne_instance',
+            'kind':  netype.get('kind', '') if netype else '',
+        }
+        if ne_inst.get('pod_id') in pod_ids:
+            data['parent'] = f"pod_{ne_inst['pod_id']}"
+        nodes.append({'data': data})
+
+        # Bridge logical -> physical: NE instance to the HW devices it binds to
+        seen_hw = set()
+        for binding in ne_inst.get('iface_bindings', {}).values():
+            for port in binding.get('ports', []):
+                hw_iid = port.get('hw_instance_id')
+                if hw_iid and hw_iid not in seen_hw:
+                    seen_hw.add(hw_iid)
+                    edges.append({'data': {
+                        'id':     f"e_ne_hw_{ne_inst['id']}_{hw_iid}",
+                        'source': f"ne_inst_{ne_inst['id']}",
+                        'target': f"inst_{hw_iid}",
+                        'type':   'binding',
+                    }})
 
     # 2. Physical: Racks -> Instances
     instances = project_instances(pid)
@@ -1515,7 +1638,8 @@ def list_ne_instances(pid):
     enriched = []
     for inst in instances:
         ne_type = get_ne_type(inst.get('ne_type_id', ''))
-        enriched.append({**inst, 'ne_type': ne_type})
+        pod     = get_pod(inst.get('pod_id')) if inst.get('pod_id') else None
+        enriched.append({**inst, 'ne_type': ne_type, 'pod': pod})
     return render_template('ne/ne_instances_list.html', proj=proj,
                            instances=enriched)
 
@@ -1527,6 +1651,7 @@ def add_ne_instance(pid):
     proj = get_project(pid) or abort(404)
     ne_types = available_ne_types(pid)
     all_types = ne_types['global'] + ne_types['project']
+    pods = _pods_for_assign(pid)
     errors, form_values = {}, {}
 
     if request.method == 'POST':
@@ -1534,11 +1659,14 @@ def add_ne_instance(pid):
         ne_type_id = request.form.get('ne_type_id', '').strip()
         description = request.form.get('description', '').strip()
         labels    = parse_labels(request.form.get('labels', ''))
+        pod_id    = request.form.get('pod_id', '').strip()
         form_values = request.form
 
         errors = form_errors(
             ('name',       bool(name),       'Name is required.'),
             ('ne_type_id', bool(ne_type_id), 'NE type is required.'),
+            ('pod_id',     (not pod_id) or pod_allows_type(pod_id, ne_type_id),
+             'Selected POD has no slot planned for this NE type.'),
         )
         if not errors:
             # Pre-populate auto-rule bindings from NE type ifaces that carry a
@@ -1564,6 +1692,7 @@ def add_ne_instance(pid):
                 'id':             new_id(),
                 'ne_type_id':     ne_type_id,
                 'project_id':     pid,
+                'pod_id':         pod_id,
                 'name':           name,
                 'description':    description,
                 'labels':         labels,
@@ -1575,7 +1704,7 @@ def add_ne_instance(pid):
             return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=inst['id']))
 
     return render_template('ne/ne_instance_form.html', proj=proj,
-                           ne_types=all_types, errors=errors,
+                           ne_types=all_types, pods=pods, errors=errors,
                            form_values=form_values)
 
 
@@ -1585,26 +1714,31 @@ def edit_ne_instance(pid, nid):
     from ipam import get_project
     proj = get_project(pid) or abort(404)
     inst = get_ne_instance(nid) or abort(404)
+    pods = _pods_for_assign(pid)
     errors, form_values = {}, {}
 
     if request.method == 'POST':
         name        = request.form.get('name', '').strip()
         description = request.form.get('description', '').strip()
         labels      = parse_labels(request.form.get('labels', ''))
+        pod_id      = request.form.get('pod_id', '').strip()
         form_values = request.form
 
         errors = form_errors(
             ('name', bool(name), 'Name is required.'),
+            ('pod_id', (not pod_id) or pod_allows_type(pod_id, inst.get('ne_type_id', '')),
+             'Selected POD has no slot planned for this NE type.'),
         )
         if not errors:
             inst = {**inst, 'name': name, 'description': description,
-                    'labels': labels}
+                    'labels': labels, 'pod_id': pod_id}
             save_ne_instance(inst)
             flash(f'NE instance "{name}" updated.', 'success')
             return redirect(url_for('ne.ne_instance_detail', pid=pid, nid=nid))
 
     return render_template('ne/ne_instance_form.html', proj=proj, inst=inst,
-                           ne_types=[], errors=errors, form_values=form_values)
+                           ne_types=[], pods=pods, errors=errors,
+                           form_values=form_values)
 
 
 @ne_bp.route('/projects/<pid>/ne-instances/<nid>/delete', methods=['POST'])
@@ -1650,10 +1784,21 @@ def ne_instance_detail(pid, nid):
     project_nets = sorted(project_networks(pid),
                           key=lambda n: n.get('cidr', ''))
 
+    pod = get_pod(inst.get('pod_id')) if inst.get('pod_id') else None
+
+    # Distinct port labels across the project's HW (for the bind rule's label picker)
+    port_labels = sorted({
+        lbl
+        for hw in hw_instances
+        for port in (hw.get('template') or {}).get('ports', [])
+        for lbl in (port.get('labels') or [])
+    })
+
     return render_template('ne/ne_instance_detail.html', proj=proj, inst=inst,
                            ne_type=ne_type, ifaces=ifaces, bindings=bindings,
                            hw_instances=hw_instances, derived=derived,
-                           project_nets=project_nets)
+                           project_nets=project_nets, pod=pod,
+                           port_labels=port_labels)
 
 
 # ── Binding routes ─────────────────────────────────────────────────────────────

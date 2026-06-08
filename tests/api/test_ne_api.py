@@ -543,3 +543,133 @@ class TestDefaultBindRule:
         nid  = nids.pop()
         inst = ne_mod.get_ne_instance(nid)
         assert inst.get('iface_bindings') == {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NE instance ↔ POD assignment (type-match enforced)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestInstancePodAssignment:
+    """Assign/unassign NE instances to PODs with hard type-match enforcement."""
+
+    def _setup(self, client, slot_type_matches=True):
+        """Project + global NE type + POD with a slot. Returns (pid, tid, pod_id)."""
+        pid = _create_project(client)
+        client.post('/ne-types/add', data=_ne_type_data())
+        from ne import global_ne_types
+        tid = global_ne_types()[0]['id']
+        client.post(f'/projects/{pid}/pods/add', data={
+            'name': 'POD1', 'description': '', 'labels': '', 'params_json': '{}',
+        })
+        pod = project_pods(pid)[0]
+        slot_tid = tid if slot_type_matches else 'other-type'
+        client.post(f'/projects/{pid}/pods/{pod["id"]}/slots',
+                    json=[{'ne_type_id': slot_tid, 'count': 2, 'label_override': []}])
+        return pid, tid, pod['id']
+
+    def _make_instance(self, client, pid, tid, name='inst-01'):
+        client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': name, 'ne_type_id': tid, 'description': '', 'labels': '',
+        })
+        import ne as ne_mod
+        return ne_mod.project_ne_instances(pid)[-1]['id']
+
+    def test_assign_matching_type(self, client):
+        pid, tid, pod_id = self._setup(client)
+        nid  = self._make_instance(client, pid, tid)
+        resp = client.post(f'/projects/{pid}/pods/{pod_id}/assign-instance',
+                           data={'instance_id': nid}, follow_redirects=False)
+        assert resp.status_code == 302
+        import ne as ne_mod
+        assert ne_mod.get_ne_instance(nid)['pod_id'] == pod_id
+
+    def test_assign_rejected_on_type_mismatch(self, client):
+        pid, tid, pod_id = self._setup(client, slot_type_matches=False)
+        nid = self._make_instance(client, pid, tid)
+        client.post(f'/projects/{pid}/pods/{pod_id}/assign-instance',
+                    data={'instance_id': nid})
+        import ne as ne_mod
+        assert ne_mod.get_ne_instance(nid)['pod_id'] == ''
+
+    def test_unassign(self, client):
+        pid, tid, pod_id = self._setup(client)
+        nid = self._make_instance(client, pid, tid)
+        client.post(f'/projects/{pid}/pods/{pod_id}/assign-instance',
+                    data={'instance_id': nid})
+        client.post(f'/projects/{pid}/pods/{pod_id}/unassign-instance',
+                    data={'instance_id': nid})
+        import ne as ne_mod
+        assert ne_mod.get_ne_instance(nid)['pod_id'] == ''
+
+    def test_form_create_with_pod(self, client):
+        pid, tid, pod_id = self._setup(client)
+        client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': 'with-pod', 'ne_type_id': tid, 'description': '',
+            'labels': '', 'pod_id': pod_id,
+        })
+        import ne as ne_mod
+        inst = ne_mod.project_ne_instances(pid)[-1]
+        assert inst['pod_id'] == pod_id
+
+    def test_form_create_rejects_bad_pod(self, client):
+        pid, tid, pod_id = self._setup(client, slot_type_matches=False)
+        resp = client.post(f'/projects/{pid}/ne-instances/add', data={
+            'name': 'bad-pod', 'ne_type_id': tid, 'description': '',
+            'labels': '', 'pod_id': pod_id,
+        })
+        # Re-rendered form (200), instance not created
+        assert resp.status_code == 200
+        import ne as ne_mod
+        assert ne_mod.project_ne_instances(pid) == []
+
+    def test_pod_composition_gap_health(self, client):
+        pid, tid, pod_id = self._setup(client)        # slot needs 2, none assigned
+        from health_logic import _check_pod_composition_gaps
+        issues = _check_pod_composition_gaps(pid)
+        assert any(i['type'] == 'composition' for i in issues)
+
+
+class TestTopologyInstances:
+    """NE instances appear in the Cytoscape topology graph."""
+
+    def test_instance_nested_and_bound(self, client):
+        import ne as ne_mod
+        from db import new_id
+        from hw_logic import save_hw_template, save_hw_instance
+
+        pid = _create_project(client)
+        client.post('/ne-types/add', data=_ne_type_data())
+        from ne import global_ne_types
+        tid = global_ne_types()[0]['id']
+        client.post(f'/projects/{pid}/pods/add', data={
+            'name': 'POD1', 'description': '', 'labels': '', 'params_json': '{}',
+        })
+        pod = ne_mod.project_pods(pid)[0]
+        client.post(f'/projects/{pid}/pods/{pod["id"]}/slots',
+                    json=[{'ne_type_id': tid, 'count': 1, 'label_override': []}])
+
+        # HW instance the NE instance binds to
+        tmpl = {'id': new_id(), 'name': 'Srv', 'category': 'server', 'u_size': 1,
+                'ports': [], 'scope': 'global', 'project_id': '', 'form_factor': '19"',
+                'cable_type': '', 'description': '', 'vendor': '', 'model': ''}
+        save_hw_template(tmpl)
+        hwid = new_id()
+        save_hw_instance({'id': hwid, 'template_id': tmpl['id'], 'project_id': pid,
+                          'asset_tag': 'srv-9', 'serial': '', 'status': 'deployed',
+                          'location': {}, 'port_overrides': {}})
+
+        nid = new_id()
+        ne_mod.save_ne_instance({
+            'id': nid, 'ne_type_id': tid, 'project_id': pid, 'pod_id': pod['id'],
+            'name': 'ne-1', 'description': '', 'labels': [], 'params': {},
+            'iface_bindings': {'i1': {'bind_mode': 'single',
+                                      'ports': [{'hw_instance_id': hwid, 'port_id': 'p1'}]}},
+        })
+
+        data = json.loads(client.get(f'/api/projects/{pid}/topology').data)
+        ids  = {e['data'].get('id') for e in data['elements']}
+        assert f'ne_inst_{nid}' in ids
+        node = next(e for e in data['elements'] if e['data'].get('id') == f'ne_inst_{nid}')
+        assert node['data'].get('parent') == f'pod_{pod["id"]}'
+        assert node['data'].get('type') == 'ne_instance'
+        assert f'e_ne_hw_{nid}_{hwid}' in ids

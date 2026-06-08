@@ -28,6 +28,8 @@
     <div class="d-flex gap-4">
         <div><span class="badge" style="background-color: #0d6efd; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> Site</div>
         <div><span class="badge" style="background-color: #6610f2; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> POD</div>
+        <div><span class="badge" style="background-color: #e83e8c; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> NE Slot</div>
+        <div><span class="badge" style="background-color: #198754; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> NE Instance</div>
         <div><span class="badge" style="background-color: #20c997; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> Rack</div>
         <div><span class="badge" style="background-color: #6c757d; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> Device</div>
         <div><span class="badge" style="background-color: #fd7e14; width: 20px; height: 20px; display: inline-block; vertical-align: middle;"></span> Cable</div>
@@ -68,6 +70,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         style: { 'background-color': '#e83e8c', 'shape': 'rectangle', 'width': 40, 'height': 20, 'font-size': '10px' }
                     },
                     {
+                        selector: 'node[type="ne_instance"]',
+                        style: { 'background-color': '#198754', 'shape': 'round-rectangle', 'font-size': '10px' }
+                    },
+                    {
                         selector: 'node[type="device"]',
                         style: { 'background-color': '#6c757d', 'shape': 'rectangle' }
                     },
@@ -103,6 +109,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             'line-style': 'dashed',
                             'target-arrow-shape': 'none',
                             'line-color': '#20c997'
+                        }
+                    },
+                    {
+                        selector: 'edge[type="binding"]',
+                        style: {
+                            'line-style': 'dotted',
+                            'line-color': '#198754',
+                            'target-arrow-color': '#198754',
+                            'target-arrow-shape': 'vee'
                         }
                     }
                 ],

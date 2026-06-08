@@ -16,6 +16,8 @@ function openBindModal(ifaceId, ifaceName, currentMode) {
     '<span class="text-muted small">Select a hardware instance above.</span>';
   document.getElementById('portsJsonInput').value = '[]';
   document.getElementById('ruleJsonInput').value = '{}';
+  const labelInput = document.getElementById('rulePortLabels');
+  if (labelInput) labelInput.value = '';
 
   const modeToSet = currentMode || 'single';
   const radio = document.querySelector(`input[name="bind_mode"][value="${modeToSet}"]`);
@@ -139,10 +141,12 @@ function previewRule() {
 
 function buildRule() {
   return {
-    port_types: [...document.querySelectorAll('.rule-port-type:checked')].map(c => c.value),
-    categories: [...document.querySelectorAll('.rule-category:checked')].map(c => c.value),
-    name_regex: document.getElementById('ruleNameRegex').value || '.*',
-    group_by:   [...document.querySelectorAll('.rule-group:checked')].map(c => c.value),
+    port_types:  [...document.querySelectorAll('.rule-port-type:checked')].map(c => c.value),
+    categories:  [...document.querySelectorAll('.rule-category:checked')].map(c => c.value),
+    name_regex:  document.getElementById('ruleNameRegex').value || '.*',
+    group_by:    [...document.querySelectorAll('.rule-group:checked')].map(c => c.value),
+    port_labels: (document.getElementById('rulePortLabels').value || '')
+                   .split(',').map(s => s.trim()).filter(Boolean),
   };
 }
 

@@ -11,6 +11,10 @@
 <div class="d-flex justify-content-between align-items-center mb-3 mt-1">
   <h4 class="mb-0">🖧 {{ inst.name }}
     {% if ne_type %}<small class="text-muted fs-6">{{ ne_type.kind }} · {{ ne_type.name }}</small>{% endif %}
+    {% if pod %}
+    <a href="{{ url_for('ne.pod_detail', pid=proj.id, pod_id=pod.id) }}"
+       class="badge bg-light text-dark border text-decoration-none fw-normal align-middle ms-1">📦 {{ pod.name }}</a>
+    {% endif %}
   </h4>
   <div class="d-flex gap-2">
     <a href="{{ url_for('ne.edit_ne_instance', pid=proj.id, nid=inst.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
@@ -220,6 +224,20 @@
 
           {# Section D: auto-rule editor #}
           <div id="sectionAutoRule" class="d-none">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Port labels</label>
+              <input type="text" id="rulePortLabels" class="form-control form-control-sm"
+                     list="portLabelOptions" placeholder="e.g. uplink, ipmi"
+                     oninput="previewRule()">
+              <datalist id="portLabelOptions">
+                {% for lbl in port_labels %}<option value="{{ lbl }}">{% endfor %}
+              </datalist>
+              <div class="form-text">
+                Binds to physical ports carrying any of these labels (comma-separated).
+                Labels are assigned on HW template ports. Leave blank to match by the
+                attributes below only.
+              </div>
+            </div>
             <div class="row g-3 mb-2">
               <div class="col-md-6">
                 <label class="form-label">Port types</label>
