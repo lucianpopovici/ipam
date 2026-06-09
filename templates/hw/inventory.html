@@ -32,6 +32,22 @@
 
 {% set status_colors = {'in-stock':'secondary','deployed':'success','spare':'info','decommissioned':'danger','in-transit':'warning'} %}
 
+{% if type_totals %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <strong class="small">Totals by hardware type</strong>
+    <span class="badge bg-primary rounded-pill">{{ total_count }} total</span>
+  </div>
+  <div class="card-body py-2 d-flex flex-wrap gap-2">
+    {% for name, count in type_totals %}
+    <span class="badge bg-light text-dark border fs-6 fw-normal">
+      {{ name }} <span class="badge bg-secondary ms-1">{{ count }}</span>
+    </span>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if instances %}
 <div class="card shadow-sm">
   <div class="table-responsive">
@@ -39,7 +55,7 @@
     <thead class="table-light">
       <tr>
         <th>Asset Tag</th><th>Template</th><th>Category</th>
-        <th>Form Factor</th><th>Status</th><th>Location</th><th></th>
+        <th>Form Factor</th><th>Status</th><th>Site</th><th>Location</th><th></th>
       </tr>
     </thead>
     <tbody>
@@ -58,6 +74,11 @@
         <td><span class="badge bg-light text-dark border">{{ tmpl.form_factor if tmpl else '?' }}</span></td>
         <td>
           <span class="badge bg-{{ status_colors.get(inst.status,'secondary') }}">{{ inst.status }}</span>
+        </td>
+        <td class="small">
+          {% if inst.site_id and site_map.get(inst.site_id) %}
+            📍 {{ site_map[inst.site_id] }}
+          {% else %}<span class="text-warning" title="No site assigned">⚠ unassigned</span>{% endif %}
         </td>
         <td class="small text-muted">
           {% if inst.location and inst.location.rack_id %}

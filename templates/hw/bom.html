@@ -39,9 +39,11 @@
   <div class="table-responsive">
   <table class="table table-sm align-middle mb-0">
     <thead class="table-light">
-      <tr><th>Template</th><th>Qty</th><th>Tag Prefix</th><th>Start</th><th>Pad</th><th></th></tr>
+      <tr><th>Template</th><th>Site</th><th>Qty</th><th>Tag Prefix</th><th>Start</th><th>Pad</th><th></th></tr>
     </thead>
     <tbody>
+      {% set site_names = {} %}
+      {% for s in sites %}{% set _ = site_names.update({s.id: s.name}) %}{% endfor %}
       {% for item in bom %}
       <tr>
         <td>
@@ -49,6 +51,10 @@
           <span class="badge bg-light text-dark border">{{ item.template.category }}</span>
           <strong>{{ item.template.name }}</strong>
           {% else %}<span class="text-danger small">Template missing</span>{% endif %}
+        </td>
+        <td class="small">
+          {% if item.site_id and site_names.get(item.site_id) %}📍 {{ site_names[item.site_id] }}
+          {% else %}<span class="text-muted">—</span>{% endif %}
         </td>
         <td>{{ item.qty }}</td>
         <td><code>{{ item.tag_prefix }}</code></td>
@@ -71,6 +77,7 @@
 <script>
 const PROJ_ID   = {{ proj.id | tojson }};
 const TEMPLATES = {{ templates | tojson }};
+const SITES     = {{ sites | tojson }};
 let   bom       = {{ (bom | map(attribute='id') | list) | tojson }};
 
 // Rebuild bom from raw data (strip 'template' enrichment for JS)
@@ -85,7 +92,7 @@ const tmplOpts = TEMPLATES.map(t =>
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
 function addLine(){
-  bomData.push({ id:uid(), template_id:'', qty:1,
+  bomData.push({ id:uid(), template_id:'', site_id:'', qty:1,
                  tag_prefix:'', tag_start:1, tag_pad:3, description:'' });
   render();
 }
@@ -106,6 +113,14 @@ function render(){
                 onchange="bomData[${i}].template_id=this.value">
           <option value="">— select —</option>
           ${TEMPLATES.map(t=>`<option value="${t.id}"${t.id===item.template_id?' selected':''}>${t.category} · ${t.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="flex:2;min-width:140px">
+        <label class="form-label small mb-0">Site</label>
+        <select class="form-select form-select-sm"
+                onchange="bomData[${i}].site_id=this.value">
+          <option value="">— none —</option>
+          ${SITES.map(s=>`<option value="${s.id}"${s.id===item.site_id?' selected':''}>${esc(s.name)}</option>`).join('')}
         </select>
       </div>
       <div style="width:60px">

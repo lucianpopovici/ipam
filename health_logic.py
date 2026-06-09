@@ -5,8 +5,8 @@ Consolidates checks for subnets, hardware, and logical requirements.
 """
 import ipaddress
 from ipam import project_networks, net_stats
-from ne import compute_requirements, load_requirements, project_pods, pod_slot_fill
-from hw_logic import project_cables, validate_project
+from ne import compute_requirements, load_requirements, project_pods, pod_slot_fill, get_site
+from hw_logic import project_cables, validate_project, project_instances, get_hw_instance
 
 def check_project_health(pid: str) -> list:
     """
@@ -35,6 +35,51 @@ def check_project_health(pid: str) -> list:
     # 6. POD composition gaps (assigned NE instances vs planned slots)
     issues.extend(_check_pod_composition_gaps(pid))
 
+    # 7. Inventory instances with no site assignment
+    issues.extend(_check_unassigned_instances(pid))
+
+    # 8. Placed devices whose site conflicts with their rack
+    issues.extend(_check_rack_site_conflicts(pid))
+
+    return issues
+
+def _check_rack_site_conflicts(pid: str) -> list:
+    """Flag placed devices whose site differs from the rack they sit in."""
+    issues = []
+    for inst in project_instances(pid):
+        rack_id = (inst.get('location') or {}).get('rack_id')
+        dev_site = inst.get('site_id')
+        if not rack_id or not dev_site:
+            continue
+        rack = get_hw_instance(rack_id)
+        rack_site = rack.get('site_id') if rack else None
+        if rack_site and rack_site != dev_site:
+            tag = inst.get('asset_tag') or inst['id']
+            rack_tag = (rack.get('asset_tag') or rack_id) if rack else rack_id
+            dev_name = (get_site(dev_site) or {}).get('name', dev_site)
+            rack_name = (get_site(rack_site) or {}).get('name', rack_site)
+            issues.append({
+                'type': 'rack_site_conflict',
+                'severity': 'warning',
+                'message': (f"Device {tag} (site \"{dev_name}\") sits in rack "
+                            f"{rack_tag} (site \"{rack_name}\")."),
+                'context': {'instance_id': inst['id'], 'rack_id': rack_id,
+                            'device_site': dev_site, 'rack_site': rack_site},
+            })
+    return issues
+
+def _check_unassigned_instances(pid: str) -> list:
+    """Flag hardware instances that are not associated with any site."""
+    issues = []
+    for inst in project_instances(pid):
+        if not inst.get('site_id'):
+            tag = inst.get('asset_tag') or inst['id']
+            issues.append({
+                'type': 'unassigned_instance',
+                'severity': 'warning',
+                'message': f"Instance {tag} is not assigned to a site.",
+                'context': {'instance_id': inst['id'], 'asset_tag': tag},
+            })
     return issues
 
 def _check_pod_composition_gaps(pid: str) -> list:

@@ -12,6 +12,7 @@ from flask import (Blueprint, render_template, request, jsonify,
                    redirect, url_for, flash, abort, current_app)
 from db import new_id
 from ipam import get_project
+from ne import project_sites
 from auth import editor_required
 from hw_logic import (
     CATEGORIES, FORM_FACTORS, PORT_TYPES, CABLE_TYPES,
@@ -24,6 +25,7 @@ from hw_logic import (
     get_hw_instance, save_hw_instance, delete_hw_instance,
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, place_in_rack, _remove_from_rack, rack_layout_view,
+    propagate_rack_site,
     get_cable, save_cable, delete_cable, project_cables, _used_ports,
     validate_project, load_validation, trace_cable_path,
     hw_instance_bindings, port_attached_subnets,
@@ -251,13 +253,15 @@ def project_bom(pid):
         abort(404)
     bom = bom_with_templates(pid)
     templates = all_hw_templates_for_project(pid)
+    sites = project_sites(pid)
     if request.method == 'POST':
         bom_raw = request.form.get('bom_json', '[]')
         try:
             new_bom = json.loads(bom_raw)
         except json.JSONDecodeError as e:
             return render_template('hw/bom.html', proj=proj, bom=bom,
-                                   templates=templates, categories=CATEGORIES,
+                                   templates=templates, sites=sites,
+                                   categories=CATEGORIES,
                                    errors={'bom_json': f'Invalid BoM JSON: {e}'},
                                    form_values=request.form)
         for item in new_bom:
@@ -267,7 +271,8 @@ def project_bom(pid):
         flash('Bill of Materials saved.', 'success')
         return redirect(url_for('hw.project_bom', pid=pid))
     return render_template('hw/bom.html', proj=proj, bom=bom,
-                           templates=templates, categories=CATEGORIES,
+                           templates=templates, sites=sites,
+                           categories=CATEGORIES,
                            errors={}, form_values={})
 
 
@@ -435,11 +440,12 @@ def export_hw_inventory(pid):
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Asset Tag', 'Serial', 'Template Name', 'Category', 'Status', 'Rack/Location'])
+    writer.writerow(['Asset Tag', 'Serial', 'Template Name', 'Category', 'Status', 'Site', 'Rack/Location'])
 
     instances = project_instances(pid)
     all_racks = project_instances(pid, category='rack')
     rack_map = {r['id']: r['asset_tag'] for r in all_racks}
+    site_map = {s['id']: s['name'] for s in project_sites(pid)}
 
     for inst in instances:
         tmpl = inst.get('template')
@@ -454,6 +460,7 @@ def export_hw_inventory(pid):
             tmpl['name'] if tmpl else '?',
             tmpl['category'] if tmpl else '?',
             inst.get('status', ''),
+            site_map.get(inst.get('site_id'), ''),
             location
         ])
 
@@ -472,9 +479,22 @@ def project_inventory(pid):
     cat = request.args.get('category', '')
     instances = project_instances(pid, category=cat or None)
     racks = project_instances(pid, category='rack')
+    sites = project_sites(pid)
+    site_map = {s['id']: s['name'] for s in sites}
+
+    # Totals by hardware type (template), reflecting the active category filter.
+    type_totals = {}
+    for inst in instances:
+        tmpl = inst.get('template')
+        name = tmpl['name'] if tmpl else 'Missing template'
+        type_totals[name] = type_totals.get(name, 0) + 1
+    type_totals = sorted(type_totals.items())
+
     return render_template('hw/inventory.html', proj=proj,
                            instances=instances, racks=racks,
-                           categories=CATEGORIES, selected_cat=cat)
+                           categories=CATEGORIES, selected_cat=cat,
+                           type_totals=type_totals, total_count=len(instances),
+                           site_map=site_map)
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>')
@@ -554,14 +574,21 @@ def add_hw_instance(pid):
     if not proj:
         abort(404)
     templates = all_hw_templates_for_project(pid)
+    sites = project_sites(pid)
+    site_ids = {s['id'] for s in sites}
     if request.method == 'POST':
         tid = request.form.get('template_id', '').strip()
+        site_id = request.form.get('site_id', '').strip()
         errors = {}
         if not tid:
             errors['template_id'] = 'Select a template.'
+        if not site_id:
+            errors['site_id'] = 'Select a site.'
+        elif site_id not in site_ids:
+            errors['site_id'] = 'Unknown site for this project.'
         if errors:
             return render_template('hw/instance_form.html', proj=proj,
-                                   inst=None, templates=templates,
+                                   inst=None, templates=templates, sites=sites,
                                    errors=errors, form_values=request.form)
         inst = {
             'id': new_id(),
@@ -570,6 +597,7 @@ def add_hw_instance(pid):
             'asset_tag': request.form.get('asset_tag', '').strip(),
             'serial': request.form.get('serial', '').strip(),
             'status': request.form.get('status', 'in-stock'),
+            'site_id': site_id,
             'location': {},
             'port_overrides': {},
         }
@@ -577,7 +605,8 @@ def add_hw_instance(pid):
         flash(f'Instance {inst["asset_tag"] or inst["id"]} added.', 'success')
         return redirect(url_for('hw.project_inventory', pid=pid))
     return render_template('hw/instance_form.html', proj=proj,
-                           inst=None, templates=templates, errors={}, form_values={})
+                           inst=None, templates=templates, sites=sites,
+                           errors={}, form_values={})
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>/edit', methods=['GET', 'POST'])
@@ -588,21 +617,44 @@ def edit_hw_instance(pid, iid):
     inst = get_hw_instance(iid)
     if not proj or not inst:
         abort(404)
+    templates = all_hw_templates_for_project(pid)
+    sites = project_sites(pid)
+    site_ids = {s['id'] for s in sites}
     if request.method == 'POST':
+        site_id = request.form.get('site_id', '').strip()
+        errors = {}
+        if not site_id:
+            errors['site_id'] = 'Select a site.'
+        elif site_id not in site_ids:
+            errors['site_id'] = 'Unknown site for this project.'
+        if errors:
+            return render_template('hw/instance_form.html', proj=proj,
+                                   inst=inst, templates=templates, sites=sites,
+                                   errors=errors, form_values=request.form)
         inst['asset_tag'] = request.form.get('asset_tag', '').strip()
         inst['serial'] = request.form.get('serial', '').strip()
         inst['status'] = request.form.get('status', 'in-stock')
+        inst['site_id'] = site_id
         merge_mode = request.form.get('merge_mode', '').strip()
         if merge_mode in ('3way', 'frozen', 'overwrite'):
             inst['merge_mode'] = merge_mode
         elif merge_mode == '':
             inst['merge_mode'] = None
         save_hw_instance(inst)
-        flash('Instance updated.', 'success')
+        # If this is a rack, push its site onto placed devices that have none.
+        tmpl = get_hw_template(inst.get('template_id', ''))
+        if tmpl and tmpl.get('category') == 'rack':
+            n = propagate_rack_site(iid)
+            if n:
+                flash(f'Instance updated. {n} placed device(s) inherited the site.', 'success')
+            else:
+                flash('Instance updated.', 'success')
+        else:
+            flash('Instance updated.', 'success')
         return redirect(url_for('hw.project_inventory', pid=pid))
-    templates = all_hw_templates_for_project(pid)
     return render_template('hw/instance_form.html', proj=proj,
-                           inst=inst, templates=templates)
+                           inst=inst, templates=templates, sites=sites,
+                           errors={}, form_values={})
 
 
 @hw_bp.route('/projects/<pid>/hw/instances/<iid>/delete', methods=['POST'])

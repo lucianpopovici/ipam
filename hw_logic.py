@@ -468,9 +468,14 @@ def generate_instances_from_bom_line(pid: str, item: dict) -> list:
     start = int(item.get('tag_start', 1))
     pad = int(item.get('tag_pad', 3))
     qty = int(item.get('qty', 1))
+    # Only create the delta: skip asset tags that already exist in the project,
+    # so re-running generation is idempotent rather than duplicating instances.
+    existing_tags = {inst.get('asset_tag') for inst in project_instances(pid)}
     created = []
     for i in range(qty):
         tag = f'{prefix}-{str(start + i).zfill(pad)}'
+        if tag in existing_tags:
+            continue
         inst = {
             'id': new_id(),
             'template_id': item['template_id'],
@@ -478,6 +483,7 @@ def generate_instances_from_bom_line(pid: str, item: dict) -> list:
             'asset_tag': tag,
             'serial': '',
             'status': 'in-stock',
+            'site_id': item.get('site_id', ''),
             'location': {},
             'port_overrides': {},  # port_id → {notes, mac, ip}
         }
@@ -529,6 +535,20 @@ def place_in_rack(rack_iid: str, instance_iid: str, u_pos: int) -> list:
     ff_issues = _check_form_factor(rack_tmpl, dev_tmpl, instance_iid)
     issues.extend(ff_issues)
 
+    # Site conflict: device already has a site that differs from the rack's.
+    dev_site, rack_site = inst.get('site_id'), rack_inst.get('site_id')
+    if dev_site and rack_site and dev_site != rack_site:
+        from ne import get_site  # pylint: disable=import-outside-toplevel
+        dev_name = (get_site(dev_site) or {}).get('name', dev_site)
+        rack_name = (get_site(rack_site) or {}).get('name', rack_site)
+        issues.append({
+            'severity': 'warning', 'code': 'SITE_CONFLICT',
+            'message': (f'Device site "{dev_name}" differs from rack site '
+                        f'"{rack_name}"; device site left unchanged.'),
+            'context': {'rack': rack_iid, 'device': instance_iid,
+                        'device_site': dev_site, 'rack_site': rack_site},
+        })
+
     # U space check
     rack_u = int(rack_tmpl.get('u_size', 42))
     dev_u = int(dev_tmpl.get('u_size', 1))
@@ -561,9 +581,31 @@ def place_in_rack(rack_iid: str, instance_iid: str, u_pos: int) -> list:
         save_rack_slots(rack_iid, slots)
         # Update instance location
         inst['location'] = {'rack_id': rack_iid, 'u_pos': u_pos}
+        # Inherit the rack's site if the device has none of its own.
+        if not inst.get('site_id') and rack_inst.get('site_id'):
+            inst['site_id'] = rack_inst['site_id']
         save_hw_instance(inst)
 
     return issues
+
+
+def propagate_rack_site(rack_iid: str) -> int:
+    """
+    Push a rack's site_id onto every placed instance that has none of its own.
+    Returns the number of instances updated.
+    """
+    rack_inst = get_hw_instance(rack_iid)
+    if not rack_inst or not rack_inst.get('site_id'):
+        return 0
+    site_id = rack_inst['site_id']
+    updated = 0
+    for slot in get_rack_slots(rack_iid):
+        inst = get_hw_instance(slot['instance_id'])
+        if inst and not inst.get('site_id'):
+            inst['site_id'] = site_id
+            save_hw_instance(inst)
+            updated += 1
+    return updated
 
 
 def _check_form_factor(rack_tmpl: dict, dev_tmpl: dict, instance_iid: str) -> list:

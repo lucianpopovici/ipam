@@ -10,7 +10,7 @@ from hw_logic import (
     get_hw_instance, save_hw_instance,
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, save_rack_slots, place_in_rack, rack_layout_view,
-    _remove_from_rack,
+    _remove_from_rack, propagate_rack_site,
     get_cable, save_cable, delete_cable, project_cables,
     _used_ports,
     validate_project,
@@ -378,6 +378,30 @@ class TestInstanceGeneration:
         created = generate_instances_from_bom_line(pid, item)
         assert created[0]['status'] == 'in-stock'
 
+    def test_regenerate_creates_only_delta(self):
+        """Re-running generation is idempotent: existing tags are not duplicated."""
+        pid, tmpl = self._setup()
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 3,
+                'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}
+        assert len(generate_instances_from_bom_line(pid, item)) == 3
+        # Second run: all tags already exist → nothing new created.
+        assert generate_instances_from_bom_line(pid, item) == []
+        assert len(project_instances(pid)) == 3
+        # Bumping qty creates only the missing tags.
+        item['qty'] = 5
+        created = generate_instances_from_bom_line(pid, item)
+        assert [i['asset_tag'] for i in created] == ['srv-004', 'srv-005']
+        assert len(project_instances(pid)) == 5
+
+    def test_site_id_propagated_from_bom_line(self):
+        """Generated instances inherit the BoM line's site_id."""
+        pid, tmpl = self._setup()
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
+                'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2,
+                'site_id': 'site-xyz', 'description': ''}
+        created = generate_instances_from_bom_line(pid, item)
+        assert all(i['site_id'] == 'site-xyz' for i in created)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Rack placement helpers
@@ -438,6 +462,90 @@ class TestRackPlacement:
         updated = get_hw_instance(dev_inst['id'])
         assert updated['location']['rack_id'] == rack_inst['id']
         assert updated['location']['u_pos']   == 5
+
+    def test_place_inherits_rack_site_when_device_has_none(self):
+        """A device with no site inherits the rack's site on placement."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-rack'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)  # no site_id
+        place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert get_hw_instance(dev_inst['id'])['site_id'] == 'site-rack'
+
+    def test_place_does_not_override_device_site(self):
+        """A device that already has a site keeps it when placed."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-rack'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)
+        dev_inst['site_id'] = 'site-own'
+        save_hw_instance(dev_inst)
+        place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert get_hw_instance(dev_inst['id'])['site_id'] == 'site-own'
+
+    def test_place_siteless_rack_leaves_device_unassigned(self):
+        """A rack with no site does not assign one to the placed device."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)  # no site_id
+        dev_inst, _ = self._make_device_instance(pid)
+        place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert not get_hw_instance(dev_inst['id']).get('site_id')
+
+    def test_propagate_rack_site_updates_only_siteless(self):
+        """propagate_rack_site fills siteless placed devices, skips assigned ones."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        dev_none, _ = self._make_device_instance(pid)
+        dev_own,  _ = self._make_device_instance(pid)
+        dev_own['site_id'] = 'site-own'
+        save_hw_instance(dev_own)
+        place_in_rack(rack_inst['id'], dev_none['id'], u_pos=1)
+        place_in_rack(rack_inst['id'], dev_own['id'],  u_pos=2)
+        # Set the rack's site after devices are already placed.
+        rack_inst['site_id'] = 'site-late'
+        save_hw_instance(rack_inst)
+        updated = propagate_rack_site(rack_inst['id'])
+        assert updated == 1
+        assert get_hw_instance(dev_none['id'])['site_id'] == 'site-late'
+        assert get_hw_instance(dev_own['id'])['site_id'] == 'site-own'
+
+    def test_place_warns_on_site_conflict_but_succeeds(self):
+        """Placing a device whose site differs from the rack warns, not blocks."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-rack'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)
+        dev_inst['site_id'] = 'site-dev'
+        save_hw_instance(dev_inst)
+        issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert any(i['code'] == 'SITE_CONFLICT' and i['severity'] == 'warning'
+                   for i in issues)
+        assert not any(i['severity'] == 'error' for i in issues)
+        # Placement succeeds and the device keeps its own site.
+        assert any(s['instance_id'] == dev_inst['id']
+                   for s in get_rack_slots(rack_inst['id']))
+        assert get_hw_instance(dev_inst['id'])['site_id'] == 'site-dev'
+
+    def test_place_no_conflict_when_sites_match(self):
+        """No conflict warning when device and rack share a site."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-x'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)
+        dev_inst['site_id'] = 'site-x'
+        save_hw_instance(dev_inst)
+        issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert not any(i['code'] == 'SITE_CONFLICT' for i in issues)
 
     def test_u_overflow_error(self):
         """Verify error when device exceeds rack height."""
