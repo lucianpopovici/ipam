@@ -378,6 +378,30 @@ class TestInstanceGeneration:
         created = generate_instances_from_bom_line(pid, item)
         assert created[0]['status'] == 'in-stock'
 
+    def test_regenerate_creates_only_delta(self):
+        """Re-running generation is idempotent: existing tags are not duplicated."""
+        pid, tmpl = self._setup()
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 3,
+                'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 3, 'description': ''}
+        assert len(generate_instances_from_bom_line(pid, item)) == 3
+        # Second run: all tags already exist → nothing new created.
+        assert generate_instances_from_bom_line(pid, item) == []
+        assert len(project_instances(pid)) == 3
+        # Bumping qty creates only the missing tags.
+        item['qty'] = 5
+        created = generate_instances_from_bom_line(pid, item)
+        assert [i['asset_tag'] for i in created] == ['srv-004', 'srv-005']
+        assert len(project_instances(pid)) == 5
+
+    def test_site_id_propagated_from_bom_line(self):
+        """Generated instances inherit the BoM line's site_id."""
+        pid, tmpl = self._setup()
+        item = {'id': new_id(), 'template_id': tmpl['id'], 'qty': 2,
+                'tag_prefix': 'srv', 'tag_start': 1, 'tag_pad': 2,
+                'site_id': 'site-xyz', 'description': ''}
+        created = generate_instances_from_bom_line(pid, item)
+        assert all(i['site_id'] == 'site-xyz' for i in created)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Rack placement helpers

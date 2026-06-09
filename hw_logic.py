@@ -468,9 +468,14 @@ def generate_instances_from_bom_line(pid: str, item: dict) -> list:
     start = int(item.get('tag_start', 1))
     pad = int(item.get('tag_pad', 3))
     qty = int(item.get('qty', 1))
+    # Only create the delta: skip asset tags that already exist in the project,
+    # so re-running generation is idempotent rather than duplicating instances.
+    existing_tags = {inst.get('asset_tag') for inst in project_instances(pid)}
     created = []
     for i in range(qty):
         tag = f'{prefix}-{str(start + i).zfill(pad)}'
+        if tag in existing_tags:
+            continue
         inst = {
             'id': new_id(),
             'template_id': item['template_id'],
@@ -478,6 +483,7 @@ def generate_instances_from_bom_line(pid: str, item: dict) -> list:
             'asset_tag': tag,
             'serial': '',
             'status': 'in-stock',
+            'site_id': item.get('site_id', ''),
             'location': {},
             'port_overrides': {},  # port_id → {notes, mac, ip}
         }

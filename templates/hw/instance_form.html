@@ -43,6 +43,23 @@
                value="{{ inst.serial if inst else '' }}">
       </div>
       <div class="mb-3">
+        <label class="form-label">Site *</label>
+        <select name="site_id" class="form-select {% if errors and errors.site_id %}is-invalid{% endif %}" required>
+          <option value="">— select —</option>
+          {% for s in sites %}
+          <option value="{{ s.id }}"
+            {% if form_values and form_values.site_id == s.id %}selected
+            {% elif inst and inst.site_id == s.id %}selected
+            {% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+        {% if errors and errors.site_id %}<div class="invalid-feedback">{{ errors.site_id }}</div>{% endif %}
+        {% if not sites %}
+        <div class="form-text text-warning">No sites in this project yet —
+          <a href="{{ url_for('ne.add_site', pid=proj.id) }}">add a site</a> first.</div>
+        {% endif %}
+      </div>
+      <div class="mb-3">
         <label class="form-label">Status</label>
         <select name="status" class="form-select">
           {% for s in ['in-stock','deployed','spare','decommissioned','in-transit'] %}
