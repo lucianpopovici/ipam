@@ -6,7 +6,7 @@ Consolidates checks for subnets, hardware, and logical requirements.
 import ipaddress
 from ipam import project_networks, net_stats
 from ne import compute_requirements, load_requirements, project_pods, pod_slot_fill
-from hw_logic import project_cables, validate_project
+from hw_logic import project_cables, validate_project, project_instances
 
 def check_project_health(pid: str) -> list:
     """
@@ -35,6 +35,23 @@ def check_project_health(pid: str) -> list:
     # 6. POD composition gaps (assigned NE instances vs planned slots)
     issues.extend(_check_pod_composition_gaps(pid))
 
+    # 7. Inventory instances with no site assignment
+    issues.extend(_check_unassigned_instances(pid))
+
+    return issues
+
+def _check_unassigned_instances(pid: str) -> list:
+    """Flag hardware instances that are not associated with any site."""
+    issues = []
+    for inst in project_instances(pid):
+        if not inst.get('site_id'):
+            tag = inst.get('asset_tag') or inst['id']
+            issues.append({
+                'type': 'unassigned_instance',
+                'severity': 'warning',
+                'message': f"Instance {tag} is not assigned to a site.",
+                'context': {'instance_id': inst['id'], 'asset_tag': tag},
+            })
     return issues
 
 def _check_pod_composition_gaps(pid: str) -> list:
