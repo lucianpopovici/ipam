@@ -12,7 +12,7 @@ from flask import (Blueprint, render_template, request, jsonify,
                    redirect, url_for, flash, abort, current_app)
 from db import new_id
 from ipam import get_project
-from ne import project_sites, get_site
+from ne import project_sites
 from auth import editor_required
 from hw_logic import (
     CATEGORIES, FORM_FACTORS, PORT_TYPES, CABLE_TYPES,
