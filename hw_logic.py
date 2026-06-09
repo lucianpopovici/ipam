@@ -535,6 +535,20 @@ def place_in_rack(rack_iid: str, instance_iid: str, u_pos: int) -> list:
     ff_issues = _check_form_factor(rack_tmpl, dev_tmpl, instance_iid)
     issues.extend(ff_issues)
 
+    # Site conflict: device already has a site that differs from the rack's.
+    dev_site, rack_site = inst.get('site_id'), rack_inst.get('site_id')
+    if dev_site and rack_site and dev_site != rack_site:
+        from ne import get_site  # pylint: disable=import-outside-toplevel
+        dev_name = (get_site(dev_site) or {}).get('name', dev_site)
+        rack_name = (get_site(rack_site) or {}).get('name', rack_site)
+        issues.append({
+            'severity': 'warning', 'code': 'SITE_CONFLICT',
+            'message': (f'Device site "{dev_name}" differs from rack site '
+                        f'"{rack_name}"; device site left unchanged.'),
+            'context': {'rack': rack_iid, 'device': instance_iid,
+                        'device_site': dev_site, 'rack_site': rack_site},
+        })
+
     # U space check
     rack_u = int(rack_tmpl.get('u_size', 42))
     dev_u = int(dev_tmpl.get('u_size', 1))

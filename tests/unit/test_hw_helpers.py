@@ -515,6 +515,38 @@ class TestRackPlacement:
         assert get_hw_instance(dev_none['id'])['site_id'] == 'site-late'
         assert get_hw_instance(dev_own['id'])['site_id'] == 'site-own'
 
+    def test_place_warns_on_site_conflict_but_succeeds(self):
+        """Placing a device whose site differs from the rack warns, not blocks."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-rack'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)
+        dev_inst['site_id'] = 'site-dev'
+        save_hw_instance(dev_inst)
+        issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert any(i['code'] == 'SITE_CONFLICT' and i['severity'] == 'warning'
+                   for i in issues)
+        assert not any(i['severity'] == 'error' for i in issues)
+        # Placement succeeds and the device keeps its own site.
+        assert any(s['instance_id'] == dev_inst['id']
+                   for s in get_rack_slots(rack_inst['id']))
+        assert get_hw_instance(dev_inst['id'])['site_id'] == 'site-dev'
+
+    def test_place_no_conflict_when_sites_match(self):
+        """No conflict warning when device and rack share a site."""
+        pid = new_id()
+        save_project({'id': pid, 'name': 'p', 'supernet': '10.0.0.0/8', 'description': ''})
+        rack_inst, _ = self._make_rack_instance(pid)
+        rack_inst['site_id'] = 'site-x'
+        save_hw_instance(rack_inst)
+        dev_inst, _ = self._make_device_instance(pid)
+        dev_inst['site_id'] = 'site-x'
+        save_hw_instance(dev_inst)
+        issues = place_in_rack(rack_inst['id'], dev_inst['id'], u_pos=1)
+        assert not any(i['code'] == 'SITE_CONFLICT' for i in issues)
+
     def test_u_overflow_error(self):
         """Verify error when device exceeds rack height."""
         pid = new_id()
