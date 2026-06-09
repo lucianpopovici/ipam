@@ -25,6 +25,7 @@ from hw_logic import (
     get_hw_instance, save_hw_instance, delete_hw_instance,
     project_instances, generate_instances_from_bom_line,
     get_rack_slots, place_in_rack, _remove_from_rack, rack_layout_view,
+    propagate_rack_site,
     get_cable, save_cable, delete_cable, project_cables, _used_ports,
     validate_project, load_validation, trace_cable_path,
     hw_instance_bindings, port_attached_subnets,
@@ -640,7 +641,16 @@ def edit_hw_instance(pid, iid):
         elif merge_mode == '':
             inst['merge_mode'] = None
         save_hw_instance(inst)
-        flash('Instance updated.', 'success')
+        # If this is a rack, push its site onto placed devices that have none.
+        tmpl = get_hw_template(inst.get('template_id', ''))
+        if tmpl and tmpl.get('category') == 'rack':
+            n = propagate_rack_site(iid)
+            if n:
+                flash(f'Instance updated. {n} placed device(s) inherited the site.', 'success')
+            else:
+                flash('Instance updated.', 'success')
+        else:
+            flash('Instance updated.', 'success')
         return redirect(url_for('hw.project_inventory', pid=pid))
     return render_template('hw/instance_form.html', proj=proj,
                            inst=inst, templates=templates, sites=sites,

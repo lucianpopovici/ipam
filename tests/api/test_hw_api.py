@@ -500,6 +500,21 @@ class TestRackRoutes:
         slots = get_rack_slots(rack['id'])
         assert any(s['instance_id'] == dev['id'] and s['u_pos'] == 10 for s in slots)
 
+    def test_edit_rack_site_propagates_to_placed_devices(self, client):
+        """Setting a rack's site pushes it onto siteless placed devices."""
+        pid, rack, dev = self._setup_rack_and_device(client)
+        sid = _make_site(pid)
+        # Place the siteless device, then set the rack's site via edit.
+        client.post(f'/projects/{pid}/hw/racks/{rack["id"]}/place',
+                    data={'instance_id': dev['id'], 'u_pos': '5'})
+        assert not get_hw_instance(dev['id']).get('site_id')
+        resp = client.post(f'/projects/{pid}/hw/instances/{rack["id"]}/edit', data={
+            'asset_tag': rack['asset_tag'], 'serial': '', 'status': 'deployed',
+            'site_id': sid,
+        }, follow_redirects=False)
+        assert resp.status_code == 302
+        assert get_hw_instance(dev['id'])['site_id'] == sid
+
     def test_place_device_u_overflow(self, client):
         """Verify placing a device beyond rack height is rejected."""
         pid, rack, dev = self._setup_rack_and_device(client)

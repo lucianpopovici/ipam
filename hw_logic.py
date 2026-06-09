@@ -567,9 +567,31 @@ def place_in_rack(rack_iid: str, instance_iid: str, u_pos: int) -> list:
         save_rack_slots(rack_iid, slots)
         # Update instance location
         inst['location'] = {'rack_id': rack_iid, 'u_pos': u_pos}
+        # Inherit the rack's site if the device has none of its own.
+        if not inst.get('site_id') and rack_inst.get('site_id'):
+            inst['site_id'] = rack_inst['site_id']
         save_hw_instance(inst)
 
     return issues
+
+
+def propagate_rack_site(rack_iid: str) -> int:
+    """
+    Push a rack's site_id onto every placed instance that has none of its own.
+    Returns the number of instances updated.
+    """
+    rack_inst = get_hw_instance(rack_iid)
+    if not rack_inst or not rack_inst.get('site_id'):
+        return 0
+    site_id = rack_inst['site_id']
+    updated = 0
+    for slot in get_rack_slots(rack_iid):
+        inst = get_hw_instance(slot['instance_id'])
+        if inst and not inst.get('site_id'):
+            inst['site_id'] = site_id
+            save_hw_instance(inst)
+            updated += 1
+    return updated
 
 
 def _check_form_factor(rack_tmpl: dict, dev_tmpl: dict, instance_iid: str) -> list:
