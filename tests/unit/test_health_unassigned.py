@@ -3,7 +3,7 @@ import pytest
 from db import new_id
 from ipam import save_project
 from hw_logic import save_hw_template, save_hw_instance
-from health_logic import _check_unassigned_instances
+from health_logic import _check_unassigned_instances, _check_rack_site_conflicts
 
 pytestmark = pytest.mark.unit
 
@@ -21,11 +21,11 @@ def _setup():
     return pid, tmpl
 
 
-def _inst(pid, tmpl, tag, site_id=''):
+def _inst(pid, tmpl, tag, site_id='', location=None):
     inst = {
         'id': new_id(), 'template_id': tmpl['id'], 'project_id': pid,
         'asset_tag': tag, 'serial': '', 'status': 'in-stock',
-        'site_id': site_id, 'location': {}, 'port_overrides': {},
+        'site_id': site_id, 'location': location or {}, 'port_overrides': {},
     }
     save_hw_instance(inst)
     return inst
@@ -55,3 +55,39 @@ def test_only_unassigned_flagged_among_mixed():
     _inst(pid, tmpl, 'C')
     tags = {i['context']['asset_tag'] for i in _check_unassigned_instances(pid)}
     assert tags == {'B', 'C'}
+
+
+def test_rack_site_conflict_flagged():
+    pid, tmpl = _setup()
+    rack = _inst(pid, tmpl, 'RACK-1', site_id='site-rack')
+    dev  = _inst(pid, tmpl, 'DEV-1', site_id='site-dev',
+                 location={'rack_id': rack['id'], 'u_pos': 1})
+    issues = _check_rack_site_conflicts(pid)
+    assert len(issues) == 1
+    assert issues[0]['type'] == 'rack_site_conflict'
+    assert issues[0]['severity'] == 'warning'
+    assert issues[0]['context'] == {
+        'instance_id': dev['id'], 'rack_id': rack['id'],
+        'device_site': 'site-dev', 'rack_site': 'site-rack',
+    }
+
+
+def test_no_conflict_when_sites_match():
+    pid, tmpl = _setup()
+    rack = _inst(pid, tmpl, 'RACK-1', site_id='site-x')
+    _inst(pid, tmpl, 'DEV-1', site_id='site-x',
+          location={'rack_id': rack['id'], 'u_pos': 1})
+    assert _check_rack_site_conflicts(pid) == []
+
+
+def test_no_conflict_when_rack_or_device_siteless():
+    pid, tmpl = _setup()
+    # Rack has no site → inheritance territory, not a conflict.
+    rack1 = _inst(pid, tmpl, 'RACK-1', site_id='')
+    _inst(pid, tmpl, 'DEV-1', site_id='site-dev',
+          location={'rack_id': rack1['id'], 'u_pos': 1})
+    # Device has no site → covered by the unassigned check, not a conflict.
+    rack2 = _inst(pid, tmpl, 'RACK-2', site_id='site-rack')
+    _inst(pid, tmpl, 'DEV-2', site_id='',
+          location={'rack_id': rack2['id'], 'u_pos': 1})
+    assert _check_rack_site_conflicts(pid) == []
